@@ -8,12 +8,12 @@ output "terraform_state_bucket_arn" {
   value       = aws_s3_bucket.terraform_state.arn
 }
 
-output "cloudtrail_logs_bucket_name" {
+output "cloudtrail_logs_locked_bucket_name" {
   description = "CloudTrail 로그 버킷 이름"
-  value       = aws_s3_bucket.cloudtrail_logs.bucket
+  value       = aws_s3_bucket.cloudtrail_logs_locked.bucket
 }
 
-output "cloudtrail_logs_bucket_arn" {
+output "cloudtrail_logs_locked_bucket_arn" {
   description = "CloudTrail 로그 버킷 ARN"
-  value       = aws_s3_bucket.cloudtrail_logs.arn
+  value       = aws_s3_bucket.cloudtrail_logs_locked.arn
 }
