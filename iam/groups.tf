@@ -16,3 +16,7 @@ resource "aws_iam_group" "platform_engineers" {
 resource "aws_iam_group" "sre_engineers" {
   name = "sre-engineers"
 }
+
+resource "aws_iam_group" "onfrem_engineers" {
+  name = "onfrem-engineers"
+}
