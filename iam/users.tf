@@ -42,6 +42,16 @@ resource "aws_iam_user" "sre" {
   }
 }
 
+# 온프레미스 로그 담당
+resource "aws_iam_user" "onfrem" {
+  name = "onfrem"
+  tags = {
+    Project   = "ilpumjinro"
+    ManagedBy = "terraform"
+    Owner     = "onfrem"
+  }
+}
+
 # =============================================
 # 사용자 → 그룹 배정
 # =============================================
@@ -64,4 +74,9 @@ resource "aws_iam_user_group_membership" "platform" {
 resource "aws_iam_user_group_membership" "sre" {
   user   = aws_iam_user.sre.name
   groups = [aws_iam_group.sre_engineers.name]
+}
+
+resource "aws_iam_user_group_membership" "onfrem" {
+  user   = aws_iam_user.onfrem.name
+  groups = [aws_iam_group.onfrem_engineers.name]
 }
