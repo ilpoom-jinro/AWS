@@ -102,3 +102,41 @@ resource "aws_iam_group_policy_attachment" "sre_deny_prod" {
   group      = aws_iam_group.sre_engineers.name
   policy_arn = aws_iam_policy.deny_prod_destructive.arn
 }
+
+# =============================================
+# onfrem: 온프레미스 collector용 인라인 정책
+# CloudWatch Logs (보안 감사 로그) + AMP (Prometheus 매트릭) 전송 권한
+# =============================================
+resource "aws_iam_user_policy" "onfrem_collector" {
+  name = "onfrem-collector-policy"
+  user = aws_iam_user.onfrem.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "CloudWatchLogsWrite"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Sid      = "PrometheusRemoteWrite"
+        Effect   = "Allow"
+        Action   = ["aps:RemoteWrite"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# onfrem 액세스 키 (collector 인증용)
+resource "aws_iam_access_key" "onfrem" {
+  user = aws_iam_user.onfrem.name
+}
