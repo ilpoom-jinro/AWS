@@ -1,9 +1,9 @@
-resource "aws_vpc" "vpc2_ops" {
-  cidr_block           = var.vpc2_cidr
+resource "aws_vpc" "this" {
+  cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # IGW / NAT GW 없음 — VPC Endpoint로만 AWS API 접근
+  # IGW / NAT GW 없음
   # enable_dns_hostnames = true 는 VPC Endpoint Private DNS 필수 조건
 
   tags = {
