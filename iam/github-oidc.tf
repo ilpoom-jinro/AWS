@@ -127,6 +127,54 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "iam:DeleteAccountPasswordPolicy"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "EC2VPCManagement"
+        Effect = "Allow"
+        Action = [
+          # VPC
+          "ec2:CreateVpc", "ec2:DeleteVpc",
+          "ec2:ModifyVpcAttribute", "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute",
+
+          # 서브넷
+          "ec2:CreateSubnet", "ec2:DeleteSubnet",
+          "ec2:ModifySubnetAttribute", "ec2:DescribeSubnets",
+
+          # 인터넷 게이트웨이
+          "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway",
+          "ec2:AttachInternetGateway", "ec2:DetachInternetGateway",
+          "ec2:DescribeInternetGateways",
+
+          # 라우트 테이블
+          "ec2:CreateRouteTable", "ec2:DeleteRouteTable",
+          "ec2:CreateRoute", "ec2:DeleteRoute",
+          "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable",
+          "ec2:DescribeRouteTables",
+
+          # 보안 그룹
+          "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
+          "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules",
+
+          # NAT 게이트웨이
+          "ec2:CreateNatGateway", "ec2:DeleteNatGateway",
+          "ec2:DescribeNatGateways",
+
+          # Elastic IP (NAT 게이트웨이용)
+          "ec2:AllocateAddress", "ec2:ReleaseAddress",
+          "ec2:AssociateAddress", "ec2:DisassociateAddress",
+          "ec2:DescribeAddresses",
+
+          # 태그
+          "ec2:CreateTags", "ec2:DeleteTags", "ec2:DescribeTags",
+
+          # 공통 조회
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeAccountAttributes"
+        ]
+        Resource = "*"
       }
     ]
   })
