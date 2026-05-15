@@ -54,7 +54,7 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -target=module.iam
+        run: terraform plan -no-color
         continue-on-error: false
 
       - name: PR 코멘트 게시
@@ -125,4 +125,4 @@ jobs:
         run: terraform init -reconfigure
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve -target=module.iam
+        run: terraform apply -auto-approve
