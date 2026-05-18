@@ -12,7 +12,7 @@ resource "aws_security_group" "eks_node" {
   ingress {
     description = "Allow inter-node communication"
     from_port   = 0
-    to_port     = 65535
+    to_port     = 0
     protocol    = "-1"
     self        = true
   }
@@ -20,7 +20,7 @@ resource "aws_security_group" "eks_node" {
   ingress {
     description = "Allow inbound from VPC 3 Teleport (Peering)"
     from_port   = 0
-    to_port     = 65535
+    to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.vpc3_cidr]
   }
@@ -28,7 +28,7 @@ resource "aws_security_group" "eks_node" {
   ingress {
     description = "Allow inbound from VPC 1 service (Peering)"
     from_port   = 0
-    to_port     = 65535
+    to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.vpc1_cidr]
   }
@@ -40,19 +40,19 @@ resource "aws_security_group" "eks_node" {
     protocol    = "tcp"
     cidr_blocks = ["10.20.0.0/16"]
   }
-  
+
   egress {
     description = "Allow all outbound within node group (CNI, kubelet)"
     from_port   = 0
-    to_port     = 65535
+    to_port     = 0
     protocol    = "-1"
-    self        = true 
+    self        = true
   }
 
   egress {
     description = "Allow outbound to Peering VPCs"
     from_port   = 0
-    to_port     = 65535
+    to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.vpc1_cidr, var.vpc3_cidr]
   }
