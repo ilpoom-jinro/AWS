@@ -9,3 +9,21 @@ variable "vpc_cidr" {
   type        = string
   default     = "10.10.0.0/16"
 }
+
+variable "vpc2_cidr" {
+  description = "VPC 2 CIDR - for Security Group rules"
+  type        = string
+  default     = "10.20.0.0/16"
+}
+
+variable "vpc3_cidr" {
+  description = "VPC 3 CIDR - for Security Group rules"
+  type        = string
+  default     = "10.30.0.0/16"
+}
+
+variable "vpc4_cidr" {
+  description = "VPC 4 CIDR - for Security Group rules"
+  type        = string
+  default     = "10.40.0.0/16"
+}
