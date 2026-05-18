@@ -21,3 +21,11 @@ output "private_route_table_id" {
 output "db_route_table_id" {
   value = aws_route_table.db.id
 }
+
+output "eks_node_sg_id" {
+  value = aws_security_group.eks_node.id
+}
+
+output "rds_sg_id" {
+  value = aws_security_group.rds.id
+}

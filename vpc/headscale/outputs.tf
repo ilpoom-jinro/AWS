@@ -13,3 +13,7 @@ output "public_subnet_ids" {
 output "public_route_table_id" {
   value = aws_route_table.public.id
 }
+
+output "headscale_router_sg_id" {
+  value = aws_security_group.headscale_router.id
+}
