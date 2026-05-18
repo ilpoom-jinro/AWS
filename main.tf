@@ -16,6 +16,8 @@ module "vpc3" {
 
 module "vpc4" {
   source = "./vpc/headscale"
+  gcp_fixed_ip     = var.gcp_fixed_ip
+  oci_headscale_ip = var.oci_headscale_ip
 }
 
 module "vpc_peering" {
