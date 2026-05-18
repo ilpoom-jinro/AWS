@@ -17,3 +17,7 @@ output "private_route_table_id" {
 output "teleport_sg_id" {
   value = aws_security_group.teleport.id
 }
+
+output "teleport_instance_id" {
+  value = aws_instance.teleport.id
+}
