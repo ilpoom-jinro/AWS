@@ -39,7 +39,7 @@ resource "aws_iam_role_policy_attachment" "teleport_ssm" {
 }
 
 resource "aws_iam_instance_profile" "teleport_ec2" {
-  name = "financial-vpc3-teleport-ec2-profile"
+  name = "ilpumjinro-ec2-ssm-profile"
   role = aws_iam_role.teleport_ec2.name
 }
 
