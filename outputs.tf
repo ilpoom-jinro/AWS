@@ -32,3 +32,8 @@ output "ops_eks_cluster_security_group_id" {
   description = "Internal Ops VPC EKS cluster security group ID"
   value       = module.vpc2.eks_cluster_security_group_id
 }
+
+output "ops_argocd_repo_server_role_arn" {
+  description = "IAM role used by Argo CD repo-server for CodeCommit access"
+  value       = module.vpc2.argocd_repo_server_role_arn
+}

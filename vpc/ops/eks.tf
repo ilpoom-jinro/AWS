@@ -168,3 +168,62 @@ resource "aws_eks_addon" "ebs_csi" {
 
   depends_on = [aws_eks_node_group.ops]
 }
+
+resource "aws_eks_addon" "pod_identity_agent" {
+  cluster_name                = aws_eks_cluster.ops.name
+  addon_name                  = "eks-pod-identity-agent"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  depends_on = [aws_eks_node_group.ops]
+}
+
+resource "aws_iam_role" "argocd_repo_server" {
+  name = "${var.eks_cluster_name}-argocd-repo-server-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "pods.eks.amazonaws.com"
+      }
+      Action = [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ]
+    }]
+  })
+
+  tags = {
+    Name = "${var.eks_cluster_name}-argocd-repo-server-role"
+  }
+}
+
+resource "aws_iam_role_policy" "argocd_repo_server_codecommit" {
+  name = "${var.eks_cluster_name}-argocd-codecommit"
+  role = aws_iam_role.argocd_repo_server.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "codecommit:GitPull"
+      ]
+      Resource = var.argocd_codecommit_repository_arns
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "argocd_repo_server" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = var.argocd_namespace
+  service_account = "argocd-repo-server"
+  role_arn        = aws_iam_role.argocd_repo_server.arn
+
+  depends_on = [
+    aws_eks_addon.pod_identity_agent,
+    aws_iam_role_policy.argocd_repo_server_codecommit,
+  ]
+}

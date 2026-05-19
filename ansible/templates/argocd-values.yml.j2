@@ -1,0 +1,28 @@
+global:
+  domain: argocd.internal.ops.local
+
+configs:
+  params:
+    server.insecure: false
+
+server:
+  service:
+    type: ClusterIP
+
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+  serviceAccount:
+    create: true
+    name: argocd-repo-server
+
+applicationSet:
+  replicas: 1
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false

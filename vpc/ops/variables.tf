@@ -81,3 +81,15 @@ variable "eks_node_max_size" {
   type        = number
   default     = 3
 }
+
+variable "argocd_namespace" {
+  description = "Namespace where Argo CD is installed"
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_codecommit_repository_arns" {
+  description = "CodeCommit repository ARNs that Argo CD can pull"
+  type        = list(string)
+  default     = ["*"]
+}

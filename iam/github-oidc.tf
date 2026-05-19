@@ -199,7 +199,12 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "eks:DescribeAddon",
           "eks:UpdateAddon",
           "eks:DescribeAddonVersions",
-          "eks:ListAddons"
+          "eks:ListAddons",
+          "eks:CreatePodIdentityAssociation",
+          "eks:DeletePodIdentityAssociation",
+          "eks:DescribePodIdentityAssociation",
+          "eks:UpdatePodIdentityAssociation",
+          "eks:ListPodIdentityAssociations"
         ]
         Resource = "*"
       },
@@ -214,7 +219,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           StringEquals = {
             "iam:PassedToService" = [
               "eks.amazonaws.com",
-              "ec2.amazonaws.com"
+              "ec2.amazonaws.com",
+              "pods.eks.amazonaws.com"
             ]
           }
         }

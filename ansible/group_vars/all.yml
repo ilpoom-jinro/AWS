@@ -1,0 +1,16 @@
+aws_region: ap-northeast-2
+
+ops_eks_cluster_name: financial-ops-eks
+ops_kube_context: financial-ops-eks
+
+service_eks_cluster_name: financial-service-eks
+service_kube_context: financial-service-eks
+
+argocd_namespace: argocd
+argocd_release_name: argocd
+argocd_chart_repo_name: argo
+argocd_chart_repo_url: https://argoproj.github.io/argo-helm
+argocd_chart_ref: argo/argo-cd
+
+gitops_repo_url: ""
+gitops_repo_name: codecommit-gitops
