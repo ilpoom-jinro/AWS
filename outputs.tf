@@ -37,3 +37,28 @@ output "ops_argocd_repo_server_role_arn" {
   description = "IAM role used by Argo CD repo-server for CodeCommit access"
   value       = module.vpc2.argocd_repo_server_role_arn
 }
+
+output "gitops_codecommit_repository_name" {
+  description = "CodeCommit repository name for GitOps"
+  value       = aws_codecommit_repository.gitops.repository_name
+}
+
+output "gitops_codecommit_clone_url_http" {
+  description = "HTTPS clone URL for the GitOps CodeCommit repository"
+  value       = aws_codecommit_repository.gitops.clone_url_http
+}
+
+output "gitops_codecommit_repository_arn" {
+  description = "CodeCommit repository ARN for GitOps"
+  value       = aws_codecommit_repository.gitops.arn
+}
+
+output "ansible_codebuild_project_name" {
+  description = "CodeBuild project that runs Ansible inside the Ops VPC"
+  value       = aws_codebuild_project.ansible_bootstrap.name
+}
+
+output "ansible_codebuild_image_repository_url" {
+  description = "ECR repository URL for the Ansible CodeBuild runtime image"
+  value       = aws_ecr_repository.ansible_codebuild.repository_url
+}

@@ -39,6 +39,11 @@ resource "aws_eks_cluster" "ops" {
     endpoint_public_access  = false
   }
 
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   enabled_cluster_log_types = var.eks_enabled_cluster_log_types
 
   tags = {

@@ -150,6 +150,10 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:AssociateRouteTable",
           "ec2:DisassociateRouteTable",
           "ec2:DescribeRouteTables",
+          "ec2:CreateVpcEndpoint",
+          "ec2:DeleteVpcEndpoints",
+          "ec2:DescribeVpcEndpoints",
+          "ec2:ModifyVpcEndpoint",
           "ec2:CreateSecurityGroup",
           "ec2:DeleteSecurityGroup",
           "ec2:AuthorizeSecurityGroupIngress",
@@ -174,6 +178,47 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeAccountAttributes",
           "ec2:DescribeLaunchTemplates",
           "ec2:DescribeLaunchTemplateVersions"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CodeCommitManagement"
+        Effect = "Allow"
+        Action = [
+          "codecommit:CreateRepository",
+          "codecommit:DeleteRepository",
+          "codecommit:GetRepository",
+          "codecommit:ListRepositories",
+          "codecommit:GitPull",
+          "codecommit:GitPush",
+          "codecommit:TagResource",
+          "codecommit:UntagResource",
+          "codecommit:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRManagement"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DeleteRepository",
+          "ecr:DescribeRepositories",
+          "ecr:PutLifecyclePolicy",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:StartImageScan",
+          "ecr:TagResource",
+          "ecr:UntagResource",
+          "ecr:ListTagsForResource"
         ]
         Resource = "*"
       },
@@ -204,7 +249,29 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "eks:DeletePodIdentityAssociation",
           "eks:DescribePodIdentityAssociation",
           "eks:UpdatePodIdentityAssociation",
-          "eks:ListPodIdentityAssociations"
+          "eks:ListPodIdentityAssociations",
+          "eks:CreateAccessEntry",
+          "eks:DeleteAccessEntry",
+          "eks:DescribeAccessEntry",
+          "eks:UpdateAccessEntry",
+          "eks:ListAccessEntries",
+          "eks:AssociateAccessPolicy",
+          "eks:DisassociateAccessPolicy",
+          "eks:ListAssociatedAccessPolicies"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CodeBuildManagement"
+        Effect = "Allow"
+        Action = [
+          "codebuild:CreateProject",
+          "codebuild:DeleteProject",
+          "codebuild:UpdateProject",
+          "codebuild:BatchGetProjects",
+          "codebuild:StartBuild",
+          "codebuild:BatchGetBuilds",
+          "codebuild:ListBuildsForProject"
         ]
         Resource = "*"
       },
@@ -220,7 +287,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
             "iam:PassedToService" = [
               "eks.amazonaws.com",
               "ec2.amazonaws.com",
-              "pods.eks.amazonaws.com"
+              "pods.eks.amazonaws.com",
+              "codebuild.amazonaws.com"
             ]
           }
         }

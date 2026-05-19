@@ -5,12 +5,20 @@ on:
     branches: [main]
     paths:
       - '**.tf'
+      - 'ansible/**'
+      - 'buildspec-ansible.yml'
+      - 'tools/**'
       - '.github/workflows/terraform.yml'
+      - '.github/workflows/mirror-codecommit.yml'
   push:
     branches: [main]
     paths:
       - '**.tf'
+      - 'ansible/**'
+      - 'buildspec-ansible.yml'
+      - 'tools/**'
       - '.github/workflows/terraform.yml'
+      - '.github/workflows/mirror-codecommit.yml'
 
 permissions:
   id-token: write

@@ -18,3 +18,21 @@ variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
 }
+
+variable "gitops_codecommit_repository_name" {
+  description = "CodeCommit repository name for the GitOps source of truth"
+  type        = string
+  default     = "gitops-platform"
+}
+
+variable "ansible_codebuild_image" {
+  description = "CodeBuild image that includes ansible, kubectl, helm, awscli, and python kubernetes dependencies"
+  type        = string
+  default     = null
+}
+
+variable "ansible_codebuild_image_repository_name" {
+  description = "ECR repository name for the Ansible CodeBuild runtime image"
+  type        = string
+  default     = "financial/ansible-codebuild"
+}
