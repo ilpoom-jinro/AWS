@@ -16,8 +16,8 @@ module "vpc3" {
 
 module "vpc4" {
   source = "./vpc/headscale"
-  gcp_fixed_ip     = var.gcp_fixed_ip
-  oci_headscale_ip = var.oci_headscale_ip
+  gcp_fixed_ip           = var.gcp_fixed_ip
+  oci_headscale_ip       = var.oci_headscale_ip
   oci_headscale_ip_plain = var.oci_headscale_ip_plain
   tailscale_auth_key     = var.tailscale_auth_key
 }
