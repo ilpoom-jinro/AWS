@@ -57,8 +57,8 @@ resource "aws_iam_user" "onfrem" {
 # =============================================
 
 resource "aws_iam_user_group_membership" "infra" {
-  user   = aws_iam_user.infra.name           # infra 사용자를
-  groups = [aws_iam_group.infra_admin.name]  # infra-admin 그룹에 배정
+  user   = aws_iam_user.infra.name          # infra 사용자를
+  groups = [aws_iam_group.infra_admin.name] # infra-admin 그룹에 배정
 }
 
 resource "aws_iam_user_group_membership" "security" {
