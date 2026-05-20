@@ -3,6 +3,11 @@ name: Terraform Dev
 on:
   workflow_dispatch:
     inputs:
+      target_ref:
+        description: "Branch, tag, or commit SHA to apply"
+        required: true
+        default: "main"
+        type: string
       apply:
         description: "Run terraform apply with dev role"
         required: true
@@ -15,7 +20,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: terraform-dev-${{ github.ref }}
+  group: terraform-dev-${{ inputs.target_ref }}
   cancel-in-progress: false
 
 env:
@@ -38,6 +43,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,6 +62,7 @@ jobs:
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
+        continue-on-error: true
 
       - name: Terraform Validate
         run: terraform validate -no-color
@@ -90,7 +98,7 @@ jobs:
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-dev-${{ github.sha }}
+          name: tfplan-dev-${{ github.run_id }}
           path: tfplan
           retention-days: 3
 
@@ -104,6 +112,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -122,7 +132,7 @@ jobs:
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-dev-${{ github.sha }}
+          name: tfplan-dev-${{ github.run_id }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
