@@ -41,7 +41,7 @@ jobs:
       plan-exitcode: ${{ steps.plan.outputs.exitcode }}
 
     steps:
-      - name: Checkout target ref
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
@@ -49,30 +49,9 @@ jobs:
       - name: Show selected ref
         run: |
           echo "target_ref=${{ inputs.target_ref }}"
-          echo "branch=$(git rev-parse --abbrev-ref HEAD)"
-          echo "sha=$(git rev-parse HEAD)"
+          git rev-parse --abbrev-ref HEAD
+          git rev-parse HEAD
           git status --short
-
-      - name: Show Terraform config
-        run: |
-          echo "Terraform files:"
-          find . -maxdepth 3 -type f -name "*.tf" | sort
-
-          echo ""
-          echo "main.tf:"
-          sed -n '1,180p' main.tf
-
-          echo ""
-          echo "codecommit.tf:"
-          sed -n '1,120p' codecommit.tf || true
-
-          echo ""
-          echo "vpc/globalservice:"
-          ls -la vpc/globalservice || true
-
-          echo ""
-          echo "vpc/ops:"
-          ls -la vpc/ops || true
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -140,7 +119,7 @@ jobs:
     environment: development
 
     steps:
-      - name: Checkout target ref
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
@@ -148,8 +127,8 @@ jobs:
       - name: Show selected ref
         run: |
           echo "target_ref=${{ inputs.target_ref }}"
-          echo "branch=$(git rev-parse --abbrev-ref HEAD)"
-          echo "sha=$(git rev-parse HEAD)"
+          git rev-parse --abbrev-ref HEAD
+          git rev-parse HEAD
           git status --short
 
       - name: Configure AWS credentials
