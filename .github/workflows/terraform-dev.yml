@@ -46,6 +46,13 @@ jobs:
         with:
           ref: ${{ inputs.target_ref }}
 
+      - name: Show selected ref
+        run: |
+          echo "target_ref=${{ inputs.target_ref }}"
+          git rev-parse --abbrev-ref HEAD
+          git rev-parse HEAD
+          git status --short
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -59,6 +66,9 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -reconfigure
+
+      - name: Terraform State List
+        run: terraform state list
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
@@ -113,6 +123,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.target_ref }}
+
+      - name: Show selected ref
+        run: |
+          echo "target_ref=${{ inputs.target_ref }}"
+          git rev-parse --abbrev-ref HEAD
+          git rev-parse HEAD
+          git status --short
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
