@@ -199,4 +199,8 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     Name      = "financial-ansible-bootstrap"
     ManagedBy = "terraform"
   }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild
+  ]
 }
