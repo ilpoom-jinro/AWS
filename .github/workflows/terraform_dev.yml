@@ -73,7 +73,6 @@ jobs:
         run: |
           set +e
           terraform plan -no-color -detailed-exitcode -out=tfplan \
-            -target=module.iam \
             -target=aws_codecommit_repository.gitops \
             -target=module.vpc1 \
             -target=module.vpc2 \
