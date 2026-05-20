@@ -1,0 +1,131 @@
+name: Terraform Dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run terraform apply with dev role"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-dev-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP_DEV || secrets.GCP_FIXED_IP }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP_DEV || secrets.OCI_HEADSCALE_IP }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN_DEV || secrets.OCI_HEADSCALE_IP_PLAIN }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY_DEV || secrets.TAILSCALE_AUTH_KEY }}
+
+jobs:
+  plan:
+    name: Terraform Dev Plan
+    runs-on: ubuntu-latest
+
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        shell: bash
+        run: |
+          set +e
+          terraform plan -no-color -detailed-exitcode -out=tfplan \
+            -target=module.iam \
+            -target=aws_codecommit_repository.gitops \
+            -target=module.vpc1 \
+            -target=module.vpc2 \
+            -target=aws_ecr_repository.ansible_codebuild \
+            -target=aws_ecr_lifecycle_policy.ansible_codebuild \
+            -target=aws_security_group.ansible_codebuild \
+            -target=aws_iam_role.ansible_codebuild \
+            -target=aws_iam_role_policy.ansible_codebuild \
+            -target=aws_eks_access_entry.ansible_codebuild_ops \
+            -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin \
+            -target=aws_eks_access_entry.ansible_codebuild_service \
+            -target=aws_eks_access_policy_association.ansible_codebuild_service_admin \
+            -target=aws_codebuild_project.ansible_bootstrap
+          exitcode=$?
+          echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
+          exit 0
+
+      - name: Fail on plan error
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev-${{ github.sha }}
+          path: tfplan
+          retention-days: 3
+
+  apply:
+    name: Terraform Dev Apply
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && inputs.apply == true
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev-${{ github.sha }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform Outputs
+        run: terraform output

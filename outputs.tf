@@ -3,6 +3,11 @@ output "github_actions_role_arn" {
   value       = module.iam.github_actions_role_arn
 }
 
+output "github_actions_dev_role_arn" {
+  description = "GitHub Secrets AWS_ROLE_ARN_DEV value"
+  value       = module.iam.github_actions_dev_role_arn
+}
+
 output "service_eks_cluster_name" {
   description = "Service VPC EKS cluster name"
   value       = module.vpc1.eks_cluster_name
