@@ -4,13 +4,21 @@ set /p MFA_CODE=OTP 6자리 입력:
 aws sts get-session-token ^
   --serial-number arn:aws:iam::218549830271:mfa/AWS_platform ^
   --token-code %MFA_CODE% ^
-  --output json > "%TEMP%\aws-mfa-creds.json"
+  --duration-seconds 43200 ^
+  --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" ^
+  --output text > "%TEMP%\aws-mfa-creds.txt"
 
-for /f "usebackq delims=" %%i in (`python -c "import json; print(json.load(open(r'%TEMP%\aws-mfa-creds.json'))['Credentials']['AccessKeyId'])"`) do set AWS_ACCESS_KEY_ID=%%i
-for /f "usebackq delims=" %%i in (`python -c "import json; print(json.load(open(r'%TEMP%\aws-mfa-creds.json'))['Credentials']['SecretAccessKey'])"`) do set AWS_SECRET_ACCESS_KEY=%%i
-for /f "usebackq delims=" %%i in (`python -c "import json; print(json.load(open(r'%TEMP%\aws-mfa-creds.json'))['Credentials']['SessionToken'])"`) do set AWS_SESSION_TOKEN=%%i
+for /f "tokens=1,2,3" %%A in (%TEMP%\aws-mfa-creds.txt) do (
+  set AWS_ACCESS_KEY_ID=%%A
+  set AWS_SECRET_ACCESS_KEY=%%B
+  set AWS_SESSION_TOKEN=%%C
+)
 
-del "%TEMP%\aws-mfa-creds.json"
+del "%TEMP%\aws-mfa-creds.txt"
 
+echo.
 echo MFA 인증 완료
+echo AWS_ACCESS_KEY_ID=%AWS_ACCESS_KEY_ID%
+echo AWS_SESSION_TOKEN 설정됨
+aws configure list
 aws sts get-caller-identity
