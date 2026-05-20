@@ -49,7 +49,7 @@ variable "eks_enabled_cluster_log_types" {
 variable "eks_node_instance_types" {
   description = "Instance types for the service EKS managed node group"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t3.small"]
 }
 
 variable "eks_node_capacity_type" {
@@ -67,7 +67,7 @@ variable "eks_node_disk_size" {
 variable "eks_node_desired_size" {
   description = "Desired number of service EKS nodes"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "eks_node_min_size" {
