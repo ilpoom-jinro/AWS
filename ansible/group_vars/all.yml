@@ -8,9 +8,7 @@ service_kube_context: financial-service-eks
 
 argocd_namespace: argocd
 argocd_release_name: argocd
-argocd_chart_repo_name: argo
-argocd_chart_repo_url: https://argoproj.github.io/argo-helm
-argocd_chart_ref: argo/argo-cd
+argocd_chart_ref: /opt/helm-charts/argo-cd
 
 internal_git_namespace: git
 internal_git_release_name: internal-git

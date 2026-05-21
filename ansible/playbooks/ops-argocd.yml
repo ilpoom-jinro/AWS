@@ -23,11 +23,6 @@
             name: "{{ argocd_namespace }}"
 
   tasks:
-    - name: Add Argo Helm repository
-      kubernetes.core.helm_repository:
-        name: "{{ argocd_chart_repo_name }}"
-        repo_url: "{{ argocd_chart_repo_url }}"
-
     - name: Install or upgrade Argo CD
       kubernetes.core.helm:
         context: "{{ ops_kube_context }}"
@@ -35,7 +30,7 @@
         release_namespace: "{{ argocd_namespace }}"
         chart_ref: "{{ argocd_chart_ref }}"
         create_namespace: true
-        update_repo_cache: true
+        update_repo_cache: false
         values: "{{ lookup('template', '../templates/argocd-values.yml.j2') | from_yaml }}"
         wait: true
         timeout: 10m

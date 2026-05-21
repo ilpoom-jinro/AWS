@@ -2,6 +2,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 
 ARG KUBECTL_VERSION=v1.35.0
 ARG HELM_VERSION=v3.17.3
+ARG ARGOCD_CHART_VERSION=""
 
 RUN dnf install -y \
       ca-certificates \
@@ -40,6 +41,16 @@ RUN curl -fsSLo /tmp/helm.tar.gz \
     && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
     && chmod +x /usr/local/bin/helm \
     && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
+
+RUN mkdir -p /opt/helm-charts \
+    && helm repo add argo https://argoproj.github.io/argo-helm \
+    && helm repo update \
+    && if [ -n "${ARGOCD_CHART_VERSION}" ]; then \
+         helm pull argo/argo-cd --version "${ARGOCD_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
+       else \
+         helm pull argo/argo-cd --untar --untardir /opt/helm-charts; \
+       fi \
+    && test -f /opt/helm-charts/argo-cd/Chart.yaml
 
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml
