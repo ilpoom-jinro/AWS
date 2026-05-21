@@ -3,20 +3,35 @@
 
 resource "aws_iam_group" "infra_admin" {
   name = "infra-admin"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_group" "security_engineers" {
   name = "security-engineers"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_group" "platform_engineers" {
   name = "platform-engineers"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_group" "sre_engineers" {
   name = "sre-engineers"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_group" "onfrem_engineers" {
   name = "onfrem-engineers"
+  lifecycle {
+    prevent_destroy = true
+  }
 }

@@ -6,9 +6,12 @@
 resource "aws_iam_user" "infra" {
   name = "infra"
   tags = {
-    Project   = "ilpumjinro" # 프로젝트 식별자
-    ManagedBy = "terraform"  # 이 리소스는 Terraform으로 관리됨
-    Owner     = "infra"      # 담당 팀
+    Project   = "ilpumjinro"
+    ManagedBy = "terraform"
+    Owner     = "infra"
+  }
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -20,6 +23,9 @@ resource "aws_iam_user" "security" {
     ManagedBy = "terraform"
     Owner     = "security"
   }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # 플랫폼 담당
@@ -29,6 +35,9 @@ resource "aws_iam_user" "platform" {
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
     Owner     = "platform"
+  }
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -40,6 +49,9 @@ resource "aws_iam_user" "sre" {
     ManagedBy = "terraform"
     Owner     = "sre"
   }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # 온프레미스 로그 담당
@@ -50,6 +62,9 @@ resource "aws_iam_user" "onfrem" {
     ManagedBy = "terraform"
     Owner     = "onfrem"
   }
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # =============================================
@@ -57,8 +72,8 @@ resource "aws_iam_user" "onfrem" {
 # =============================================
 
 resource "aws_iam_user_group_membership" "infra" {
-  user   = aws_iam_user.infra.name          # infra 사용자를
-  groups = [aws_iam_group.infra_admin.name] # infra-admin 그룹에 배정
+  user   = aws_iam_user.infra.name
+  groups = [aws_iam_group.infra_admin.name]
 }
 
 resource "aws_iam_user_group_membership" "security" {

@@ -7,6 +7,10 @@ resource "aws_iam_openid_connect_provider" "github" {
     Name      = "github-actions-oidc"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_role" "github_actions" {

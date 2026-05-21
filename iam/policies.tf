@@ -3,7 +3,7 @@
 # policy_arn = AWS가 미리 만들어놓은 정책의 고유 주소
 # =============================================
 
-# infra-admin → 전체 권한 (dev/prod 모두)
+# infra-admin → 전체 권한
 resource "aws_iam_group_policy_attachment" "infra_admin" {
   group      = aws_iam_group.infra_admin.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
@@ -62,9 +62,8 @@ resource "aws_iam_group_policy_attachment" "sre_power_user" {
 }
 
 # =============================================
-# prod 위험 행동 차단 정책 (platform, sre 공통)
+# 위험 행동 차단 정책 (platform, sre 공통)
 # Condition으로 Environment=prod 태그 리소스에만 적용
-# → dev는 자유롭게 작업 가능
 # =============================================
 resource "aws_iam_policy" "deny_prod_destructive" {
   name = "deny-prod-destructive-actions"
