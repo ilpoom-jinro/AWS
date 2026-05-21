@@ -3,14 +3,5 @@ version: 0.2
 phases:
   build:
     commands:
-      - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
-      - kubectl --context financial-ops-eks get ns
-      - kubectl --context financial-ops-eks get pods -n argocd -o wide
-      - kubectl --context financial-ops-eks get svc -n argocd
-      - kubectl --context financial-ops-eks get secret -n argocd argocd-initial-admin-secret
-      - kubectl --context financial-ops-eks get pods -n git -o wide
-      - kubectl --context financial-ops-eks get svc -n git
-      - kubectl --context financial-ops-eks -n git port-forward svc/internal-git-http 3000:3000 >/tmp/internal-git-port-forward.log 2>&1 &
-      - sleep 5
-      - curl -s http://127.0.0.1:3000/api/v1/version
-      - curl -s -u "${INTERNAL_GIT_ADMIN_USERNAME}:${INTERNAL_GIT_ADMIN_PASSWORD}" http://127.0.0.1:3000/api/v1/repos/gitops/platform
+      - cd /workspace/ansible
+      - ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/site.yml
