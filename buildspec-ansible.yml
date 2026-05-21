@@ -4,4 +4,4 @@ phases:
   build:
     commands:
       - cd /workspace/ansible
-      - ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+      - ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/site.yml
