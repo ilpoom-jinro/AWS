@@ -88,8 +88,3 @@ variable "argocd_namespace" {
   default     = "argocd"
 }
 
-variable "argocd_codecommit_repository_arns" {
-  description = "CodeCommit repository ARNs that Argo CD can pull"
-  type        = list(string)
-  default     = ["*"]
-}

@@ -38,11 +38,6 @@ output "ops_eks_cluster_security_group_id" {
   value       = module.vpc2.eks_cluster_security_group_id
 }
 
-output "ops_argocd_repo_server_role_arn" {
-  description = "IAM role used by Argo CD repo-server for CodeCommit access"
-  value       = module.vpc2.argocd_repo_server_role_arn
-}
-
 output "gitops_codecommit_repository_name" {
   description = "CodeCommit repository name for GitOps"
   value       = aws_codecommit_repository.gitops.repository_name
@@ -66,4 +61,9 @@ output "ansible_codebuild_project_name" {
 output "ansible_codebuild_image_repository_url" {
   description = "ECR repository URL for the Ansible CodeBuild runtime image"
   value       = aws_ecr_repository.ansible_codebuild.repository_url
+}
+
+output "internal_git_image_repository_url" {
+  description = "ECR repository URL for the internal Git runtime image"
+  value       = aws_ecr_repository.internal_git.repository_url
 }

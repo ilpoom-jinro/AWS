@@ -83,11 +83,12 @@ jobs:
         run: |
           set +e
           terraform plan -no-color -detailed-exitcode -out=tfplan \
-            -target=aws_codecommit_repository.gitops \
             -target=module.vpc1 \
             -target=module.vpc2 \
             -target=aws_ecr_repository.ansible_codebuild \
             -target=aws_ecr_lifecycle_policy.ansible_codebuild \
+            -target=aws_ecr_repository.internal_git \
+            -target=aws_ecr_lifecycle_policy.internal_git \
             -target=aws_security_group.ansible_codebuild \
             -target=aws_iam_role.ansible_codebuild \
             -target=aws_iam_role_policy.ansible_codebuild \

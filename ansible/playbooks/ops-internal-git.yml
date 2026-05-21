@@ -1,0 +1,213 @@
+- name: Install internal Git service on the Internal Ops EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Ensure internal Git namespace exists
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ internal_git_namespace }}"
+
+  tasks:
+    - name: Install or update internal Git deployment
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ internal_git_release_name }}"
+            namespace: "{{ internal_git_namespace }}"
+            labels:
+              app.kubernetes.io/name: internal-git
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: internal-git
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: internal-git
+              spec:
+                containers:
+                  - name: gitea
+                    image: "{{ internal_git_image }}"
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                      - name: http
+                        containerPort: 3000
+                      - name: ssh
+                        containerPort: 2222
+                    env:
+                      - name: GITEA__server__HTTP_PORT
+                        value: "3000"
+                      - name: GITEA__server__SSH_PORT
+                        value: "2222"
+                      - name: GITEA__server__ROOT_URL
+                        value: "http://{{ internal_git_service_name }}.{{ internal_git_namespace }}.svc.cluster.local:3000/"
+                      - name: GITEA__database__DB_TYPE
+                        value: sqlite3
+                      - name: GITEA__security__INSTALL_LOCK
+                        value: "true"
+                    volumeMounts:
+                      - name: gitea-data
+                        mountPath: /var/lib/gitea
+                      - name: gitea-config
+                        mountPath: /etc/gitea
+                volumes:
+                  - name: gitea-data
+                    emptyDir: {}
+                  - name: gitea-config
+                    emptyDir: {}
+
+    - name: Expose internal Git service inside the cluster
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ internal_git_service_name }}"
+            namespace: "{{ internal_git_namespace }}"
+            labels:
+              app.kubernetes.io/name: internal-git
+          spec:
+            type: ClusterIP
+            selector:
+              app.kubernetes.io/name: internal-git
+            ports:
+              - name: http
+                port: "{{ internal_git_http_port }}"
+                targetPort: http
+              - name: ssh
+                port: "{{ internal_git_ssh_port }}"
+                targetPort: ssh
+
+    - name: Wait for internal Git deployment rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ internal_git_namespace }}
+          rollout status deployment/{{ internal_git_release_name }}
+          --timeout=300s
+      changed_when: false
+
+    - name: Ensure internal Git admin user exists
+      ansible.builtin.shell: |
+        set -e
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user create \
+            --username "{{ internal_git_admin_username }}" \
+            --password "{{ internal_git_admin_password }}" \
+            --email "{{ internal_git_admin_email }}" \
+            --admin \
+            --must-change-password=false \
+            --config /etc/gitea/app.ini \
+          || true
+      changed_when: false
+      no_log: true
+
+    - name: Start local port-forward to internal Git service
+      ansible.builtin.shell: |
+        set -e
+        pkill -f "kubectl.*port-forward.*{{ internal_git_service_name }}" || true
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          port-forward svc/{{ internal_git_service_name }} 3000:{{ internal_git_http_port }} \
+          >/tmp/internal-git-port-forward.log 2>&1 &
+        echo $!
+      changed_when: false
+      register: internal_git_port_forward_pid
+
+    - name: Wait for internal Git API through port-forward
+      ansible.builtin.uri:
+        url: http://127.0.0.1:3000/api/v1/version
+        method: GET
+        status_code: 200
+      register: internal_git_api_probe
+      retries: 30
+      delay: 2
+      until: internal_git_api_probe.status == 200
+
+    - name: Ensure GitOps organization exists
+      ansible.builtin.uri:
+        url: http://127.0.0.1:3000/api/v1/orgs
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 422]
+        body_format: json
+        body:
+          username: "{{ internal_git_org }}"
+          full_name: GitOps
+          visibility: public
+      no_log: true
+
+    - name: Ensure GitOps repository exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3000/api/v1/orgs/{{ internal_git_org }}/repos"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 409, 422]
+        body_format: json
+        body:
+          name: "{{ internal_git_repo }}"
+          description: Internal GitOps source of truth
+          private: false
+          auto_init: false
+          default_branch: main
+      no_log: true
+
+    - name: Check whether the GitOps repository already has a main branch
+      ansible.builtin.shell: |
+        set -e
+        git ls-remote \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:3000/{{ internal_git_org }}/{{ internal_git_repo }}.git" \
+          refs/heads/main
+      register: internal_git_main_branch
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Push initial GitOps repository commit
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/internal-gitops-bootstrap
+        mkdir -p /tmp/internal-gitops-bootstrap/apps
+        cd /tmp/internal-gitops-bootstrap
+        git init -b main
+        git config user.name "GitOps Bootstrap"
+        git config user.email "gitops-bootstrap@internal.ops.local"
+        cat > README.md <<'EOF'
+        # Internal GitOps Repository
+
+        This repository is bootstrapped automatically for the internal Argo CD control plane.
+        EOF
+        touch apps/.gitkeep
+        git add README.md apps/.gitkeep
+        git commit -m "Initial GitOps bootstrap"
+        git remote add origin \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:3000/{{ internal_git_org }}/{{ internal_git_repo }}.git"
+        git push -u origin main
+      when: internal_git_main_branch.rc != 0 or internal_git_main_branch.stdout | length == 0
+      no_log: true

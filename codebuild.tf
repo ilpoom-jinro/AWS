@@ -64,15 +64,6 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
         Resource = "*"
       },
       {
-        Sid    = "CodeCommitSource"
-        Effect = "Allow"
-        Action = [
-          "codecommit:GitPull",
-          "codecommit:GetRepository"
-        ]
-        Resource = aws_codecommit_repository.gitops.arn
-      },
-      {
         Sid    = "EcrPullRuntimeImage"
         Effect = "Allow"
         Action = [
@@ -179,14 +170,29 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "ANSIBLE_CONFIG"
-      value = "ansible/ansible.cfg"
+      value = "/workspace/ansible/ansible.cfg"
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_IMAGE"
+      value = "${aws_ecr_repository.internal_git.repository_url}:latest"
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_USERNAME"
+      value = var.internal_git_admin_username
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_PASSWORD"
+      value = var.internal_git_admin_password
+      type  = "PLAINTEXT"
     }
   }
 
   source {
-    type      = "CODECOMMIT"
-    location  = aws_codecommit_repository.gitops.clone_url_http
-    buildspec = "buildspec-ansible.yml"
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-ansible.yml")
   }
 
   vpc_config {

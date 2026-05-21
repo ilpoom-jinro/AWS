@@ -40,7 +40,7 @@
         wait: true
         timeout: 10m
 
-    - name: Create CodeCommit repository secret when repo URL is provided
+    - name: Create internal Git repository secret when repo URL is provided
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present

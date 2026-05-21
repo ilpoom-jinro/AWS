@@ -8,10 +8,6 @@ module "vpc1" {
 
 module "vpc2" {
   source = "./vpc/ops"
-
-  argocd_codecommit_repository_arns = [
-    aws_codecommit_repository.gitops.arn
-  ]
 }
 
 module "vpc3" {

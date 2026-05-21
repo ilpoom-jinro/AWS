@@ -12,5 +12,17 @@ argocd_chart_repo_name: argo
 argocd_chart_repo_url: https://argoproj.github.io/argo-helm
 argocd_chart_ref: argo/argo-cd
 
-gitops_repo_url: ""
-gitops_repo_name: codecommit-gitops
+internal_git_namespace: git
+internal_git_release_name: internal-git
+internal_git_service_name: internal-git-http
+internal_git_image: "{{ lookup('env', 'INTERNAL_GIT_IMAGE') | default('gitea/gitea:1.22-rootless', true) }}"
+internal_git_http_port: 3000
+internal_git_ssh_port: 2222
+internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
+internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"
+internal_git_admin_email: "gitadmin@internal.ops.local"
+internal_git_org: gitops
+internal_git_repo: platform
+
+gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
+gitops_repo_name: internal-gitops

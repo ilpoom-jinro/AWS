@@ -54,6 +54,3 @@ output "eks_node_role_arn" {
   value = aws_iam_role.eks_node.arn
 }
 
-output "argocd_repo_server_role_arn" {
-  value = aws_iam_role.argocd_repo_server.arn
-}

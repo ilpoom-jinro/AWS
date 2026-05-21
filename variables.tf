@@ -36,3 +36,22 @@ variable "ansible_codebuild_image_repository_name" {
   type        = string
   default     = "financial/ansible-codebuild"
 }
+
+variable "internal_git_image_repository_name" {
+  description = "ECR repository name for the internal Git runtime image"
+  type        = string
+  default     = "financial/internal-git"
+}
+
+variable "internal_git_admin_username" {
+  description = "Initial admin username for the internal Git service"
+  type        = string
+  default     = "gitadmin"
+}
+
+variable "internal_git_admin_password" {
+  description = "Initial admin password for the internal Git service"
+  type        = string
+  sensitive   = true
+  default     = "ChangeMe1234"
+}

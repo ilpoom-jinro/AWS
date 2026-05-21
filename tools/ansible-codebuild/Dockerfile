@@ -28,4 +28,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml
 
-WORKDIR /codebuild/output/src
+COPY ansible /workspace/ansible
+COPY buildspec-ansible.yml /workspace/buildspec-ansible.yml
+
+WORKDIR /workspace
