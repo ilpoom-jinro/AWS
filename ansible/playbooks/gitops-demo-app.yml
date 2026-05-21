@@ -230,6 +230,18 @@
               syncOptions:
                 - CreateNamespace=true
 
+    - name: Wait for demo app deployment to be created in the Service cluster
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n {{ demo_app_namespace }}
+          get deployment/{{ demo_app_name }}
+      register: demo_app_deployment_probe
+      retries: 60
+      delay: 5
+      until: demo_app_deployment_probe.rc == 0
+      changed_when: false
+
     - name: Wait for demo app deployment in the Service cluster
       ansible.builtin.command:
         cmd: >
