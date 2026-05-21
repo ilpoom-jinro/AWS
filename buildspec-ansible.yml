@@ -4,10 +4,4 @@ phases:
   build:
     commands:
       - cd /workspace/ansible
-      - ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/site.yml || true
-      - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
-      - kubectl --context financial-ops-eks get pods -n argocd -o wide || true
-      - kubectl --context financial-ops-eks get events -n argocd --sort-by=.lastTimestamp || true
-      - helm --kube-context financial-ops-eks -n argocd list || true
-      - helm --kube-context financial-ops-eks -n argocd status argocd || true
-      - exit 1
+      - ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/site.yml
