@@ -23,7 +23,13 @@ RUN curl -Lo /usr/local/bin/kubectl \
       https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl \
     && chmod +x /usr/local/bin/kubectl
 
-RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+ARG HELM_VERSION=v3.17.3
+RUN curl -fsSLo /tmp/helm.tar.gz \
+      "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+    && tar -xzf /tmp/helm.tar.gz -C /tmp \
+    && mv /tmp/linux-amd64/helm /usr/local/bin/helm \
+    && chmod +x /usr/local/bin/helm \
+    && rm -rf /tmp/helm.tar.gz /tmp/linux-amd64
 
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml
