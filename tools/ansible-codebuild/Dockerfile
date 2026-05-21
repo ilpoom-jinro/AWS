@@ -5,7 +5,6 @@ ARG HELM_VERSION=v3.17.3
 
 RUN dnf install -y \
       ca-certificates \
-      curl \
       findutils \
       git \
       gzip \
