@@ -1,5 +1,8 @@
 global:
   domain: argocd.internal.ops.local
+  image:
+    repository: "{{ argocd_image_repository }}"
+    tag: "{{ argocd_image_tag }}"
 
 configs:
   params:
@@ -17,6 +20,11 @@ repoServer:
   serviceAccount:
     create: true
     name: argocd-repo-server
+
+redis:
+  image:
+    repository: "{{ argocd_redis_image_repository }}"
+    tag: "{{ argocd_redis_image_tag }}"
 
 applicationSet:
   replicas: 1

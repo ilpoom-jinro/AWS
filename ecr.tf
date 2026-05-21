@@ -65,3 +65,71 @@ resource "aws_ecr_lifecycle_policy" "internal_git" {
     }]
   })
 }
+
+resource "aws_ecr_repository" "argocd" {
+  name                 = var.argocd_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.argocd_image_repository_name
+    Purpose   = "argocd-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "argocd" {
+  repository = aws_ecr_repository.argocd.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Argo CD images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "argocd_redis" {
+  name                 = var.argocd_redis_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.argocd_redis_image_repository_name
+    Purpose   = "argocd-redis-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "argocd_redis" {
+  repository = aws_ecr_repository.argocd_redis.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Argo CD Redis images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

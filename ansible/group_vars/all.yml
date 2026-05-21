@@ -9,6 +9,10 @@ service_kube_context: financial-service-eks
 argocd_namespace: argocd
 argocd_release_name: argocd
 argocd_chart_ref: /opt/helm-charts/argo-cd
+argocd_image_repository: "{{ lookup('env', 'ARGOCD_IMAGE_REPOSITORY') }}"
+argocd_image_tag: "{{ lookup('env', 'ARGOCD_IMAGE_TAG') | default('latest', true) }}"
+argocd_redis_image_repository: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_REPOSITORY') }}"
+argocd_redis_image_tag: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_TAG') | default('latest', true) }}"
 
 internal_git_namespace: git
 internal_git_release_name: internal-git

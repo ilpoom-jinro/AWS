@@ -43,6 +43,30 @@ variable "internal_git_image_repository_name" {
   default     = "financial/internal-git"
 }
 
+variable "argocd_image_repository_name" {
+  description = "ECR repository name for the mirrored Argo CD image"
+  type        = string
+  default     = "financial/argocd"
+}
+
+variable "argocd_redis_image_repository_name" {
+  description = "ECR repository name for the mirrored Argo CD Redis image"
+  type        = string
+  default     = "financial/argocd-redis"
+}
+
+variable "argocd_image_tag" {
+  description = "Argo CD image tag used by the Helm release"
+  type        = string
+  default     = "latest"
+}
+
+variable "argocd_redis_image_tag" {
+  description = "Argo CD Redis image tag used by the Helm release"
+  type        = string
+  default     = "latest"
+}
+
 variable "internal_git_admin_username" {
   description = "Initial admin username for the internal Git service"
   type        = string

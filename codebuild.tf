@@ -179,6 +179,26 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "ARGOCD_IMAGE_REPOSITORY"
+      value = aws_ecr_repository.argocd.repository_url
+    }
+
+    environment_variable {
+      name  = "ARGOCD_IMAGE_TAG"
+      value = var.argocd_image_tag
+    }
+
+    environment_variable {
+      name  = "ARGOCD_REDIS_IMAGE_REPOSITORY"
+      value = aws_ecr_repository.argocd_redis.repository_url
+    }
+
+    environment_variable {
+      name  = "ARGOCD_REDIS_IMAGE_TAG"
+      value = var.argocd_redis_image_tag
+    }
+
+    environment_variable {
       name  = "INTERNAL_GIT_ADMIN_USERNAME"
       value = var.internal_git_admin_username
     }
