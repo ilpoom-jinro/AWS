@@ -33,6 +33,10 @@ resource "aws_iam_policy" "security_extra" {
         "cloudwatch:PutMetricAlarm",     # 금융 알람 구성
         "guardduty:CreateDetector",      # GuardDuty 활성화
         "securityhub:EnableSecurityHub", # Security Hub 활성화
+        "securityhub:GetFindings",       # 보안 발견 사항 조회
+        "securityhub:DescribeHub",       # Security Hub 설정 조회
+        "securityhub:ListFindings",      # 보안 발견 사항 목록
+        "securityhub:GetInsights",       # 인사이트 조회
         "iam:AttachGroupPolicy",         # IAM 권한 설정
         "iam:CreatePolicy",              # IAM 정책 생성
         "iam:UpdateAccountPasswordPolicy" # 비밀번호 정책 설정
