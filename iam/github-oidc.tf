@@ -180,6 +180,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeAvailabilityZones",
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeAccountAttributes",
+          "ec2:DescribeImages",
           "ec2:DescribeLaunchTemplates",
           "ec2:DescribeLaunchTemplateVersions"
         ]
