@@ -108,6 +108,20 @@ resource "aws_vpc_endpoint" "eks" {
   }
 }
 
+# EKS Pod Identity credential vending API.
+resource "aws_vpc_endpoint" "eks_auth" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.eks-auth"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-eks-auth"
+  }
+}
+
 # CloudWatch Logs
 resource "aws_vpc_endpoint" "logs" {
   vpc_id              = aws_vpc.this.id

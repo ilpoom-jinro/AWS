@@ -159,6 +159,7 @@ resource "aws_eks_node_group" "ops" {
     aws_vpc_endpoint.ecr_api,
     aws_vpc_endpoint.ecr_dkr,
     aws_vpc_endpoint.eks,
+    aws_vpc_endpoint.eks_auth,
     aws_vpc_endpoint.logs,
     aws_vpc_endpoint.s3,
     aws_vpc_endpoint.sts,
