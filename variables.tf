@@ -55,6 +55,12 @@ variable "argocd_redis_image_repository_name" {
   default     = "financial/argocd-redis"
 }
 
+variable "prometheus_image_repository_name" {
+  description = "ECR repository name for the mirrored Prometheus image"
+  type        = string
+  default     = "financial/prometheus"
+}
+
 variable "argocd_image_tag" {
   description = "Argo CD image tag used by the Helm release"
   type        = string
@@ -65,6 +71,12 @@ variable "argocd_redis_image_tag" {
   description = "Argo CD Redis image tag used by the Helm release"
   type        = string
   default     = "latest"
+}
+
+variable "prometheus_image_tag" {
+  description = "Prometheus image tag used by the Helm release"
+  type        = string
+  default     = "v3.7.3"
 }
 
 variable "internal_git_admin_username" {

@@ -1,0 +1,45 @@
+- name: Install Prometheus on the Internal Ops EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Ensure Prometheus namespace exists
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ prometheus_namespace }}"
+
+  tasks:
+    - name: Install or upgrade Prometheus
+      kubernetes.core.helm:
+        context: "{{ ops_kube_context }}"
+        release_name: "{{ prometheus_release_name }}"
+        release_namespace: "{{ prometheus_namespace }}"
+        chart_ref: "{{ prometheus_chart_ref }}"
+        create_namespace: true
+        update_repo_cache: false
+        values: "{{ lookup('template', '../templates/prometheus-values.yml.j2') | from_yaml }}"
+        wait: true
+        timeout: 10m
+
+    - name: Wait for Prometheus server rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ prometheus_namespace }}
+          rollout status deployment/{{ prometheus_release_name }}-server
+          --timeout=300s
+      changed_when: false

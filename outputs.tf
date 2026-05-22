@@ -67,3 +67,8 @@ output "internal_git_image_repository_url" {
   description = "ECR repository URL for the internal Git runtime image"
   value       = aws_ecr_repository.internal_git.repository_url
 }
+
+output "prometheus_image_repository_url" {
+  description = "ECR repository URL for the mirrored Prometheus image"
+  value       = aws_ecr_repository.prometheus.repository_url
+}

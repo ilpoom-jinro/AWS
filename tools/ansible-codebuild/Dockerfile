@@ -3,6 +3,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 ARG KUBECTL_VERSION=v1.35.0
 ARG HELM_VERSION=v3.17.3
 ARG ARGOCD_CHART_VERSION=""
+ARG PROMETHEUS_CHART_VERSION=""
 
 RUN dnf install -y \
       ca-certificates \
@@ -44,13 +45,20 @@ RUN curl -fsSLo /tmp/helm.tar.gz \
 
 RUN mkdir -p /opt/helm-charts \
     && helm repo add argo https://argoproj.github.io/argo-helm \
+    && helm repo add prometheus-community https://prometheus-community.github.io/helm-charts \
     && helm repo update \
     && if [ -n "${ARGOCD_CHART_VERSION}" ]; then \
          helm pull argo/argo-cd --version "${ARGOCD_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
        else \
          helm pull argo/argo-cd --untar --untardir /opt/helm-charts; \
        fi \
-    && test -f /opt/helm-charts/argo-cd/Chart.yaml
+    && if [ -n "${PROMETHEUS_CHART_VERSION}" ]; then \
+         helm pull prometheus-community/prometheus --version "${PROMETHEUS_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
+       else \
+         helm pull prometheus-community/prometheus --untar --untardir /opt/helm-charts; \
+       fi \
+    && test -f /opt/helm-charts/argo-cd/Chart.yaml \
+    && test -f /opt/helm-charts/prometheus/Chart.yaml
 
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml

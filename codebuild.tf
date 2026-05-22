@@ -199,6 +199,16 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "PROMETHEUS_IMAGE_REPOSITORY"
+      value = aws_ecr_repository.prometheus.repository_url
+    }
+
+    environment_variable {
+      name  = "PROMETHEUS_IMAGE_TAG"
+      value = var.prometheus_image_tag
+    }
+
+    environment_variable {
       name  = "INTERNAL_GIT_ADMIN_USERNAME"
       value = var.internal_git_admin_username
     }
