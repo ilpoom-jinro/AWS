@@ -178,6 +178,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeAddresses",
           "ec2:DescribeAddressesAttribute",
           "ec2:DescribeInstances",
+          "ec2:DescribeInstanceAttribute",
           "ec2:DescribeInstanceTypes",
           "ec2:DescribeVpcPeeringConnections",
           "ec2:CreateTags",
