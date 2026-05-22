@@ -1,8 +1,3 @@
-# iam/github-oidc.tf
-
-# ─────────────────────────────────────
-# GitHub OIDC Identity Provider
-# ─────────────────────────────────────
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
@@ -18,9 +13,6 @@ resource "aws_iam_openid_connect_provider" "github" {
   }
 }
 
-# ─────────────────────────────────────
-# GitHub Actions가 Assume할 IAM Role
-# ─────────────────────────────────────
 resource "aws_iam_role" "github_actions" {
   name        = "ilpumjinro-github-actions-role"
   description = "IAM Role for GitHub Actions Terraform execution via OIDC"
@@ -28,7 +20,7 @@ resource "aws_iam_role" "github_actions" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = {
         Federated = aws_iam_openid_connect_provider.github.arn
       }
@@ -50,9 +42,6 @@ resource "aws_iam_role" "github_actions" {
   }
 }
 
-# ─────────────────────────────────────
-# Terraform 실행 권한 정책
-# ─────────────────────────────────────
 resource "aws_iam_role_policy" "github_actions_terraform" {
   name = "ilpumjinro-terraform-execution-policy"
   role = aws_iam_role.github_actions.id
@@ -61,8 +50,6 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
     Version = "2012-10-17"
     Statement = [
       {
-        # tfstate 파일 + .tflock 잠금 파일 접근
-        # use_lockfile = true 사용 시 DeleteObject 필수 (잠금 해제)
         Sid    = "TerraformStateAccess"
         Effect = "Allow"
         Action = [
@@ -77,55 +64,65 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         ]
       },
       {
-        # IAM 리소스 관리 — iam:* 대신 실제 필요한 액션만 명시
         Sid    = "IAMManagement"
         Effect = "Allow"
         Action = [
-          # 유저
-          "iam:CreateUser", "iam:DeleteUser", "iam:GetUser",
-          "iam:TagUser", "iam:UntagUser", "iam:ListUserTags", "iam:ListUsers",
-
-          # 그룹
-          "iam:CreateGroup", "iam:DeleteGroup", "iam:GetGroup", "iam:ListGroups",
-
-          # 그룹 멤버십
-          "iam:AddUserToGroup", "iam:RemoveUserFromGroup", "iam:ListGroupsForUser",
-
-          # 그룹 정책 연결
-          "iam:AttachGroupPolicy", "iam:DetachGroupPolicy", "iam:ListAttachedGroupPolicies",
-
-          # 관리형 정책
-          "iam:CreatePolicy", "iam:DeletePolicy",
-          "iam:GetPolicy", "iam:GetPolicyVersion",
-          "iam:CreatePolicyVersion", "iam:DeletePolicyVersion",
-          "iam:ListPolicies", "iam:ListPolicyVersions", "iam:ListEntitiesForPolicy",
-
-          # 유저 인라인 정책
-          "iam:PutUserPolicy", "iam:DeleteUserPolicy",
-          "iam:GetUserPolicy", "iam:ListUserPolicies",
-
-          # 액세스 키
-          "iam:CreateAccessKey", "iam:DeleteAccessKey",
-          "iam:ListAccessKeys", "iam:GetAccessKeyLastUsed",
-
-          # OIDC 프로바이더
-          "iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider",
-          "iam:GetOpenIDConnectProvider", "iam:ListOpenIDConnectProviders",
-          "iam:TagOpenIDConnectProvider", "iam:ListOpenIDConnectProviderTags",
-
-          # IAM 롤
-          "iam:CreateRole", "iam:DeleteRole", "iam:GetRole",
-          "iam:UpdateRole", "iam:UpdateAssumeRolePolicy",
-          "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags", "iam:ListRoles",
-
-          # 롤 인라인 정책
-          "iam:PutRolePolicy", "iam:DeleteRolePolicy",
-          "iam:GetRolePolicy", "iam:ListRolePolicies",
-
-          # 롤 관리형 정책 연결
-          "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies",
-
-          # 계정 패스워드 정책
+          "iam:CreateUser",
+          "iam:DeleteUser",
+          "iam:GetUser",
+          "iam:TagUser",
+          "iam:UntagUser",
+          "iam:ListUserTags",
+          "iam:ListUsers",
+          "iam:CreateGroup",
+          "iam:DeleteGroup",
+          "iam:GetGroup",
+          "iam:ListGroups",
+          "iam:AddUserToGroup",
+          "iam:RemoveUserFromGroup",
+          "iam:ListGroupsForUser",
+          "iam:AttachGroupPolicy",
+          "iam:DetachGroupPolicy",
+          "iam:ListAttachedGroupPolicies",
+          "iam:CreatePolicy",
+          "iam:DeletePolicy",
+          "iam:GetPolicy",
+          "iam:GetPolicyVersion",
+          "iam:CreatePolicyVersion",
+          "iam:DeletePolicyVersion",
+          "iam:ListPolicies",
+          "iam:ListPolicyVersions",
+          "iam:ListEntitiesForPolicy",
+          "iam:PutUserPolicy",
+          "iam:DeleteUserPolicy",
+          "iam:GetUserPolicy",
+          "iam:ListUserPolicies",
+          "iam:CreateAccessKey",
+          "iam:DeleteAccessKey",
+          "iam:ListAccessKeys",
+          "iam:GetAccessKeyLastUsed",
+          "iam:CreateOpenIDConnectProvider",
+          "iam:DeleteOpenIDConnectProvider",
+          "iam:GetOpenIDConnectProvider",
+          "iam:ListOpenIDConnectProviders",
+          "iam:TagOpenIDConnectProvider",
+          "iam:ListOpenIDConnectProviderTags",
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:GetRole",
+          "iam:UpdateRole",
+          "iam:UpdateAssumeRolePolicy",
+          "iam:TagRole",
+          "iam:UntagRole",
+          "iam:ListRoleTags",
+          "iam:ListRoles",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:ListAttachedRolePolicies",
           "iam:GetAccountPasswordPolicy",
           "iam:UpdateAccountPasswordPolicy",
           "iam:DeleteAccountPasswordPolicy"
@@ -136,58 +133,176 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Sid    = "EC2VPCManagement"
         Effect = "Allow"
         Action = [
-          # VPC
-          "ec2:CreateVpc", "ec2:DeleteVpc",
-          "ec2:ModifyVpcAttribute", "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute",
-
-          # 서브넷
-          "ec2:CreateSubnet", "ec2:DeleteSubnet",
-          "ec2:ModifySubnetAttribute", "ec2:DescribeSubnets",
-
-          # 인터넷 게이트웨이
-          "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway",
-          "ec2:AttachInternetGateway", "ec2:DetachInternetGateway",
+          "ec2:CreateVpc",
+          "ec2:DeleteVpc",
+          "ec2:ModifyVpcAttribute",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeVpcAttribute",
+          "ec2:CreateSubnet",
+          "ec2:DeleteSubnet",
+          "ec2:ModifySubnetAttribute",
+          "ec2:DescribeSubnets",
+          "ec2:CreateInternetGateway",
+          "ec2:DeleteInternetGateway",
+          "ec2:AttachInternetGateway",
+          "ec2:DetachInternetGateway",
           "ec2:DescribeInternetGateways",
-
-          # 라우트 테이블
-          "ec2:CreateRouteTable", "ec2:DeleteRouteTable",
-          "ec2:CreateRoute", "ec2:DeleteRoute",
-          "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable",
+          "ec2:CreateRouteTable",
+          "ec2:DeleteRouteTable",
+          "ec2:CreateRoute",
+          "ec2:DeleteRoute",
+          "ec2:AssociateRouteTable",
+          "ec2:DisassociateRouteTable",
           "ec2:DescribeRouteTables",
-
-          # 보안 그룹
-          "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
-          "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
-          "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
-          "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules",
-
-          # NAT 게이트웨이
-          "ec2:CreateNatGateway", "ec2:DeleteNatGateway",
+          "ec2:CreateVpcEndpoint",
+          "ec2:DeleteVpcEndpoints",
+          "ec2:DescribeVpcEndpoints",
+          "ec2:ModifyVpcEndpoint",
+          "ec2:CreateSecurityGroup",
+          "ec2:DeleteSecurityGroup",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupEgress",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSecurityGroupRules",
+          "ec2:CreateNatGateway",
+          "ec2:DeleteNatGateway",
           "ec2:DescribeNatGateways",
-
-          # Elastic IP (NAT 게이트웨이용)
-          "ec2:AllocateAddress", "ec2:ReleaseAddress",
-          "ec2:AssociateAddress", "ec2:DisassociateAddress",
+          "ec2:AllocateAddress",
+          "ec2:ReleaseAddress",
+          "ec2:AssociateAddress",
+          "ec2:DisassociateAddress",
           "ec2:DescribeAddresses",
-
-          # 태그
-          "ec2:CreateTags", "ec2:DeleteTags", "ec2:DescribeTags",
-
-          # 공통 조회
+          "ec2:CreateTags",
+          "ec2:DeleteTags",
+          "ec2:DescribeTags",
           "ec2:DescribeAvailabilityZones",
           "ec2:DescribeNetworkInterfaces",
-          "ec2:DescribeAccountAttributes"
+          "ec2:DescribeAccountAttributes",
+          "ec2:DescribeImages",
+          "ec2:DescribeLaunchTemplates",
+          "ec2:DescribeLaunchTemplateVersions"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "CodeCommitManagement"
+        Effect = "Allow"
+        Action = [
+          "codecommit:CreateRepository",
+          "codecommit:DeleteRepository",
+          "codecommit:GetRepository",
+          "codecommit:ListRepositories",
+          "codecommit:GitPull",
+          "codecommit:GitPush",
+          "codecommit:TagResource",
+          "codecommit:UntagResource",
+          "codecommit:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRManagement"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DeleteRepository",
+          "ecr:DescribeRepositories",
+          "ecr:PutLifecyclePolicy",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:StartImageScan",
+          "ecr:TagResource",
+          "ecr:UntagResource",
+          "ecr:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EKSManagement"
+        Effect = "Allow"
+        Action = [
+          "eks:CreateCluster",
+          "eks:DeleteCluster",
+          "eks:DescribeCluster",
+          "eks:UpdateClusterConfig",
+          "eks:UpdateClusterVersion",
+          "eks:TagResource",
+          "eks:UntagResource",
+          "eks:ListTagsForResource",
+          "eks:CreateNodegroup",
+          "eks:DeleteNodegroup",
+          "eks:DescribeNodegroup",
+          "eks:UpdateNodegroupConfig",
+          "eks:UpdateNodegroupVersion",
+          "eks:CreateAddon",
+          "eks:DeleteAddon",
+          "eks:DescribeAddon",
+          "eks:UpdateAddon",
+          "eks:DescribeAddonVersions",
+          "eks:ListAddons",
+          "eks:CreatePodIdentityAssociation",
+          "eks:DeletePodIdentityAssociation",
+          "eks:DescribePodIdentityAssociation",
+          "eks:UpdatePodIdentityAssociation",
+          "eks:ListPodIdentityAssociations",
+          "eks:CreateAccessEntry",
+          "eks:DeleteAccessEntry",
+          "eks:DescribeAccessEntry",
+          "eks:UpdateAccessEntry",
+          "eks:ListAccessEntries",
+          "eks:AssociateAccessPolicy",
+          "eks:DisassociateAccessPolicy",
+          "eks:ListAssociatedAccessPolicies"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CodeBuildManagement"
+        Effect = "Allow"
+        Action = [
+          "codebuild:CreateProject",
+          "codebuild:DeleteProject",
+          "codebuild:UpdateProject",
+          "codebuild:BatchGetProjects",
+          "codebuild:StartBuild",
+          "codebuild:BatchGetBuilds",
+          "codebuild:ListBuildsForProject"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "PassEKSRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = [
+              "eks.amazonaws.com",
+              "ec2.amazonaws.com",
+              "pods.eks.amazonaws.com",
+              "codebuild.amazonaws.com"
+            ]
+          }
+        }
       }
     ]
   })
 }
 
-# ─────────────────────────────────────
-# Output — GitHub Secrets 등록에 사용
-# ─────────────────────────────────────
 output "github_actions_role_arn" {
-  description = "GitHub Secrets > AWS_ROLE_ARN 에 등록할 값"
+  description = "GitHub Secrets AWS_ROLE_ARN value"
   value       = aws_iam_role.github_actions.arn
 }

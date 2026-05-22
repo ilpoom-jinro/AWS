@@ -5,11 +5,16 @@ on:
     branches: [main]
     paths:
       - "**.tf"
+      - ".terraform.lock.hcl"
+      - "ansible/**"
+      - "buildspec-ansible.yml"
+      - "tools/**"
       - ".github/workflows/terraform.yml"
+      - ".github/workflows/mirror-codecommit.yml"
   workflow_dispatch:
     inputs:
-      run_apply:
-        description: "Run terraform apply manually"
+      apply:
+        description: "Run terraform apply"
         required: true
         default: false
         type: boolean
@@ -19,9 +24,14 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   TF_VERSION: "1.11.0"
   TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
   TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP }}
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN }}
@@ -31,7 +41,9 @@ jobs:
   plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
 
     steps:
       - name: Checkout
@@ -41,7 +53,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -55,53 +67,78 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform Validate
-        id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -input=false
+        shell: bash
+        run: |
+          set +e
+          terraform plan -no-color -input=false -detailed-exitcode -out=tfplan
+          exitcode=$?
+          echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
+          exit 0
+
+      - name: Fail on plan error
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.sha }}
+          path: tfplan
+          retention-days: 3
 
       - name: Comment plan result on PR
         uses: actions/github-script@v7
-        if: always()
+        if: github.event_name == 'pull_request'
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
-            const output = `${marker}
-            ## Terraform Plan Result
-            **Validate:** ${{ steps.validate.outcome }}
-            **Plan:** ${{ steps.plan.outcome }}
+            const exitCode = '${{ steps.plan.outputs.exitcode }}';
+            const status = exitCode === '0'
+              ? 'No changes'
+              : exitCode === '2'
+                ? 'Changes pending'
+                : 'Failed';
+            const body = `${marker}
+            ## Terraform Plan
 
-            *Actor: @${{ github.actor }} / Commit: ${{ github.sha }}*`;
+            **Status:** ${status}
+            **Commit:** \`${context.sha}\`
+
+            The full plan artifact is attached to this workflow run.`;
 
             const comments = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
+              issue_number: context.issue.number,
             });
-            const existing = comments.data.find(c => c.body.includes(marker));
+            const existing = comments.data.find(comment => comment.body.includes(marker));
 
             if (existing) {
               await github.rest.issues.updateComment({
-                comment_id: existing.id,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: output
+                comment_id: existing.id,
+                body,
               });
             } else {
               await github.rest.issues.createComment({
-                issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: output
+                issue_number: context.issue.number,
+                body,
               });
             }
 
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_apply == true
+    needs: plan
+    if: |
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.apply == true
     environment: production
 
     steps:
@@ -112,7 +149,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -122,8 +159,13 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Terraform Plan
-        run: terraform plan -no-color -input=false -out=tfplan
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ github.sha }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
+
+      - name: Terraform Outputs
+        run: terraform output

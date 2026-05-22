@@ -41,3 +41,27 @@ output "eks_node_sg_id" {
 output "rds_sg_id" {
   value = aws_security_group.rds.id
 }
+
+output "eks_cluster_name" {
+  value = aws_eks_cluster.service.name
+}
+
+output "eks_cluster_arn" {
+  value = aws_eks_cluster.service.arn
+}
+
+output "eks_cluster_endpoint" {
+  value = aws_eks_cluster.service.endpoint
+}
+
+output "eks_cluster_security_group_id" {
+  value = aws_eks_cluster.service.vpc_config[0].cluster_security_group_id
+}
+
+output "eks_node_group_name" {
+  value = aws_eks_node_group.service.node_group_name
+}
+
+output "eks_node_role_arn" {
+  value = aws_iam_role.eks_node.arn
+}

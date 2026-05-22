@@ -1,0 +1,32 @@
+- name: Prepare local kubeconfig entries for Ops and Service EKS clusters
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Update kubeconfig for the Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --alias {{ service_kube_context }}
+      changed_when: false
+
+    - name: Ensure a service application namespace exists
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: service-apps

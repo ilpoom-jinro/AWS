@@ -1,0 +1,36 @@
+global:
+  domain: argocd.internal.ops.local
+  image:
+    repository: "{{ argocd_image_repository }}"
+    tag: "{{ argocd_image_tag }}"
+
+configs:
+  params:
+    server.insecure: false
+
+server:
+  service:
+    type: ClusterIP
+
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+  serviceAccount:
+    create: true
+    name: argocd-repo-server
+
+redis:
+  image:
+    repository: "{{ argocd_redis_image_repository }}"
+    tag: "{{ argocd_redis_image_tag }}"
+
+applicationSet:
+  replicas: 1
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false

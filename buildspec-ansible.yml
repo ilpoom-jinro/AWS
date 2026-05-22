@@ -1,0 +1,12 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - cd /workspace/ansible
+      - ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/site.yml
+      - aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
+      - kubectl --context financial-service-eks get pods -n service-apps -o wide
+      - kubectl --context financial-service-eks get deploy,svc -n service-apps
+      - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
+      - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd
