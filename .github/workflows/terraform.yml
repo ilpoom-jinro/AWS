@@ -74,16 +74,19 @@ jobs:
         shell: bash
         run: |
           set +e
-          terraform plan -no-color -input=false -detailed-exitcode -out=tfplan
+          terraform plan -input=false -detailed-exitcode -out=tfplan
           exitcode=$?
           echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${exitcode}" -eq 1 ]; then
+            echo "::error::Terraform plan failed. Check the Terraform Plan step logs for the error details."
+            exit 1
+          fi
+
           exit 0
 
-      - name: Fail on plan error
-        if: steps.plan.outputs.exitcode == '1'
-        run: exit 1
-
       - name: Upload Terraform Plan
+        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.sha }}
@@ -92,7 +95,7 @@ jobs:
 
       - name: Comment plan result on PR
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
