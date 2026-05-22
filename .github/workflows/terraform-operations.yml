@@ -5,7 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "실행 작업 선택: plan=검사만 실행, apply= 인프라 생성, destroy=생성된 인프라 삭제, reapply= 변경된 인프라만 반영, codebuild=Ansible CodeBuild 실행"
+        description: |
+          실행 작업 선택
+          plan      = 검사만 실행
+          apply     = 인프라 생성
+          destroy   = 생성된 인프라 삭제
+          reapply   = 변경된 인프라만 반영
+          codebuild = Ansible CodeBuild 실행
         required: true
         default: plan
         type: choice
@@ -16,7 +22,9 @@ on:
           - reapply
           - codebuild
       confirm_destroy:
-        description: "destroy 실행 시에만 true로 체크하세요. plan/apply/reapply/codebuild에서는 체크하지 않아도 됩니다."
+        description: |
+          destroy 실행 시에만 true로 체크하세요.
+          plan/apply/reapply/codebuild에서는 체크하지 않아도 됩니다.
         required: true
         default: false
         type: boolean
