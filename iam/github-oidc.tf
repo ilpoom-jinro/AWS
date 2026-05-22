@@ -179,6 +179,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeAddressesAttribute",
           "ec2:DescribeInstances",
           "ec2:DescribeInstanceAttribute",
+          "ec2:DescribeInstanceCreditSpecifications",
           "ec2:DescribeIamInstanceProfileAssociations",
           "ec2:DescribeInstanceTypes",
           "ec2:DescribeVolumes",
