@@ -1,0 +1,97 @@
+name: Mirror To CodeCommit
+
+on:
+  workflow_run:
+    workflows: ["Terraform"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  CODECOMMIT_REPOSITORY_NAME: gitops-platform
+  CODEBUILD_PROJECT_NAME: financial-ansible-bootstrap
+
+jobs:
+  mirror:
+    name: Mirror repository and run internal bootstrap
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.event == 'push'
+      )
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Ansible CodeBuild image
+        run: |
+          REPOSITORY_URI=$(aws ecr describe-repositories \
+            --repository-names financial/ansible-codebuild \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+
+          docker build \
+            -f tools/ansible-codebuild/Dockerfile \
+            -t "${REPOSITORY_URI}:latest" \
+            .
+
+          docker push "${REPOSITORY_URI}:latest"
+
+      - name: Install CodeCommit remote helper
+        run: pipx install git-remote-codecommit
+
+      - name: Mirror GitHub main to CodeCommit
+        run: |
+          git remote add codecommit codecommit::${AWS_REGION}://${CODECOMMIT_REPOSITORY_NAME}
+          git push codecommit HEAD:main --force
+
+      - name: Run Ansible bootstrap in Ops VPC
+        run: |
+          BUILD_ID=$(aws codebuild start-build \
+            --project-name "${CODEBUILD_PROJECT_NAME}" \
+            --query 'build.id' \
+            --output text)
+
+          echo "Started CodeBuild: ${BUILD_ID}"
+
+          while true; do
+            STATUS=$(aws codebuild batch-get-builds \
+              --ids "${BUILD_ID}" \
+              --query 'builds[0].buildStatus' \
+              --output text)
+
+            echo "CodeBuild status: ${STATUS}"
+
+            case "${STATUS}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                exit 1
+                ;;
+              *)
+                sleep 20
+                ;;
+            esac
+          done

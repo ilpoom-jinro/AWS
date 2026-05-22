@@ -1,0 +1,42 @@
+aws_region: ap-northeast-2
+
+ops_eks_cluster_name: financial-ops-eks
+ops_kube_context: financial-ops-eks
+
+service_eks_cluster_name: financial-service-eks
+service_kube_context: financial-service-eks
+
+argocd_namespace: argocd
+argocd_release_name: argocd
+argocd_chart_ref: /opt/helm-charts/argo-cd
+argocd_image_repository: "{{ lookup('env', 'ARGOCD_IMAGE_REPOSITORY') }}"
+argocd_image_tag: "{{ lookup('env', 'ARGOCD_IMAGE_TAG') | default('latest', true) }}"
+argocd_redis_image_repository: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_REPOSITORY') }}"
+argocd_redis_image_tag: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_TAG') | default('latest', true) }}"
+
+prometheus_namespace: monitoring
+prometheus_release_name: prometheus
+prometheus_chart_ref: /opt/helm-charts/prometheus
+prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
+prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
+
+internal_git_namespace: git
+internal_git_release_name: internal-git
+internal_git_service_name: internal-git-http
+internal_git_image: "{{ lookup('env', 'INTERNAL_GIT_IMAGE') | default('gitea/gitea:1.22-rootless', true) }}"
+internal_git_http_port: 3000
+internal_git_ssh_port: 2222
+internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
+internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"
+internal_git_admin_email: "gitadmin@internal.ops.local"
+internal_git_org: gitops
+internal_git_repo: platform
+
+gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
+gitops_repo_name: internal-gitops
+
+demo_app_name: demo-redis
+demo_app_namespace: service-apps
+demo_app_path: apps/demo
+demo_app_image: "{{ argocd_redis_image_repository }}:{{ argocd_redis_image_tag }}"
+demo_argocd_application_name: demo-service-app
