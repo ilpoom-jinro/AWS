@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "실행 작업 선택: plan=검사만 실행, apply=VPC1~4/Peering/CodeBuild 생성, destroy=생성된 인프라 삭제, reapply=이미 생성된 인프라에 변경분만 반영, codebuild=Ansible CodeBuild 실행"
+        description: "실행 작업 선택: plan=검사만 실행, apply= 인프라 생성, destroy=생성된 인프라 삭제, reapply= 변경된 인프라만 반영, codebuild=Ansible CodeBuild 실행"
         required: true
         default: plan
         type: choice
