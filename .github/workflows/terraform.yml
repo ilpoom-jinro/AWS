@@ -4,13 +4,15 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - '**.tf'
-      - '.github/workflows/terraform.yml'
-  push:
-    branches: [main]
-    paths:
-      - '**.tf'
-      - '.github/workflows/terraform.yml'
+      - "**.tf"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      run_apply:
+        description: "Run terraform apply manually"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -19,6 +21,11 @@ permissions:
 
 env:
   TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
 jobs:
   plan:
@@ -27,16 +34,16 @@ jobs:
     if: github.event_name == 'pull_request'
 
     steps:
-      - name: 코드 체크아웃
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: AWS OIDC 인증
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Terraform 설치
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
@@ -44,38 +51,29 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Terraform Format 검사
-        run: terraform fmt -check
-        continue-on-error: true
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
 
       - name: Terraform Validate
-        id: validate                     
+        id: validate
         run: terraform validate -no-color
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color
-        continue-on-error: false
+        run: terraform plan -no-color -input=false
 
-      - name: PR 코멘트 게시
+      - name: Comment plan result on PR
         uses: actions/github-script@v7
         if: always()
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
             const output = `${marker}
-            ## Terraform Plan 결과
+            ## Terraform Plan Result
             **Validate:** ${{ steps.validate.outcome }}
             **Plan:** ${{ steps.plan.outcome }}
 
-            <details><summary>상세 보기</summary>
-
-            \`\`\`terraform
-            ${{ steps.plan.outputs.stdout }}
-            \`\`\`
-            </details>
-
-            *실행자: @${{ github.actor }} / 커밋: ${{ github.sha }}*`;
+            *Actor: @${{ github.actor }} / Commit: ${{ github.sha }}*`;
 
             const comments = await github.rest.issues.listComments({
               issue_number: context.issue.number,
@@ -103,20 +101,20 @@ jobs:
   apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_apply == true
     environment: production
 
     steps:
-      - name: 코드 체크아웃
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: AWS OIDC 인증
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Terraform 설치
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
@@ -124,5 +122,8 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
+      - name: Terraform Plan
+        run: terraform plan -no-color -input=false -out=tfplan
+
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -input=false tfplan
