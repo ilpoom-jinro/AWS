@@ -10,14 +10,8 @@ on:
       - "buildspec-ansible.yml"
       - "tools/**"
       - ".github/workflows/terraform.yml"
+      - ".github/workflows/terraform-operations.yml"
       - ".github/workflows/mirror-codecommit.yml"
-  workflow_dispatch:
-    inputs:
-      apply:
-        description: "Run terraform apply"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   id-token: write
@@ -25,17 +19,17 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: terraform-${{ github.ref }}
+  group: terraform-plan-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   TF_VERSION: "1.11.0"
   TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
-  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP }}
-  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP }}
-  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN }}
-  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
 
 jobs:
   plan:
@@ -74,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          terraform plan -input=false -detailed-exitcode -out=tfplan
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan
           exitcode=$?
           echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
 
@@ -95,7 +89,7 @@ jobs:
 
       - name: Comment plan result on PR
         uses: actions/github-script@v7
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
@@ -135,40 +129,3 @@ jobs:
                 body,
               });
             }
-
-  apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: plan
-    if: |
-      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.apply == true
-    environment: production
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init -reconfigure
-
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ github.sha }}
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve -input=false tfplan
-
-      - name: Terraform Outputs
-        run: terraform output
