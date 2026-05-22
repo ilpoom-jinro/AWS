@@ -8,7 +8,7 @@ on:
         description: |
           실행 작업 선택
           plan      = 검사만 실행
-          apply     = 인프라 생성
+            apply     = 인프라 생성
           destroy   = 생성된 인프라 삭제
           reapply   = 변경된 인프라만 반영
           codebuild = Ansible CodeBuild 실행
