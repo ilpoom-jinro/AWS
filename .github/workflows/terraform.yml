@@ -11,16 +11,6 @@ on:
       - "tools/**"
       - ".github/workflows/terraform.yml"
       - ".github/workflows/mirror-codecommit.yml"
-  push:
-    branches: [main]
-    paths:
-      - "**.tf"
-      - ".terraform.lock.hcl"
-      - "ansible/**"
-      - "buildspec-ansible.yml"
-      - "tools/**"
-      - ".github/workflows/terraform.yml"
-      - ".github/workflows/mirror-codecommit.yml"
   workflow_dispatch:
     inputs:
       apply:
@@ -84,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          terraform plan -no-color -detailed-exitcode -out=tfplan
+          terraform plan -no-color -input=false -detailed-exitcode -out=tfplan
           exitcode=$?
           echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
           exit 0
@@ -148,8 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: plan
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.apply == true)
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.apply == true
     environment: production
 
     steps:
@@ -176,7 +165,7 @@ jobs:
           name: tfplan-${{ github.sha }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve -input=false tfplan
 
       - name: Terraform Outputs
         run: terraform output
