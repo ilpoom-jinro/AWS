@@ -186,7 +186,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeLaunchTemplates",
           "ec2:DescribeLaunchTemplateVersions",
           "ec2:DescribeVpcPeeringConnections",
-          "ec2:DescribeAddressesAttribute"
+          "ec2:DescribeAddressesAttribute",
+          "ec2:DescribeInstances"
         ]
         Resource = "*"
       },
