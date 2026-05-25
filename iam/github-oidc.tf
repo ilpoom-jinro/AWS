@@ -198,22 +198,6 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
-        Sid    = "CodeCommitManagement"
-        Effect = "Allow"
-        Action = [
-          "codecommit:CreateRepository",
-          "codecommit:DeleteRepository",
-          "codecommit:GetRepository",
-          "codecommit:ListRepositories",
-          "codecommit:GitPull",
-          "codecommit:GitPush",
-          "codecommit:TagResource",
-          "codecommit:UntagResource",
-          "codecommit:ListTagsForResource"
-        ]
-        Resource = "*"
-      },
-      {
         Sid    = "ECRManagement"
         Effect = "Allow"
         Action = [

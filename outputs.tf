@@ -38,21 +38,6 @@ output "ops_eks_cluster_security_group_id" {
   value       = module.vpc2.eks_cluster_security_group_id
 }
 
-output "gitops_codecommit_repository_name" {
-  description = "CodeCommit repository name for GitOps"
-  value       = aws_codecommit_repository.gitops.repository_name
-}
-
-output "gitops_codecommit_clone_url_http" {
-  description = "HTTPS clone URL for the GitOps CodeCommit repository"
-  value       = aws_codecommit_repository.gitops.clone_url_http
-}
-
-output "gitops_codecommit_repository_arn" {
-  description = "CodeCommit repository ARN for GitOps"
-  value       = aws_codecommit_repository.gitops.arn
-}
-
 output "ansible_codebuild_project_name" {
   description = "CodeBuild project that runs Ansible inside the Ops VPC"
   value       = aws_codebuild_project.ansible_bootstrap.name

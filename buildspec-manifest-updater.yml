@@ -1,0 +1,110 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+
+        : "${APP_NAME:?APP_NAME is required}"
+        : "${IMAGE_URI:?IMAGE_URI is required}"
+        : "${GITOPS_BRANCH:=main}"
+
+        MANIFEST_PATH="${MANIFEST_PATH:-apps/${APP_NAME}/deployment.yaml}"
+        TARGET_CONTAINER="${TARGET_CONTAINER:-${APP_NAME}}"
+        KUBE_CONTEXT="manifest-updater-${OPS_EKS_CLUSTER_NAME}"
+        WORKDIR="/tmp/internal-gitops"
+        export MANIFEST_PATH TARGET_CONTAINER IMAGE_URI
+
+        git config --global user.name "App Deploy Bot"
+        git config --global user.email "app-deploy@internal.ops.local"
+
+        aws eks update-kubeconfig \
+          --region "${AWS_REGION}" \
+          --name "${OPS_EKS_CLUSTER_NAME}" \
+          --alias "${KUBE_CONTEXT}"
+
+        kubectl --context "${KUBE_CONTEXT}" \
+          -n "${INTERNAL_GIT_NAMESPACE}" \
+          port-forward "svc/${INTERNAL_GIT_SERVICE_NAME}" \
+          "3000:${INTERNAL_GIT_HTTP_PORT}" \
+          >/tmp/internal-git-port-forward.log 2>&1 &
+        PORT_FORWARD_PID="$!"
+        trap 'kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+
+        for i in $(seq 1 60); do
+          if curl -fsS http://127.0.0.1:3000/api/v1/version >/dev/null; then
+            break
+          fi
+          if [ "${i}" -eq 60 ]; then
+            cat /tmp/internal-git-port-forward.log || true
+            echo "Timed out waiting for internal Git port-forward."
+            exit 1
+          fi
+          sleep 2
+        done
+
+        rm -rf "${WORKDIR}"
+        git clone \
+          "http://${INTERNAL_GIT_USERNAME}:${INTERNAL_GIT_PASSWORD}@127.0.0.1:3000/${INTERNAL_GIT_ORG}/${INTERNAL_GIT_REPO}.git" \
+          "${WORKDIR}"
+        cd "${WORKDIR}"
+
+        git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
+
+        if [ ! -f "${MANIFEST_PATH}" ]; then
+          echo "Manifest file not found: ${MANIFEST_PATH}"
+          exit 1
+        fi
+
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import yaml
+
+        manifest_path = Path(os.environ["MANIFEST_PATH"])
+        image_uri = os.environ["IMAGE_URI"]
+        target_container = os.environ.get("TARGET_CONTAINER", "")
+
+        docs = list(yaml.safe_load_all(manifest_path.read_text()))
+        changed = False
+
+        def visit(node):
+          global changed
+          if isinstance(node, dict):
+            if "containers" in node and isinstance(node["containers"], list):
+              for container in node["containers"]:
+                if not isinstance(container, dict) or "image" not in container:
+                  continue
+                if not target_container or container.get("name") == target_container:
+                  if container["image"] != image_uri:
+                    container["image"] = image_uri
+                    changed = True
+            for value in node.values():
+              visit(value)
+          elif isinstance(node, list):
+            for item in node:
+              visit(item)
+
+        for doc in docs:
+          visit(doc)
+
+        if not changed:
+          print("No image change was needed.")
+        else:
+          manifest_path.write_text(
+            "---\n".join(yaml.safe_dump(doc, sort_keys=False) for doc in docs)
+          )
+          print(f"Updated {manifest_path} to {image_uri}")
+        PY
+
+        git diff -- "${MANIFEST_PATH}"
+        git add "${MANIFEST_PATH}"
+
+        if git diff --cached --quiet; then
+          echo "Internal Git manifest is already up to date."
+          exit 0
+        fi
+
+        git commit -m "deploy: ${APP_NAME} ${IMAGE_TAG:-${IMAGE_URI}}"
+        git push origin "${GITOPS_BRANCH}"

@@ -1,0 +1,172 @@
+name: App Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: "Application name passed to CodeBuild"
+        required: true
+        default: "my-app"
+        type: string
+      ecr_repository:
+        description: "ECR repository name for the application image"
+        required: true
+        default: "financial/my-app"
+        type: string
+      codebuild_project:
+        description: "CodeBuild project that updates the internal Git manifest"
+        required: true
+        default: "financial-manifest-updater"
+        type: string
+      dockerfile:
+        description: "Dockerfile path"
+        required: true
+        default: "Dockerfile"
+        type: string
+      build_context:
+        description: "Docker build context path"
+        required: true
+        default: "."
+        type: string
+      gitops_branch:
+        description: "Internal Git branch to update"
+        required: true
+        default: "main"
+        type: string
+      manifest_path:
+        description: "Manifest path in the internal GitOps repository"
+        required: false
+        default: ""
+        type: string
+      target_container:
+        description: "Container name to update inside the manifest"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: app-deploy-${{ inputs.app_name }}-${{ inputs.gitops_branch }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+
+jobs:
+  deploy:
+    name: Build Image and Trigger GitOps Update
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Prepare image metadata
+        id: image
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          image_tag="$(date -u +%Y%m%d)-${short_sha}"
+          image_uri="${REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
+
+          echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "uri=${image_uri}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check ECR repository
+        shell: bash
+        env:
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+        run: |
+          aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}"
+
+      - name: Build image
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          docker build \
+            -f "${{ inputs.dockerfile }}" \
+            -t "${IMAGE_URI}" \
+            "${{ inputs.build_context }}"
+
+      - name: Push image
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          docker push "${IMAGE_URI}"
+
+      - name: Start manifest update CodeBuild
+        id: codebuild
+        shell: bash
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          CODEBUILD_PROJECT: ${{ inputs.codebuild_project }}
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          GITOPS_BRANCH: ${{ inputs.gitops_branch }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          TARGET_CONTAINER: ${{ inputs.target_container }}
+        run: |
+          MANIFEST_PATH="${MANIFEST_PATH:-apps/${APP_NAME}/deployment.yaml}"
+          TARGET_CONTAINER="${TARGET_CONTAINER:-${APP_NAME}}"
+
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${CODEBUILD_PROJECT}" \
+              --environment-variables-override \
+                name=APP_NAME,value="${APP_NAME}",type=PLAINTEXT \
+                name=IMAGE_TAG,value="${IMAGE_TAG}",type=PLAINTEXT \
+                name=IMAGE_URI,value="${IMAGE_URI}",type=PLAINTEXT \
+                name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
+                name=ECR_REPOSITORY,value="${ECR_REPOSITORY}",type=PLAINTEXT \
+                name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
+                name=MANIFEST_PATH,value="${MANIFEST_PATH}",type=PLAINTEXT \
+                name=TARGET_CONTAINER,value="${TARGET_CONTAINER}",type=PLAINTEXT \
+              --query 'build.id' \
+              --output text
+          )"
+
+          echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "Started CodeBuild: ${build_id}"
+
+      - name: Wait for CodeBuild
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.id }}
+        run: |
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done
