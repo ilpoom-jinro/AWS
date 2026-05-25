@@ -1,0 +1,244 @@
+name: Terraform plan / apply / destroy / reapply / codebuild on main branch
+run-name: Terraform 운영 작업 - ${{ inputs.action }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: |
+          실행 작업 선택
+          plan      = 검사만 실행       
+          apply     = 인프라 생성
+          destroy   = 생성된 인프라 삭제
+          reapply   = 변경된 인프라만 반영
+          codebuild = Ansible CodeBuild 실행
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+          - reapply
+          - codebuild
+      confirm_destroy:
+        description: |
+          destroy 실행 시에만 true로 체크하세요.
+          plan/apply/reapply/codebuild에서는 체크하지 않아도 됩니다.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-operations-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+
+jobs:
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && inputs.action == 'plan'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        shell: bash
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan
+          exitcode=$?
+
+          if [ "${exitcode}" -eq 1 ]; then
+            echo "::error::Terraform plan failed. Check the Terraform Plan step logs for the error details."
+            exit 1
+          fi
+
+          if [ "${exitcode}" -eq 2 ]; then
+            terraform show -no-color tfplan
+          fi
+
+          exit 0
+
+  infrastructure:
+    name: Terraform ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    if: |
+      github.ref == 'refs/heads/main' &&
+      contains(fromJSON('["apply","destroy","reapply"]'), inputs.action) &&
+      (inputs.action != 'destroy' || inputs.confirm_destroy == true)
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Destroy CodeBuild project
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=aws_codebuild_project.ansible_bootstrap
+
+      - name: Destroy CodeBuild permissions, EKS access, and security group
+        if: inputs.action == 'destroy'
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
+          -target=aws_eks_access_entry.ansible_codebuild_ops
+          -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
+          -target=aws_eks_access_entry.ansible_codebuild_service
+          -target=aws_security_group.ansible_codebuild
+          -target=aws_iam_role_policy.ansible_codebuild
+          -target=aws_iam_role.ansible_codebuild
+
+      - name: Destroy VPC peering
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
+
+      - name: Destroy VPCs and EKS
+        if: inputs.action == 'destroy'
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=module.vpc4
+          -target=module.vpc3
+          -target=module.vpc2
+          -target=module.vpc1
+
+      - name: Apply VPCs and EKS
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.vpc1
+          -target=module.vpc2
+          -target=module.vpc3
+          -target=module.vpc4
+
+      - name: Apply VPC peering
+        if: inputs.action == 'apply'
+        run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
+
+      - name: Apply CodeBuild permissions, security group, and project
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_security_group.ansible_codebuild
+          -target=aws_iam_role.ansible_codebuild
+          -target=aws_iam_role_policy.ansible_codebuild
+          -target=aws_eks_access_entry.ansible_codebuild_ops
+          -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
+          -target=aws_eks_access_entry.ansible_codebuild_service
+          -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
+          -target=aws_codebuild_project.ansible_bootstrap
+
+      - name: Re-apply changed infrastructure
+        if: inputs.action == 'reapply'
+        run: terraform apply -auto-approve -input=false -lock-timeout=5m
+
+      - name: Final Terraform Plan
+        if: inputs.action == 'apply' || inputs.action == 'reapply'
+        shell: bash
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=final.tfplan
+          exitcode=$?
+
+          if [ "${exitcode}" -eq 1 ]; then
+            echo "::error::Final terraform plan failed."
+            exit 1
+          fi
+
+          if [ "${exitcode}" -eq 2 ]; then
+            terraform show -no-color final.tfplan
+            echo "::error::Final terraform plan still has pending changes. Inspect the plan before running CodeBuild."
+            exit 1
+          fi
+
+          echo "Final terraform plan has no changes."
+
+  codebuild:
+    name: Run Ansible CodeBuild
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && inputs.action == 'codebuild'
+    environment: production
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start build and wait
+        shell: bash
+        run: |
+          build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
+          echo "Started CodeBuild: ${build_id}"
+
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done
