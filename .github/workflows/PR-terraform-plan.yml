@@ -1,4 +1,4 @@
-name: Terraform
+name: PR 용 Terraform Plan
 
 on:
   pull_request:
