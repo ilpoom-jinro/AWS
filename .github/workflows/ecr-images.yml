@@ -1,0 +1,90 @@
+name: Build ECR Images
+
+on:
+  push:
+    branches:
+      - main
+      - feature/eks
+    paths:
+      - "ansible/**"
+      - "buildspec-ansible.yml"
+      - "tools/ansible-codebuild/**"
+      - ".github/workflows/ecr-images.yml"
+  workflow_dispatch:
+    inputs:
+      build_ansible_codebuild:
+        description: "Build and push the Ansible CodeBuild runtime image"
+        required: true
+        default: true
+        type: boolean
+      mirror_internal_git:
+        description: "Mirror the internal Git image into ECR"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
+  INTERNAL_GIT_REPOSITORY: financial/internal-git
+  INTERNAL_GIT_SOURCE_IMAGE: gitea/gitea:1.22-rootless
+
+jobs:
+  images:
+    name: Build and Push ECR Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Check ECR repositories
+        run: |
+          aws ecr describe-repositories --repository-names "${ANSIBLE_CODEBUILD_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${INTERNAL_GIT_REPOSITORY}"
+
+      - name: Build and push Ansible CodeBuild image
+        if: github.event_name == 'push' || inputs.build_ansible_codebuild == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ANSIBLE_CODEBUILD_REPOSITORY}"
+
+          docker build \
+            -f tools/ansible-codebuild/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            .
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Mirror internal Git image to ECR
+        if: github.event_name == 'push' || inputs.mirror_internal_git == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${INTERNAL_GIT_REPOSITORY}"
+
+          docker pull "${INTERNAL_GIT_SOURCE_IMAGE}"
+          docker tag "${INTERNAL_GIT_SOURCE_IMAGE}" "${IMAGE_URI}:${IMAGE_TAG}"
+          docker tag "${INTERNAL_GIT_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"

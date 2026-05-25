@@ -1,0 +1,252 @@
+- name: Verify Argo CD can deploy a demo app to the Service EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Update kubeconfig for the Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --alias {{ service_kube_context }}
+      changed_when: false
+
+    - name: Ensure service application namespace exists
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ demo_app_namespace }}"
+
+  tasks:
+    - name: Ensure Argo CD manager service account exists in the Service cluster
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: argocd-manager
+            namespace: kube-system
+
+    - name: Ensure Argo CD manager has cluster admin access in the Service cluster
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: argocd-manager-cluster-admin
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+            - kind: ServiceAccount
+              name: argocd-manager
+              namespace: kube-system
+
+    - name: Ensure long-lived token secret exists for Argo CD manager
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: argocd-manager-token
+            namespace: kube-system
+            annotations:
+              kubernetes.io/service-account.name: argocd-manager
+          type: kubernetes.io/service-account-token
+
+    - name: Read Argo CD manager token
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n kube-system
+          get secret argocd-manager-token
+          -o jsonpath={.data.token}
+      register: service_cluster_token_b64
+      retries: 30
+      delay: 2
+      until: service_cluster_token_b64.stdout | length > 0
+      changed_when: false
+      no_log: true
+
+    - name: Describe Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks describe-cluster
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --query cluster
+          --output json
+      register: service_cluster_description
+      changed_when: false
+
+    - name: Register Service EKS cluster in Argo CD
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cluster-{{ service_eks_cluster_name }}
+            namespace: "{{ argocd_namespace }}"
+            labels:
+              argocd.argoproj.io/secret-type: cluster
+          stringData:
+            name: "{{ service_eks_cluster_name }}"
+            server: "{{ (service_cluster_description.stdout | from_json).endpoint }}"
+            config: >-
+              {{
+                {
+                  "bearerToken": service_cluster_token_b64.stdout | b64decode,
+                  "tlsClientConfig": {
+                    "insecure": false,
+                    "caData": (service_cluster_description.stdout | from_json).certificateAuthority.data
+                  }
+                } | to_json
+              }}
+      no_log: true
+
+    - name: Start local port-forward to internal Git service
+      ansible.builtin.shell: |
+        set -e
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          port-forward svc/{{ internal_git_service_name }} 3000:{{ internal_git_http_port }} \
+          >/tmp/internal-git-demo-port-forward.log 2>&1 &
+        echo $!
+      changed_when: false
+
+    - name: Wait for internal Git API through port-forward
+      ansible.builtin.uri:
+        url: http://127.0.0.1:3000/api/v1/version
+        method: GET
+        status_code: 200
+      register: internal_git_demo_api_probe
+      retries: 30
+      delay: 2
+      until: internal_git_demo_api_probe.status == 200
+
+    - name: Push demo app manifests to internal Git
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/internal-gitops-demo
+        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:3000/{{ internal_git_org }}/{{ internal_git_repo }}.git" /tmp/internal-gitops-demo
+        cd /tmp/internal-gitops-demo
+        git config user.name "GitOps Bootstrap"
+        git config user.email "gitops-bootstrap@internal.ops.local"
+        mkdir -p "{{ demo_app_path }}"
+        cat > "{{ demo_app_path }}/deployment.yaml" <<EOF
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: {{ demo_app_name }}
+          namespace: {{ demo_app_namespace }}
+          labels:
+            app.kubernetes.io/name: {{ demo_app_name }}
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: {{ demo_app_name }}
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: {{ demo_app_name }}
+            spec:
+              containers:
+                - name: redis
+                  image: {{ demo_app_image }}
+                  imagePullPolicy: IfNotPresent
+                  ports:
+                    - name: redis
+                      containerPort: 6379
+        EOF
+        cat > "{{ demo_app_path }}/service.yaml" <<EOF
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: {{ demo_app_name }}
+          namespace: {{ demo_app_namespace }}
+          labels:
+            app.kubernetes.io/name: {{ demo_app_name }}
+        spec:
+          type: ClusterIP
+          selector:
+            app.kubernetes.io/name: {{ demo_app_name }}
+          ports:
+            - name: redis
+              port: 6379
+              targetPort: redis
+        EOF
+        git add "{{ demo_app_path }}/deployment.yaml" "{{ demo_app_path }}/service.yaml"
+        git diff --cached --quiet && exit 0
+        git commit -m "Add demo service app"
+        git push origin main
+      no_log: true
+
+    - name: Create Argo CD Application for the demo app
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: "{{ demo_argocd_application_name }}"
+            namespace: "{{ argocd_namespace }}"
+          spec:
+            project: default
+            source:
+              repoURL: "{{ gitops_repo_url }}"
+              targetRevision: main
+              path: "{{ demo_app_path }}"
+            destination:
+              name: "{{ service_eks_cluster_name }}"
+              namespace: "{{ demo_app_namespace }}"
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+              syncOptions:
+                - CreateNamespace=true
+
+    - name: Wait for demo app deployment to be created in the Service cluster
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n {{ demo_app_namespace }}
+          get deployment/{{ demo_app_name }}
+      register: demo_app_deployment_probe
+      retries: 60
+      delay: 5
+      until: demo_app_deployment_probe.rc == 0
+      changed_when: false
+
+    - name: Wait for demo app deployment in the Service cluster
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n {{ demo_app_namespace }}
+          rollout status deployment/{{ demo_app_name }}
+          --timeout=300s
+      changed_when: false

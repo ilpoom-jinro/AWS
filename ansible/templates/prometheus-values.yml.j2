@@ -1,0 +1,29 @@
+alertmanager:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+server:
+  image:
+    repository: "{{ prometheus_image_repository }}"
+    tag: "{{ prometheus_image_tag }}"
+    pullPolicy: IfNotPresent
+  persistentVolume:
+    enabled: false
+  service:
+    type: ClusterIP
+  retention: "7d"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
