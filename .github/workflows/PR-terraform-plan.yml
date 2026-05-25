@@ -1,4 +1,4 @@
-name: PR 용 Terraform Plan
+name: PR 후 자동 Terraform Plan
 
 on:
   pull_request:

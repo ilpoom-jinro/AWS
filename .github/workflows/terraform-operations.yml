@@ -1,4 +1,4 @@
-name: Terraform Operations
+name: Terraform plan / apply / destroy / reapply / codebuild on main branch
 run-name: Terraform 운영 작업 - ${{ inputs.action }}
 
 on:
