@@ -28,7 +28,7 @@ resource "aws_iam_role" "github_actions" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = {
         Federated = aws_iam_openid_connect_provider.github.arn
       }
@@ -177,6 +177,29 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeAvailabilityZones",
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeAccountAttributes"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AppImagePush"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:CompleteLayerUpload",
+          "ecr:DescribeRepositories",
+          "ecr:GetAuthorizationToken",
+          "ecr:InitiateLayerUpload",
+          "ecr:PutImage",
+          "ecr:UploadLayerPart"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ManifestUpdateCodeBuild"
+        Effect = "Allow"
+        Action = [
+          "codebuild:BatchGetBuilds",
+          "codebuild:StartBuild"
         ]
         Resource = "*"
       }
