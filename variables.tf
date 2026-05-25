@@ -19,6 +19,60 @@ variable "tailscale_auth_key" {
   sensitive   = true
 }
 
+variable "ansible_codebuild_image" {
+  description = "CodeBuild image that includes ansible, kubectl, helm, awscli, and python kubernetes dependencies"
+  type        = string
+  default     = null
+}
+
+variable "ansible_codebuild_image_repository_name" {
+  description = "ECR repository name for the Ansible CodeBuild runtime image"
+  type        = string
+  default     = "financial/ansible-codebuild"
+}
+
+variable "internal_git_image_repository_name" {
+  description = "ECR repository name for the internal Git runtime image"
+  type        = string
+  default     = "financial/internal-git"
+}
+
+variable "argocd_image_repository_name" {
+  description = "ECR repository name for the mirrored Argo CD image"
+  type        = string
+  default     = "financial/argocd"
+}
+
+variable "argocd_redis_image_repository_name" {
+  description = "ECR repository name for the mirrored Argo CD Redis image"
+  type        = string
+  default     = "financial/argocd-redis"
+}
+
+variable "prometheus_image_repository_name" {
+  description = "ECR repository name for the mirrored Prometheus image"
+  type        = string
+  default     = "financial/prometheus"
+}
+
+variable "argocd_image_tag" {
+  description = "Argo CD image tag used by the Helm release"
+  type        = string
+  default     = "latest"
+}
+
+variable "argocd_redis_image_tag" {
+  description = "Argo CD Redis image tag used by the Helm release"
+  type        = string
+  default     = "latest"
+}
+
+variable "prometheus_image_tag" {
+  description = "Prometheus image tag used by the Helm release"
+  type        = string
+  default     = "v3.7.3"
+}
+
 variable "manifest_updater_codebuild_project_name" {
   description = "CodeBuild project name for updating internal GitOps manifests"
   type        = string
