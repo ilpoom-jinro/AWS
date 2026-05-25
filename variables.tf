@@ -18,3 +18,76 @@ variable "tailscale_auth_key" {
   type        = string
   sensitive   = true
 }
+
+variable "manifest_updater_codebuild_project_name" {
+  description = "CodeBuild project name for updating internal GitOps manifests"
+  type        = string
+  default     = "financial-manifest-updater"
+}
+
+variable "manifest_updater_image" {
+  description = "Full CodeBuild runtime image URI. If null, the repository name and tag variables are used."
+  type        = string
+  default     = null
+}
+
+variable "manifest_updater_image_repository_name" {
+  description = "ECR repository name for the CodeBuild runtime image with git, awscli, kubectl, and python yaml"
+  type        = string
+  default     = "financial/ansible-codebuild"
+}
+
+variable "manifest_updater_image_tag" {
+  description = "Runtime image tag for the manifest updater CodeBuild project"
+  type        = string
+  default     = "latest"
+}
+
+variable "ops_eks_cluster_name" {
+  description = "Ops EKS cluster name where internal Git runs"
+  type        = string
+  default     = "financial-ops-eks"
+}
+
+variable "internal_git_namespace" {
+  description = "Kubernetes namespace for the internal Git service"
+  type        = string
+  default     = "git"
+}
+
+variable "internal_git_service_name" {
+  description = "Kubernetes service name for internal Git HTTP"
+  type        = string
+  default     = "internal-git-http"
+}
+
+variable "internal_git_http_port" {
+  description = "Kubernetes service port for internal Git HTTP"
+  type        = number
+  default     = 3000
+}
+
+variable "internal_git_org" {
+  description = "Internal Git organization that owns the GitOps repository"
+  type        = string
+  default     = "gitops"
+}
+
+variable "internal_git_repo" {
+  description = "Internal GitOps repository name"
+  type        = string
+  default     = "platform"
+}
+
+variable "internal_git_admin_username" {
+  description = "Internal Git username used by the manifest updater"
+  type        = string
+  default     = "gitadmin"
+}
+
+variable "internal_git_admin_password" {
+  description = "Internal Git password used by the manifest updater"
+  type        = string
+  sensitive   = true
+  default     = "ChangeMe1234"
+}

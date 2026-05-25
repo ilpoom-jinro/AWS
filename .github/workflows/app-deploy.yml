@@ -33,6 +33,16 @@ on:
         required: true
         default: "main"
         type: string
+      manifest_path:
+        description: "Manifest path in the internal GitOps repository"
+        required: false
+        default: ""
+        type: string
+      target_container:
+        description: "Container name to update inside the manifest"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   id-token: write
@@ -114,7 +124,12 @@ jobs:
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           IMAGE_URI: ${{ steps.image.outputs.uri }}
+          MANIFEST_PATH: ${{ inputs.manifest_path }}
+          TARGET_CONTAINER: ${{ inputs.target_container }}
         run: |
+          MANIFEST_PATH="${MANIFEST_PATH:-apps/${APP_NAME}/deployment.yaml}"
+          TARGET_CONTAINER="${TARGET_CONTAINER:-${APP_NAME}}"
+
           build_id="$(
             aws codebuild start-build \
               --project-name "${CODEBUILD_PROJECT}" \
@@ -125,6 +140,8 @@ jobs:
                 name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
                 name=ECR_REPOSITORY,value="${ECR_REPOSITORY}",type=PLAINTEXT \
                 name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
+                name=MANIFEST_PATH,value="${MANIFEST_PATH}",type=PLAINTEXT \
+                name=TARGET_CONTAINER,value="${TARGET_CONTAINER}",type=PLAINTEXT \
               --query 'build.id' \
               --output text
           )"
