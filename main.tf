@@ -1,5 +1,6 @@
 module "iam" {
-  source = "./iam"
+  source   = "./iam"
+  dev_mode = var.dev_mode
 }
 
 module "vpc1" {

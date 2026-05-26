@@ -157,3 +157,9 @@ variable "internal_git_admin_password" {
   sensitive   = true
   default     = "ChangeMe1234"
 }
+
+variable "dev_mode" {
+  description = "개발 기간 임시 전체 권한 플래그"
+  type        = bool
+  default     = false
+}
