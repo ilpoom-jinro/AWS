@@ -133,6 +133,62 @@
         wait: true
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
+      register: istio_cni_helm_results
+      ignore_errors: true
+
+    - name: Show Istio CNI pod state when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ istio_cni_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio CNI recent events when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ istio_cni_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe Istio CNI daemonset when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe daemonset istio-cni-node
+      loop: "{{ istio_cni_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio CNI Helm status when install fails
+      ansible.builtin.command:
+        cmd: >
+          helm --kube-context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          status istio-cni
+      loop: "{{ istio_cni_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Istio CNI install fails
+      ansible.builtin.fail:
+        msg: "Istio CNI Helm install failed. Check the pod, event, daemonset, and Helm status output above."
+      when: >
+        istio_cni_helm_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
 
     - name: Install or upgrade Istio ztunnel
       kubernetes.core.helm:
