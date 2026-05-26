@@ -201,6 +201,62 @@
         wait: true
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
+      register: ztunnel_helm_results
+      ignore_errors: true
+
+    - name: Show ztunnel pod state when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ ztunnel_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show ztunnel recent events when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ ztunnel_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe ztunnel daemonset when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe daemonset ztunnel
+      loop: "{{ ztunnel_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show ztunnel Helm status when install fails
+      ansible.builtin.command:
+        cmd: >
+          helm --kube-context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          status ztunnel
+      loop: "{{ ztunnel_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when ztunnel install fails
+      ansible.builtin.fail:
+        msg: "ztunnel Helm install failed. Check the pod, event, daemonset, and Helm status output above."
+      when: >
+        ztunnel_helm_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
 
     - name: Ensure ambient namespaces exist
       kubernetes.core.k8s:
