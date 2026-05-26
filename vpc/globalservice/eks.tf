@@ -57,6 +57,16 @@ resource "aws_eks_cluster" "service" {
   ]
 }
 
+resource "aws_security_group_rule" "eks_cluster_api_from_ops" {
+  type              = "ingress"
+  description       = "Allow Ops VPC automation to access the private EKS API"
+  security_group_id = aws_eks_cluster.service.vpc_config[0].cluster_security_group_id
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = [var.vpc2_cidr]
+}
+
 resource "aws_iam_role" "eks_node" {
   name = "${var.eks_cluster_name}-node-role"
 

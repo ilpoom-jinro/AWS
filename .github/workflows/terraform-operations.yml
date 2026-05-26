@@ -12,6 +12,7 @@ on:
           destroy   = 생성된 인프라 삭제
           reapply   = 변경된 인프라만 반영
           ecr       = ECR repository만 반영
+          peering12 = Service VPC와 Ops VPC peering만 반영
           codebuild = Ansible CodeBuild 실행
         required: true
         default: plan
@@ -22,6 +23,7 @@ on:
           - destroy
           - reapply
           - ecr
+          - peering12
           - codebuild
       confirm_destroy:
         description: |
@@ -101,7 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.ref == 'refs/heads/main' &&
-      contains(fromJSON('["apply","destroy","reapply","ecr"]'), inputs.action) &&
+      contains(fromJSON('["apply","destroy","reapply","ecr","peering12"]'), inputs.action) &&
       (inputs.action != 'destroy' || inputs.confirm_destroy == true)
     environment: production
 
@@ -170,6 +172,17 @@ jobs:
       - name: Apply VPC peering
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
+
+      - name: Apply Service-Ops VPC peering
+        if: inputs.action == 'peering12'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.vpc_peering.aws_vpc_peering_connection.vpc1_vpc2
+          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_public
+          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_private
+          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_db
+          -target=module.vpc_peering.aws_route.vpc2_to_vpc1_private
+          -target=module.vpc_peering.aws_route.vpc2_to_vpc1_db
 
       - name: Apply ECR repositories
         if: inputs.action == 'apply' || inputs.action == 'ecr'
@@ -251,6 +264,32 @@ jobs:
           build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
           echo "Started CodeBuild: ${build_id}"
 
+          print_build_diagnostics() {
+            echo "::group::CodeBuild phases"
+            aws codebuild batch-get-builds \
+              --ids "${build_id}" \
+              --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
+              --output json || true
+            echo "::endgroup::"
+
+            log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
+            log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
+            deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
+
+            echo "CloudWatch log link: ${deep_link}"
+
+            if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
+              echo "::group::CodeBuild CloudWatch logs"
+              aws logs get-log-events \
+                --log-group-name "${log_group}" \
+                --log-stream-name "${log_stream}" \
+                --limit 200 \
+                --query 'events[].message' \
+                --output text || true
+              echo "::endgroup::"
+            fi
+          }
+
           while true; do
             status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
             echo "CodeBuild status: ${status}"
@@ -261,6 +300,7 @@ jobs:
                 ;;
               FAILED|FAULT|STOPPED|TIMED_OUT)
                 echo "::error::CodeBuild finished with status ${status}."
+                print_build_diagnostics
                 exit 1
                 ;;
             esac

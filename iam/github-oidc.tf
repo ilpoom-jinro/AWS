@@ -191,6 +191,15 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeInstanceCreditSpecifications",
           "ec2:DescribeIamInstanceProfileAssociations",
           "ec2:DescribeInstanceTypes",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances",
+          "ec2:StartInstances",
+          "ec2:StopInstances",
+          "ec2:RebootInstances",
+          "ec2:ModifyInstanceAttribute",
+          "ec2:AssociateIamInstanceProfile",
+          "ec2:DisassociateIamInstanceProfile",
+          "ec2:ReplaceIamInstanceProfileAssociation",
           "ec2:DescribeVolumes",
           "ec2:DescribeVolumesModifications",
           "ec2:DescribeVpcPeeringConnections",
@@ -285,6 +294,17 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "codebuild:StartBuild",
           "codebuild:BatchGetBuilds",
           "codebuild:ListBuildsForProject"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchLogsRead"
+        Effect = "Allow"
+        Action = [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
         ]
         Resource = "*"
       },
