@@ -1,0 +1,124 @@
+- name: Install Istio ambient mesh on Service and Ops EKS clusters
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    istio_clusters:
+      - name: service
+        cluster_name: "{{ service_eks_cluster_name }}"
+        kube_context: "{{ service_kube_context }}"
+        ambient_namespaces: "{{ service_ambient_namespaces }}"
+      - name: ops
+        cluster_name: "{{ ops_eks_cluster_name }}"
+        kube_context: "{{ ops_kube_context }}"
+        ambient_namespaces: "{{ ops_ambient_namespaces }}"
+
+    istio_values:
+      profile: ambient
+      global:
+        hub: "{{ istio_image_hub }}"
+        tag: "{{ istio_image_tag }}"
+      hub: "{{ istio_image_hub }}"
+      tag: "{{ istio_image_tag }}"
+
+  tasks:
+    - name: Update kubeconfig for Istio target clusters
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ item.cluster_name }}
+          --alias {{ item.kube_context }}
+      loop: "{{ istio_clusters }}"
+      changed_when: false
+
+    - name: Ensure Istio namespace exists
+      kubernetes.core.k8s:
+        context: "{{ item.kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ istio_namespace }}"
+      loop: "{{ istio_clusters }}"
+
+    - name: Install or upgrade Istio base
+      kubernetes.core.helm:
+        context: "{{ item.kube_context }}"
+        release_name: istio-base
+        release_namespace: "{{ istio_namespace }}"
+        chart_ref: "{{ istio_base_chart_ref }}"
+        create_namespace: true
+        wait: true
+        timeout: 10m
+      loop: "{{ istio_clusters }}"
+
+    - name: Install or upgrade Istio discovery control plane
+      kubernetes.core.helm:
+        context: "{{ item.kube_context }}"
+        release_name: istiod
+        release_namespace: "{{ istio_namespace }}"
+        chart_ref: "{{ istio_istiod_chart_ref }}"
+        create_namespace: true
+        values: "{{ istio_values }}"
+        wait: true
+        timeout: 10m
+      loop: "{{ istio_clusters }}"
+
+    - name: Install or upgrade Istio CNI for ambient mode
+      kubernetes.core.helm:
+        context: "{{ item.kube_context }}"
+        release_name: istio-cni
+        release_namespace: "{{ istio_namespace }}"
+        chart_ref: "{{ istio_cni_chart_ref }}"
+        create_namespace: true
+        values: "{{ istio_values }}"
+        wait: true
+        timeout: 10m
+      loop: "{{ istio_clusters }}"
+
+    - name: Install or upgrade Istio ztunnel
+      kubernetes.core.helm:
+        context: "{{ item.kube_context }}"
+        release_name: ztunnel
+        release_namespace: "{{ istio_namespace }}"
+        chart_ref: "{{ istio_ztunnel_chart_ref }}"
+        create_namespace: true
+        values: "{{ istio_values }}"
+        wait: true
+        timeout: 10m
+      loop: "{{ istio_clusters }}"
+
+    - name: Ensure ambient namespaces exist
+      kubernetes.core.k8s:
+        context: "{{ item.0.kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ item.1 }}"
+      loop: "{{ istio_clusters | subelements('ambient_namespaces') }}"
+
+    - name: Enroll selected namespaces into Istio ambient mesh
+      kubernetes.core.k8s:
+        context: "{{ item.0.kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ item.1 }}"
+            labels:
+              istio.io/dataplane-mode: ambient
+      loop: "{{ istio_clusters | subelements('ambient_namespaces') }}"
+
+    - name: Verify Istio pods
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods
+      loop: "{{ istio_clusters }}"
+      changed_when: false

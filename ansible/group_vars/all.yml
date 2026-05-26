@@ -20,6 +20,18 @@ prometheus_chart_ref: /opt/helm-charts/prometheus
 prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
 prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
 
+istio_namespace: istio-system
+istio_base_chart_ref: /opt/helm-charts/base
+istio_istiod_chart_ref: /opt/helm-charts/istiod
+istio_cni_chart_ref: /opt/helm-charts/cni
+istio_ztunnel_chart_ref: /opt/helm-charts/ztunnel
+istio_image_hub: "{{ lookup('env', 'ISTIO_IMAGE_HUB') }}"
+istio_image_tag: "{{ lookup('env', 'ISTIO_IMAGE_TAG') | default('1.30.0', true) }}"
+service_ambient_namespaces:
+  - service-apps
+ops_ambient_namespaces:
+  - agents
+
 internal_git_namespace: git
 internal_git_release_name: internal-git
 internal_git_service_name: internal-git-http

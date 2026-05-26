@@ -209,6 +209,16 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "ISTIO_IMAGE_HUB"
+      value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.istio_image_repository_prefix}"
+    }
+
+    environment_variable {
+      name  = "ISTIO_IMAGE_TAG"
+      value = var.istio_image_tag
+    }
+
+    environment_variable {
       name  = "INTERNAL_GIT_ADMIN_USERNAME"
       value = var.internal_git_admin_username
     }

@@ -73,6 +73,18 @@ variable "prometheus_image_tag" {
   default     = "v3.7.3"
 }
 
+variable "istio_image_repository_prefix" {
+  description = "ECR repository prefix for mirrored Istio images"
+  type        = string
+  default     = "financial/istio"
+}
+
+variable "istio_image_tag" {
+  description = "Istio image tag and Helm chart version"
+  type        = string
+  default     = "1.30.0"
+}
+
 variable "manifest_updater_codebuild_project_name" {
   description = "CodeBuild project name for updating internal GitOps manifests"
   type        = string
