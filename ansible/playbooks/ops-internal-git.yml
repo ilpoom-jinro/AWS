@@ -128,12 +128,34 @@
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |
         set -e
-        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+        pkill -f "kubectl.*port-forward.*svc/{{ internal_git_service_name }}.*3000:{{ internal_git_http_port }}" || true
+        rm -f /tmp/internal-git-port-forward.log
+        nohup kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           port-forward svc/{{ internal_git_service_name }} 3000:{{ internal_git_http_port }} \
           >/tmp/internal-git-port-forward.log 2>&1 &
         echo $!
       changed_when: false
       register: internal_git_port_forward_pid
+
+    - name: Wait for internal Git port-forward listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 3000
+        timeout: 30
+      register: internal_git_port_forward_wait
+      failed_when: false
+
+    - name: Show internal Git port-forward log when listener is not ready
+      ansible.builtin.command:
+        cmd: cat /tmp/internal-git-port-forward.log
+      when: internal_git_port_forward_wait.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when internal Git port-forward listener is not ready
+      ansible.builtin.fail:
+        msg: "Internal Git port-forward did not open 127.0.0.1:3000. Check the port-forward log above."
+      when: internal_git_port_forward_wait.failed | default(false)
 
     - name: Wait for internal Git API through port-forward
       ansible.builtin.uri:
@@ -144,6 +166,19 @@
       retries: 30
       delay: 2
       until: internal_git_api_probe.status == 200
+      ignore_errors: true
+
+    - name: Show internal Git port-forward log when API probe fails
+      ansible.builtin.command:
+        cmd: cat /tmp/internal-git-port-forward.log
+      when: internal_git_api_probe.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when internal Git API is not ready through port-forward
+      ansible.builtin.fail:
+        msg: "Internal Git API did not respond through 127.0.0.1:3000. Check the port-forward log above."
+      when: internal_git_api_probe.failed | default(false)
 
     - name: Ensure GitOps organization exists
       ansible.builtin.uri:
