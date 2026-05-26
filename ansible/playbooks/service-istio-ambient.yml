@@ -33,15 +33,13 @@
       changed_when: false
 
     - name: Ensure Istio namespace exists
-      kubernetes.core.k8s:
-        context: "{{ item.kube_context }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ istio_namespace }}"
+      ansible.builtin.shell: >
+          kubectl --context {{ item.kube_context }}
+          create namespace {{ istio_namespace }}
+          --dry-run=client -o yaml
+          | kubectl --context {{ item.kube_context }} apply -f -
       loop: "{{ istio_clusters }}"
+      changed_when: false
 
     - name: Install or upgrade Istio base
       kubernetes.core.helm:
@@ -259,28 +257,23 @@
         | length > 0
 
     - name: Ensure ambient namespaces exist
-      kubernetes.core.k8s:
-        context: "{{ item.0.kube_context }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ item.1 }}"
+      ansible.builtin.shell: >
+          kubectl --context {{ item.0.kube_context }}
+          create namespace {{ item.1 }}
+          --dry-run=client -o yaml
+          | kubectl --context {{ item.0.kube_context }} apply -f -
       loop: "{{ istio_clusters | subelements('ambient_namespaces') }}"
+      changed_when: false
 
     - name: Enroll selected namespaces into Istio ambient mesh
-      kubernetes.core.k8s:
-        context: "{{ item.0.kube_context }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ item.1 }}"
-            labels:
-              istio.io/dataplane-mode: ambient
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.0.kube_context }}
+          label namespace {{ item.1 }}
+          istio.io/dataplane-mode=ambient
+          --overwrite
       loop: "{{ istio_clusters | subelements('ambient_namespaces') }}"
+      changed_when: false
 
     - name: Verify Istio pods
       ansible.builtin.command:

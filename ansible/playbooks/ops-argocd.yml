@@ -13,14 +13,12 @@
       changed_when: false
 
     - name: Ensure Argo CD namespace exists
-      kubernetes.core.k8s:
-        context: "{{ ops_kube_context }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ argocd_namespace }}"
+      ansible.builtin.shell: >
+          kubectl --context {{ ops_kube_context }}
+          create namespace {{ argocd_namespace }}
+          --dry-run=client -o yaml
+          | kubectl --context {{ ops_kube_context }} apply -f -
+      changed_when: false
 
   tasks:
     - name: Install or upgrade Argo CD
