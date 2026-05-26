@@ -11,6 +11,7 @@ on:
           apply     = 인프라 생성
           destroy   = 생성된 인프라 삭제
           reapply   = 변경된 인프라만 반영
+          ecr       = ECR repository만 반영
           codebuild = Ansible CodeBuild 실행
         required: true
         default: plan
@@ -20,6 +21,7 @@ on:
           - apply
           - destroy
           - reapply
+          - ecr
           - codebuild
       confirm_destroy:
         description: |
@@ -99,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.ref == 'refs/heads/main' &&
-      contains(fromJSON('["apply","destroy","reapply"]'), inputs.action) &&
+      contains(fromJSON('["apply","destroy","reapply","ecr"]'), inputs.action) &&
       (inputs.action != 'destroy' || inputs.confirm_destroy == true)
     environment: production
 
@@ -170,7 +172,7 @@ jobs:
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
 
       - name: Apply ECR repositories
-        if: inputs.action == 'apply'
+        if: inputs.action == 'apply' || inputs.action == 'ecr'
         run: >
           terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=aws_ecr_repository.ansible_codebuild
