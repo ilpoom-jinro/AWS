@@ -169,6 +169,29 @@ jobs:
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
 
+      - name: Apply ECR repositories
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_ecr_repository.ansible_codebuild
+          -target=aws_ecr_lifecycle_policy.ansible_codebuild
+          -target=aws_ecr_repository.internal_git
+          -target=aws_ecr_lifecycle_policy.internal_git
+          -target=aws_ecr_repository.argocd
+          -target=aws_ecr_lifecycle_policy.argocd
+          -target=aws_ecr_repository.argocd_redis
+          -target=aws_ecr_lifecycle_policy.argocd_redis
+          -target=aws_ecr_repository.prometheus
+          -target=aws_ecr_lifecycle_policy.prometheus
+          -target=aws_ecr_repository.istio_pilot
+          -target=aws_ecr_lifecycle_policy.istio_pilot
+          -target=aws_ecr_repository.istio_proxyv2
+          -target=aws_ecr_lifecycle_policy.istio_proxyv2
+          -target=aws_ecr_repository.istio_install_cni
+          -target=aws_ecr_lifecycle_policy.istio_install_cni
+          -target=aws_ecr_repository.istio_ztunnel
+          -target=aws_ecr_lifecycle_policy.istio_ztunnel
+
       - name: Apply CodeBuild permissions, security group, and project
         if: inputs.action == 'apply'
         run: >
