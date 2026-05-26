@@ -92,11 +92,13 @@ resource "aws_iam_policy" "deny_destructive" {
 
 # platform, sre 그룹에 차단 정책 적용
 resource "aws_iam_group_policy_attachment" "platform_deny_destructive" {
+  count      = var.dev_mode ? 0 : 1
   group      = aws_iam_group.platform_engineers.name
   policy_arn = aws_iam_policy.deny_destructive.arn
 }
 
 resource "aws_iam_group_policy_attachment" "sre_deny_destructive" {
+  count      = var.dev_mode ? 0 : 1
   group      = aws_iam_group.sre_engineers.name
   policy_arn = aws_iam_policy.deny_destructive.arn
 }
@@ -137,4 +139,27 @@ resource "aws_iam_user_policy" "onfrem_collector" {
 # onfrem 액세스 키 (collector 인증용)
 resource "aws_iam_access_key" "onfrem" {
   user = aws_iam_user.onfrem.name
+}
+
+# =============================================
+# [DEV ONLY] 개발 기간 임시 AdministratorAccess
+# dev_mode = true 일 때만 활성화
+# 개발 완료 후 이 블록 전체 삭제 예정
+# =============================================
+resource "aws_iam_group_policy_attachment" "security_admin_dev" {
+  count      = var.dev_mode ? 1 : 0
+  group      = aws_iam_group.security_engineers.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_group_policy_attachment" "platform_admin_dev" {
+  count      = var.dev_mode ? 1 : 0
+  group      = aws_iam_group.platform_engineers.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_group_policy_attachment" "sre_admin_dev" {
+  count      = var.dev_mode ? 1 : 0
+  group      = aws_iam_group.sre_engineers.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
