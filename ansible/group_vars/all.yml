@@ -28,6 +28,8 @@ istio_ztunnel_chart_ref: /opt/helm-charts/ztunnel
 istio_image_hub: "{{ lookup('env', 'ISTIO_IMAGE_HUB') }}"
 istio_image_tag: "{{ lookup('env', 'ISTIO_IMAGE_TAG') | default('1.30.0', true) }}"
 istio_helm_timeout: 15m
+addon_helm_timeout: 15m
+rollout_timeout: 600s
 service_ambient_namespaces:
   - service-apps
 ops_ambient_namespaces:
@@ -38,6 +40,8 @@ internal_git_release_name: internal-git
 internal_git_service_name: internal-git-http
 internal_git_image: "{{ lookup('env', 'INTERNAL_GIT_IMAGE') | default('gitea/gitea:1.22-rootless', true) }}"
 internal_git_http_port: 3000
+internal_git_local_http_port: 13000
+internal_git_demo_local_http_port: 13001
 internal_git_ssh_port: 2222
 internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
 internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"

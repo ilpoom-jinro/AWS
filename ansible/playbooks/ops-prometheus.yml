@@ -33,7 +33,34 @@
         update_repo_cache: false
         values: "{{ lookup('template', '../templates/prometheus-values.yml.j2') | from_yaml }}"
         wait: true
-        timeout: 10m
+        timeout: "{{ addon_helm_timeout }}"
+      register: prometheus_helm_result
+      ignore_errors: true
+
+    - name: Show Prometheus pod state when Helm install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ prometheus_namespace }}
+          get pods -o wide
+      when: prometheus_helm_result.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Prometheus recent events when Helm install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ prometheus_namespace }}
+          get events --sort-by=.lastTimestamp
+      when: prometheus_helm_result.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Prometheus Helm install fails
+      ansible.builtin.fail:
+        msg: "Prometheus Helm install failed. Check pod state and events above."
+      when: prometheus_helm_result.failed | default(false)
 
     - name: Wait for Prometheus server rollout
       ansible.builtin.command:
@@ -41,5 +68,5 @@
           kubectl --context {{ ops_kube_context }}
           -n {{ prometheus_namespace }}
           rollout status deployment/{{ prometheus_release_name }}-server
-          --timeout=300s
+          --timeout={{ rollout_timeout }}
       changed_when: false

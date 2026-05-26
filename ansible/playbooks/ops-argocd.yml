@@ -33,7 +33,34 @@
         update_repo_cache: false
         values: "{{ lookup('template', '../templates/argocd-values.yml.j2') | from_yaml }}"
         wait: true
-        timeout: 10m
+        timeout: "{{ addon_helm_timeout }}"
+      register: argocd_helm_result
+      ignore_errors: true
+
+    - name: Show Argo CD pod state when Helm install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ argocd_namespace }}
+          get pods -o wide
+      when: argocd_helm_result.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Argo CD recent events when Helm install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ argocd_namespace }}
+          get events --sort-by=.lastTimestamp
+      when: argocd_helm_result.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Argo CD Helm install fails
+      ansible.builtin.fail:
+        msg: "Argo CD Helm install failed. Check pod state and events above."
+      when: argocd_helm_result.failed | default(false)
 
     - name: Create internal Git repository secret when repo URL is provided
       kubernetes.core.k8s:

@@ -130,18 +130,18 @@
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |
         set -e
-        pkill -f "[k]ubectl.*port-forward.*svc/{{ internal_git_service_name }}.*3000:{{ internal_git_http_port }}" || true
         rm -f /tmp/internal-git-demo-port-forward.log
         nohup kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
-          port-forward svc/{{ internal_git_service_name }} 3000:{{ internal_git_http_port }} \
+          port-forward svc/{{ internal_git_service_name }} {{ internal_git_demo_local_http_port }}:{{ internal_git_http_port }} \
           >/tmp/internal-git-demo-port-forward.log 2>&1 &
         echo $!
       changed_when: false
+      register: internal_git_demo_port_forward_pid
 
     - name: Wait for internal Git demo port-forward listener
       ansible.builtin.wait_for:
         host: 127.0.0.1
-        port: 3000
+        port: "{{ internal_git_demo_local_http_port }}"
         timeout: 30
       register: internal_git_demo_port_forward_wait
       failed_when: false
@@ -155,12 +155,12 @@
 
     - name: Stop when internal Git demo port-forward listener is not ready
       ansible.builtin.fail:
-        msg: "Internal Git demo port-forward did not open 127.0.0.1:3000. Check the port-forward log above."
+        msg: "Internal Git demo port-forward did not open 127.0.0.1:{{ internal_git_demo_local_http_port }}. Check the port-forward log above."
       when: internal_git_demo_port_forward_wait.failed | default(false)
 
     - name: Wait for internal Git API through port-forward
       ansible.builtin.uri:
-        url: http://127.0.0.1:3000/api/v1/version
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/version"
         method: GET
         status_code: 200
       register: internal_git_demo_api_probe
@@ -178,14 +178,14 @@
 
     - name: Stop when internal Git API is not ready through demo port-forward
       ansible.builtin.fail:
-        msg: "Internal Git API did not respond through 127.0.0.1:3000 during demo bootstrap. Check the port-forward log above."
+        msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during demo bootstrap. Check the port-forward log above."
       when: internal_git_demo_api_probe.failed | default(false)
 
     - name: Push demo app manifests to internal Git
       ansible.builtin.shell: |
         set -e
         rm -rf /tmp/internal-gitops-demo
-        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:3000/{{ internal_git_org }}/{{ internal_git_repo }}.git" /tmp/internal-gitops-demo
+        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git" /tmp/internal-gitops-demo
         cd /tmp/internal-gitops-demo
         git config user.name "GitOps Bootstrap"
         git config user.email "gitops-bootstrap@internal.ops.local"
@@ -283,5 +283,11 @@
           kubectl --context {{ service_kube_context }}
           -n {{ demo_app_namespace }}
           rollout status deployment/{{ demo_app_name }}
-          --timeout=300s
+          --timeout={{ rollout_timeout }}
       changed_when: false
+
+    - name: Stop internal Git demo port-forward
+      ansible.builtin.shell: |
+        kill {{ internal_git_demo_port_forward_pid.stdout }} >/dev/null 2>&1 || true
+      changed_when: false
+      failed_when: false
