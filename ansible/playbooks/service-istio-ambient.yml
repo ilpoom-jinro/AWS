@@ -32,6 +32,38 @@
       loop: "{{ istio_clusters }}"
       changed_when: false
 
+    - name: Check Kubernetes API reachability for Istio target clusters
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          get --raw=/version
+          --request-timeout=10s
+      loop: "{{ istio_clusters }}"
+      register: istio_api_reachability
+      changed_when: false
+      ignore_errors: true
+
+    - name: Print Kubernetes API reachability failures
+      ansible.builtin.debug:
+        msg:
+          cluster: "{{ item.item.name }}"
+          context: "{{ item.item.kube_context }}"
+          stdout: "{{ item.stdout | default('') }}"
+          stderr: "{{ item.stderr | default('') }}"
+          rc: "{{ item.rc | default('') }}"
+      loop: "{{ istio_api_reachability.results | default([]) }}"
+      when: item.failed | default(false)
+
+    - name: Stop when Kubernetes API is not reachable
+      ansible.builtin.fail:
+        msg: "Kubernetes API is not reachable from CodeBuild. Check VPC peering, routes, EKS cluster security group 443, CodeBuild egress, and private DNS."
+      when: >
+        istio_api_reachability.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
     - name: Ensure Istio namespace exists
       ansible.builtin.shell: >
           kubectl --context {{ item.kube_context }}
