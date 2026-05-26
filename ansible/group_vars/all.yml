@@ -27,6 +27,7 @@ istio_cni_chart_ref: /opt/helm-charts/cni
 istio_ztunnel_chart_ref: /opt/helm-charts/ztunnel
 istio_image_hub: "{{ lookup('env', 'ISTIO_IMAGE_HUB') }}"
 istio_image_tag: "{{ lookup('env', 'ISTIO_IMAGE_TAG') | default('1.30.0', true) }}"
+istio_helm_timeout: 15m
 service_ambient_namespaces:
   - service-apps
 ops_ambient_namespaces:

@@ -51,7 +51,7 @@
         chart_ref: "{{ istio_base_chart_ref }}"
         create_namespace: true
         wait: true
-        timeout: 10m
+        timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
 
     - name: Install or upgrade Istio discovery control plane
@@ -63,8 +63,64 @@
         create_namespace: true
         values: "{{ istio_values }}"
         wait: true
-        timeout: 10m
+        timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
+      register: istiod_helm_results
+      ignore_errors: true
+
+    - name: Show Istio pod state when istiod install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ istiod_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio recent events when istiod install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ istiod_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe istiod deployment when istiod install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe deployment istiod
+      loop: "{{ istiod_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show istiod Helm status when istiod install fails
+      ansible.builtin.command:
+        cmd: >
+          helm --kube-context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          status istiod
+      loop: "{{ istiod_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when istiod install fails
+      ansible.builtin.fail:
+        msg: "istiod Helm install failed. Check the pod, event, deployment, and Helm status output above."
+      when: >
+        istiod_helm_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
 
     - name: Install or upgrade Istio CNI for ambient mode
       kubernetes.core.helm:
@@ -75,7 +131,7 @@
         create_namespace: true
         values: "{{ istio_values }}"
         wait: true
-        timeout: 10m
+        timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
 
     - name: Install or upgrade Istio ztunnel
@@ -87,7 +143,7 @@
         create_namespace: true
         values: "{{ istio_values }}"
         wait: true
-        timeout: 10m
+        timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
 
     - name: Ensure ambient namespaces exist

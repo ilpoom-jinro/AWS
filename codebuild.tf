@@ -156,7 +156,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
   name          = "financial-ansible-bootstrap"
   description   = "Runs Ansible against the private Internal Ops EKS cluster"
   service_role  = aws_iam_role.ansible_codebuild.arn
-  build_timeout = 30
+  build_timeout = 60
 
   artifacts {
     type = "NO_ARTIFACTS"
