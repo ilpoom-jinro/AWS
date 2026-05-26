@@ -30,6 +30,7 @@ env:
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
   TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+  TF_VAR_dev_mode: "true"   # 개발 완료 후 이 줄 삭제
 
 jobs:
   plan:
