@@ -22,6 +22,11 @@ on:
         required: true
         default: true
         type: boolean
+      mirror_istio:
+        description: "Mirror Istio ambient mesh images into ECR"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   id-token: write
@@ -32,6 +37,8 @@ env:
   ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
   INTERNAL_GIT_REPOSITORY: financial/internal-git
   INTERNAL_GIT_SOURCE_IMAGE: gitea/gitea:1.22-rootless
+  ISTIO_VERSION: "1.30.0"
+  ISTIO_REPOSITORY_PREFIX: financial/istio
 
 jobs:
   images:
@@ -56,6 +63,10 @@ jobs:
         run: |
           aws ecr describe-repositories --repository-names "${ANSIBLE_CODEBUILD_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${INTERNAL_GIT_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
+          aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
+          aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
+          aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/ztunnel"
 
       - name: Build and push Ansible CodeBuild image
         if: github.event_name == 'push' || inputs.build_ansible_codebuild == true
@@ -73,6 +84,23 @@ jobs:
 
           docker push "${IMAGE_URI}:${IMAGE_TAG}"
           docker push "${IMAGE_URI}:latest"
+
+      - name: Mirror Istio ambient images to ECR
+        if: github.event_name == 'push' || inputs.mirror_istio == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          for image in pilot proxyv2 install-cni ztunnel; do
+            source_image="docker.io/istio/${image}:${ISTIO_VERSION}"
+            target_image="${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:${ISTIO_VERSION}"
+
+            docker pull "${source_image}"
+            docker tag "${source_image}" "${target_image}"
+            docker tag "${source_image}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
+
+            docker push "${target_image}"
+            docker push "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
+          done
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'push' || inputs.mirror_internal_git == true

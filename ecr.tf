@@ -167,3 +167,139 @@ resource "aws_ecr_lifecycle_policy" "prometheus" {
     }]
   })
 }
+
+resource "aws_ecr_repository" "istio_pilot" {
+  name                 = "${var.istio_image_repository_prefix}/pilot"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "${var.istio_image_repository_prefix}/pilot"
+    Purpose   = "istio-ambient-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_repository" "istio_proxyv2" {
+  name                 = "${var.istio_image_repository_prefix}/proxyv2"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "${var.istio_image_repository_prefix}/proxyv2"
+    Purpose   = "istio-ambient-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_repository" "istio_install_cni" {
+  name                 = "${var.istio_image_repository_prefix}/install-cni"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "${var.istio_image_repository_prefix}/install-cni"
+    Purpose   = "istio-ambient-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_repository" "istio_ztunnel" {
+  name                 = "${var.istio_image_repository_prefix}/ztunnel"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "${var.istio_image_repository_prefix}/ztunnel"
+    Purpose   = "istio-ambient-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "istio_pilot" {
+  repository = aws_ecr_repository.istio_pilot.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Istio pilot images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "istio_proxyv2" {
+  repository = aws_ecr_repository.istio_proxyv2.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Istio proxyv2 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "istio_install_cni" {
+  repository = aws_ecr_repository.istio_install_cni.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Istio install-cni images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "istio_ztunnel" {
+  repository = aws_ecr_repository.istio_ztunnel.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Istio ztunnel images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
