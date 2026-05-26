@@ -44,8 +44,14 @@
           -n {{ prometheus_namespace }}
           get pods -o wide
       when: prometheus_helm_result.failed | default(false)
+      register: prometheus_pod_state
       changed_when: false
       failed_when: false
+
+    - name: Print Prometheus pod state when Helm install fails
+      ansible.builtin.debug:
+        var: prometheus_pod_state.stdout_lines
+      when: prometheus_helm_result.failed | default(false)
 
     - name: Show Prometheus recent events when Helm install fails
       ansible.builtin.command:
@@ -54,8 +60,30 @@
           -n {{ prometheus_namespace }}
           get events --sort-by=.lastTimestamp
       when: prometheus_helm_result.failed | default(false)
+      register: prometheus_recent_events
       changed_when: false
       failed_when: false
+
+    - name: Print Prometheus recent events when Helm install fails
+      ansible.builtin.debug:
+        var: prometheus_recent_events.stdout_lines
+      when: prometheus_helm_result.failed | default(false)
+
+    - name: Describe Prometheus server deployment when Helm install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ prometheus_namespace }}
+          describe deployment {{ prometheus_release_name }}-server
+      when: prometheus_helm_result.failed | default(false)
+      register: prometheus_server_describe
+      changed_when: false
+      failed_when: false
+
+    - name: Print Prometheus server deployment description when Helm install fails
+      ansible.builtin.debug:
+        var: prometheus_server_describe.stdout_lines
+      when: prometheus_helm_result.failed | default(false)
 
     - name: Stop when Prometheus Helm install fails
       ansible.builtin.fail:

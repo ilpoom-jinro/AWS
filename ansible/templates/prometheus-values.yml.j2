@@ -10,6 +10,10 @@ prometheus-node-exporter:
 prometheus-pushgateway:
   enabled: false
 
+configmapReload:
+  prometheus:
+    enabled: false
+
 server:
   image:
     repository: "{{ prometheus_image_repository }}"
@@ -22,8 +26,8 @@ server:
   retention: "7d"
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m
+      memory: 128Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 300m
+      memory: 512Mi
