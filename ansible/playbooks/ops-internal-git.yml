@@ -128,7 +128,7 @@
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |
         set -e
-        pkill -f "kubectl.*port-forward.*svc/{{ internal_git_service_name }}.*3000:{{ internal_git_http_port }}" || true
+        pkill -f "[k]ubectl.*port-forward.*svc/{{ internal_git_service_name }}.*3000:{{ internal_git_http_port }}" || true
         rm -f /tmp/internal-git-port-forward.log
         nohup kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           port-forward svc/{{ internal_git_service_name }} 3000:{{ internal_git_http_port }} \
