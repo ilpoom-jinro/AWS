@@ -92,7 +92,7 @@
         chart_ref: "{{ istio_istiod_chart_ref }}"
         create_namespace: true
         values: "{{ istio_values }}"
-        wait: true
+        wait: false
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
       register: istiod_helm_results
@@ -152,6 +152,73 @@
         | list
         | length > 0
 
+    - name: Wait for istiod rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ istio_namespace }}
+          rollout status deployment/istiod
+          --timeout={{ istio_rollout_timeout }}
+      loop: "{{ istio_clusters }}"
+      register: istiod_rollout_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show Istio pod state when istiod rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ istiod_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio recent events when istiod rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ istiod_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe istiod deployment when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe deployment istiod
+      loop: "{{ istiod_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show istiod logs when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          logs deployment/istiod
+          --tail=100
+      loop: "{{ istiod_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when istiod rollout fails
+      ansible.builtin.fail:
+        msg: "istiod rollout failed. Check the pod, event, deployment, and log output above."
+      when: >
+        istiod_rollout_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
     - name: Install or upgrade Istio CNI for ambient mode
       kubernetes.core.helm:
         context: "{{ item.kube_context }}"
@@ -160,7 +227,7 @@
         chart_ref: "{{ istio_cni_chart_ref }}"
         create_namespace: true
         values: "{{ istio_values }}"
-        wait: true
+        wait: false
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
       register: istio_cni_helm_results
@@ -220,6 +287,73 @@
         | list
         | length > 0
 
+    - name: Wait for Istio CNI rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ istio_namespace }}
+          rollout status daemonset/istio-cni-node
+          --timeout={{ istio_rollout_timeout }}
+      loop: "{{ istio_clusters }}"
+      register: istio_cni_rollout_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show Istio CNI pod state when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ istio_cni_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio CNI recent events when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ istio_cni_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe Istio CNI daemonset when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe daemonset istio-cni-node
+      loop: "{{ istio_cni_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Istio CNI logs when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          logs daemonset/istio-cni-node
+          --tail=100
+      loop: "{{ istio_cni_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Istio CNI rollout fails
+      ansible.builtin.fail:
+        msg: "Istio CNI rollout failed. Check the pod, event, daemonset, and log output above."
+      when: >
+        istio_cni_rollout_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
     - name: Install or upgrade Istio ztunnel
       kubernetes.core.helm:
         context: "{{ item.kube_context }}"
@@ -228,7 +362,7 @@
         chart_ref: "{{ istio_ztunnel_chart_ref }}"
         create_namespace: true
         values: "{{ istio_values }}"
-        wait: true
+        wait: false
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
       register: ztunnel_helm_results
@@ -283,6 +417,73 @@
         msg: "ztunnel Helm install failed. Check the pod, event, daemonset, and Helm status output above."
       when: >
         ztunnel_helm_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
+    - name: Wait for ztunnel rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ istio_namespace }}
+          rollout status daemonset/ztunnel
+          --timeout={{ istio_rollout_timeout }}
+      loop: "{{ istio_clusters }}"
+      register: ztunnel_rollout_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show ztunnel pod state when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get pods -o wide
+      loop: "{{ ztunnel_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show ztunnel recent events when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ ztunnel_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Describe ztunnel daemonset when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          describe daemonset ztunnel
+      loop: "{{ ztunnel_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show ztunnel logs when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ istio_namespace }}
+          logs daemonset/ztunnel
+          --tail=100
+      loop: "{{ ztunnel_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when ztunnel rollout fails
+      ansible.builtin.fail:
+        msg: "ztunnel rollout failed. Check the pod, event, daemonset, and log output above."
+      when: >
+        ztunnel_rollout_results.results
         | selectattr('failed', 'defined')
         | selectattr('failed')
         | list
