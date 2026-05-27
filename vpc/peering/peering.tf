@@ -161,3 +161,23 @@ resource "aws_route" "vpc2_db_to_vpc4" {
   destination_cidr_block    = var.vpc4_cidr
   vpc_peering_connection_id = aws_vpc_peering_connection.vpc4_vpc2.id
 }
+
+# ── DNS Resolution 설정 ────────────────────────────────────────────────────────
+# VPC3에서 VPC2 내부 DNS 조회 가능하도록 설정
+# EKS API 서버 등 VPC2 private DNS 접근 필요
+
+resource "aws_vpc_peering_connection_options" "vpc2_vpc3_requester" {
+  vpc_peering_connection_id = aws_vpc_peering_connection.vpc2_vpc3.id
+
+  requester {
+    allow_remote_vpc_dns_resolution = true
+  }
+}
+
+resource "aws_vpc_peering_connection_options" "vpc2_vpc3_accepter" {
+  vpc_peering_connection_id = aws_vpc_peering_connection.vpc2_vpc3.id
+
+  accepter {
+    allow_remote_vpc_dns_resolution = true
+  }
+}
