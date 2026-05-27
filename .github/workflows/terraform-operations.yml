@@ -81,8 +81,9 @@ jobs:
       - name: Remove legacy CodeCommit state
         shell: bash
         run: |
-          if terraform state list | grep -Fxq 'aws_codecommit_repository.gitops'; then
-            terraform state rm 'aws_codecommit_repository.gitops'
+          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
+          if [ "${#codecommit_state[@]}" -gt 0 ]; then
+            terraform state rm "${codecommit_state[@]}"
           fi
 
       - name: Terraform Format Check
@@ -139,8 +140,9 @@ jobs:
       - name: Remove legacy CodeCommit state
         shell: bash
         run: |
-          if terraform state list | grep -Fxq 'aws_codecommit_repository.gitops'; then
-            terraform state rm 'aws_codecommit_repository.gitops'
+          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
+          if [ "${#codecommit_state[@]}" -gt 0 ]; then
+            terraform state rm "${codecommit_state[@]}"
           fi
 
       - name: Terraform Format Check
