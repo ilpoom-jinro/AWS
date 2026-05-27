@@ -135,6 +135,13 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
+      - name: Apply GitHub Actions role permissions
+        if: contains(fromJSON('["apply","reapply","ecr","peering12"]'), inputs.action)
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.iam.aws_iam_role_policy.github_actions_terraform
+          -target=module.iam.aws_iam_role_policy.github_actions_dev_terraform
+
       - name: Destroy CodeBuild project
         if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=aws_codebuild_project.ansible_bootstrap
