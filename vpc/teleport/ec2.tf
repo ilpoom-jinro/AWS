@@ -1,8 +1,23 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # VPC 3 — Teleport EC2
-# Packer AMI 사용 (K3s + Teleport v17 포함)
 # 공인 IP 없음 — SSM으로만 접근
 # ──────────────────────────────────────────────────────────────────────────────
+
+# Ubuntu 22.04 LTS 최신 AMI 자동 조회
+data "aws_ami" "ubuntu_22_04" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
 
 # SSM용 IAM Instance Profile
 resource "aws_iam_role" "teleport_ec2" {
@@ -23,24 +38,20 @@ resource "aws_iam_role_policy_attachment" "teleport_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# ECR pull 권한 (K3s가 ECR에서 Teleport 이미지 pull)
-resource "aws_iam_role_policy_attachment" "teleport_ecr" {
-  role       = aws_iam_role.teleport_ec2.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
 resource "aws_iam_instance_profile" "teleport_ec2" {
   name = "financial-vpc3-teleport-ec2-profile"
   role = aws_iam_role.teleport_ec2.name
 }
 
-# Teleport EC2 (Packer AMI)
+# Teleport EC2
 resource "aws_instance" "teleport" {
-  ami                         = var.teleport_ami_id
-  instance_type               = "t3.small"
-  subnet_id                   = aws_subnet.private_a.id
-  vpc_security_group_ids      = [aws_security_group.teleport.id]
-  iam_instance_profile        = aws_iam_instance_profile.teleport_ec2.name
+  ami                    = data.aws_ami.ubuntu_22_04.id
+  instance_type          = "t3.small"
+  subnet_id              = aws_subnet.private_a.id
+  vpc_security_group_ids = [aws_security_group.teleport.id]
+  iam_instance_profile   = aws_iam_instance_profile.teleport_ec2.name
+
+  # 공인 IP 없음 — SSM으로만 접근
   associate_public_ip_address = false
 
   root_block_device {
@@ -51,19 +62,11 @@ resource "aws_instance" "teleport" {
 
   user_data = <<-EOF
     #!/bin/bash
-    # IP Forwarding 활성화
-    sysctl -p /etc/sysctl.d/99-teleport.conf
+    apt-get update -y
+    apt-get install -y curl wget
 
-    # K3s 시작
-    systemctl enable k3s
-    systemctl start k3s
-
-    # K3s 준비 대기
-    until kubectl get nodes 2>/dev/null | grep -q Ready; do
-      echo "K3s 준비 대기중..."
-      sleep 5
-    done
-    echo "K3s 준비 완료"
+    # Teleport 설치
+    curl https://goteleport.com/static/install.sh | bash -s 15.0.0
   EOF
 
   tags = {
