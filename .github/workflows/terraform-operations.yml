@@ -141,6 +141,7 @@ jobs:
           terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=module.iam.aws_iam_role_policy.github_actions_terraform
           -target=module.iam.aws_iam_role_policy.github_actions_dev_terraform
+          $TF_MOVED_RESOURCE_TARGETS
 
       - name: Destroy CodeBuild project
         if: inputs.action == 'destroy'
