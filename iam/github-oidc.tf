@@ -214,8 +214,13 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeAccountAttributes",
           "ec2:DescribeImages",
+          "ec2:CreateLaunchTemplate",
+          "ec2:CreateLaunchTemplateVersion",
+          "ec2:DeleteLaunchTemplate",
+          "ec2:DeleteLaunchTemplateVersions",
           "ec2:DescribeLaunchTemplates",
-          "ec2:DescribeLaunchTemplateVersions"
+          "ec2:DescribeLaunchTemplateVersions",
+          "ec2:ModifyLaunchTemplate"
         ]
         Resource = "*"
       },
