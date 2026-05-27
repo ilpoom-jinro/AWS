@@ -21,3 +21,8 @@ output "teleport_sg_id" {
 output "teleport_instance_id" {
   value = aws_instance.teleport.id
 }
+
+output "teleport_ec2_role_name" {
+  description = "Teleport EC2 IAM Role 이름"
+  value       = aws_iam_role.teleport_ec2.name
+}
