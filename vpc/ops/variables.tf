@@ -88,3 +88,26 @@ variable "argocd_namespace" {
   default     = "argocd"
 }
 
+variable "eks_monitor_node_instance_types" {
+  description = "monitoring node group instance types"
+  type        = list(string)
+  default     = ["m7i-flex.large"]
+}
+
+variable "eks_monitor_node_desired_size" {
+  description = "monitoring node group desired size"
+  type        = number
+  default     = 1
+}
+
+variable "eks_monitor_node_min_size" {
+  description = "monitoring node group min size"
+  type        = number
+  default     = 1
+}
+
+variable "eks_monitor_node_max_size" {
+  description = "monitoring node group max size"
+  type        = number
+  default     = 2
+}

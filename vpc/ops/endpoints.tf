@@ -7,6 +7,7 @@
 
 # ── Endpoint 전용 Security Group ──────────────────────────────────────────────
 # VPC 2 내부에서 443 포트만 허용
+# VPC 3 Teleport에서 SSH(22) 허용 (관리 목적)
 
 resource "aws_security_group" "endpoints" {
   name        = "financial-vpc2-endpoint-sg"
@@ -19,6 +20,14 @@ resource "aws_security_group" "endpoints" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
+  }
+
+  ingress {
+    description = "Allow SSH from VPC 3 (Teleport)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc3_cidr]
   }
 
   egress {
@@ -105,20 +114,6 @@ resource "aws_vpc_endpoint" "eks" {
 
   tags = {
     Name = "financial-vpc2-endpoint-eks"
-  }
-}
-
-# EKS Pod Identity credential vending API.
-resource "aws_vpc_endpoint" "eks_auth" {
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.aws_region}.eks-auth"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "financial-vpc2-endpoint-eks-auth"
   }
 }
 
@@ -246,3 +241,44 @@ resource "aws_vpc_endpoint" "ec2" {
   }
 }
 
+# CodeCommit API endpoint for repository metadata and auth flows.
+resource "aws_vpc_endpoint" "codecommit" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.codecommit"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-codecommit"
+  }
+}
+
+# Git endpoint used by Argo CD when pulling manifests from CodeCommit.
+resource "aws_vpc_endpoint" "git_codecommit" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.git-codecommit"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-git-codecommit"
+  }
+}
+
+# EKS Auth
+resource "aws_vpc_endpoint" "eks_auth" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.eks-auth"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-eks-auth"
+  }
+}

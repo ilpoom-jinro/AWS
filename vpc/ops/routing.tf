@@ -42,3 +42,9 @@ resource "aws_route_table_association" "db_b" {
   subnet_id      = aws_subnet.db_b.id
   route_table_id = aws_route_table.db.id
 }
+
+# 모니터링 서브넷 → private 라우팅 테이블 연결
+resource "aws_route_table_association" "monitor_a" {
+  subnet_id      = aws_subnet.monitor_a.id
+  route_table_id = aws_route_table.private.id
+}
