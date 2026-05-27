@@ -1,3 +1,13 @@
+locals {
+  ecr_registry                          = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+  ansible_codebuild_image_repository    = "${local.ecr_registry}/${var.ansible_codebuild_image_repository_name}"
+  internal_git_image_repository         = "${local.ecr_registry}/${var.internal_git_image_repository_name}"
+  argocd_image_repository               = "${local.ecr_registry}/${var.argocd_image_repository_name}"
+  argocd_redis_image_repository         = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
+  prometheus_image_repository           = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
+  istio_image_repository_prefix         = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
+}
+
 resource "aws_security_group" "ansible_codebuild" {
   name        = "financial-ansible-codebuild-sg"
   description = "CodeBuild security group for running Ansible against private EKS endpoints"
@@ -164,7 +174,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
   environment {
     compute_type                = "BUILD_GENERAL1_SMALL"
-    image                       = coalesce(var.ansible_codebuild_image, "${aws_ecr_repository.ansible_codebuild.repository_url}:latest")
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
     type                        = "LINUX_CONTAINER"
     image_pull_credentials_type = "SERVICE_ROLE"
 
@@ -175,12 +185,12 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "INTERNAL_GIT_IMAGE"
-      value = "${aws_ecr_repository.internal_git.repository_url}:latest"
+      value = "${local.internal_git_image_repository}:latest"
     }
 
     environment_variable {
       name  = "ARGOCD_IMAGE_REPOSITORY"
-      value = aws_ecr_repository.argocd.repository_url
+      value = local.argocd_image_repository
     }
 
     environment_variable {
@@ -190,7 +200,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "ARGOCD_REDIS_IMAGE_REPOSITORY"
-      value = aws_ecr_repository.argocd_redis.repository_url
+      value = local.argocd_redis_image_repository
     }
 
     environment_variable {
@@ -200,7 +210,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "PROMETHEUS_IMAGE_REPOSITORY"
-      value = aws_ecr_repository.prometheus.repository_url
+      value = local.prometheus_image_repository
     }
 
     environment_variable {
@@ -210,7 +220,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "ISTIO_IMAGE_HUB"
-      value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.istio_image_repository_prefix}"
+      value = local.istio_image_repository_prefix
     }
 
     environment_variable {

@@ -3,7 +3,7 @@ data "aws_caller_identity" "current" {}
 locals {
   manifest_updater_image = coalesce(
     var.manifest_updater_image,
-    "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.manifest_updater_image_repository_name}:${var.manifest_updater_image_tag}"
+    "${local.ecr_registry}/${var.manifest_updater_image_repository_name}:${var.manifest_updater_image_tag}"
   )
 }
 

@@ -1,19 +1,17 @@
 name: Terraform plan / apply / destroy / reapply / codebuild on main branch
-run-name: Terraform 운영 작업 - ${{ inputs.action }}
+run-name: Terraform operations - ${{ inputs.action }}
 
 on:
   workflow_dispatch:
     inputs:
       action:
         description: |
-          실행 작업 선택
-          plan      = 검사만 실행       
-          apply     = 인프라 생성
-          destroy   = 생성된 인프라 삭제
-          reapply   = 변경된 인프라만 반영
-          ecr       = ECR repository만 반영
-          peering12 = Service VPC와 Ops VPC peering만 반영
-          codebuild = Ansible CodeBuild 실행
+          Select operation.
+          plan      = check Terraform changes only
+          apply     = create/update infrastructure and run Ansible CodeBuild
+          destroy   = destroy infrastructure
+          reapply   = run plain terraform apply for changed infrastructure
+          codebuild = run Ansible CodeBuild only
         required: true
         default: plan
         type: choice
@@ -22,13 +20,11 @@ on:
           - apply
           - destroy
           - reapply
-          - ecr
-          - peering12
           - codebuild
       confirm_destroy:
         description: |
-          destroy 실행 시에만 true로 체크하세요.
-          plan/apply/reapply/codebuild에서는 체크하지 않아도 됩니다.
+          Set true only when action is destroy.
+          Leave false for plan/apply/reapply/codebuild.
         required: true
         default: false
         type: boolean
@@ -49,21 +45,10 @@ env:
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
   TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
-  ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
-  INTERNAL_GIT_REPOSITORY: financial/internal-git
-  INTERNAL_GIT_SOURCE_IMAGE: gitea/gitea:1.22-rootless
-  ARGOCD_REPOSITORY: financial/argocd
-  ARGOCD_SOURCE_IMAGE: quay.io/argoproj/argocd:latest
-  ARGOCD_REDIS_REPOSITORY: financial/argocd-redis
-  ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
-  PROMETHEUS_REPOSITORY: financial/prometheus
-  PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
-  ISTIO_VERSION: "1.30.0"
-  ISTIO_REPOSITORY_PREFIX: financial/istio
   TF_MOVED_RESOURCE_TARGETS: >-
     -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
-  TF_VAR_dev_mode: "true"   # 개발 완료 후 이 줄 삭제
+  TF_VAR_dev_mode: "true"
   
 jobs:
   plan:
@@ -126,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.ref == 'refs/heads/main' &&
-      contains(fromJSON('["apply","destroy","reapply","ecr","peering12"]'), inputs.action) &&
+      contains(fromJSON('["apply","destroy","reapply"]'), inputs.action) &&
       (inputs.action != 'destroy' || inputs.confirm_destroy == true)
     environment: production
 
@@ -163,7 +148,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Apply GitHub Actions role permissions
-        if: contains(fromJSON('["apply","reapply","ecr","peering12"]'), inputs.action)
+        if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         run: >
           terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=module.iam.aws_iam_role_policy.github_actions_terraform
@@ -171,11 +156,11 @@ jobs:
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Wait for IAM permissions to propagate
-        if: contains(fromJSON('["apply","reapply","ecr","peering12"]'), inputs.action)
+        if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         run: sleep 30
 
       - name: Refresh AWS credentials after permission update
-        if: contains(fromJSON('["apply","reapply","ecr","peering12"]'), inputs.action)
+        if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
@@ -224,42 +209,6 @@ jobs:
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering $TF_MOVED_RESOURCE_TARGETS
 
-      - name: Apply Service-Ops VPC peering
-        if: inputs.action == 'peering12'
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=module.vpc_peering.aws_vpc_peering_connection.vpc1_vpc2
-          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_public
-          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_private
-          -target=module.vpc_peering.aws_route.vpc1_to_vpc2_db
-          -target=module.vpc_peering.aws_route.vpc2_to_vpc1_private
-          -target=module.vpc_peering.aws_route.vpc2_to_vpc1_db
-          $TF_MOVED_RESOURCE_TARGETS
-
-      - name: Apply ECR repositories
-        if: inputs.action == 'apply' || inputs.action == 'ecr'
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=aws_ecr_repository.ansible_codebuild
-          -target=aws_ecr_lifecycle_policy.ansible_codebuild
-          -target=aws_ecr_repository.internal_git
-          -target=aws_ecr_lifecycle_policy.internal_git
-          -target=aws_ecr_repository.argocd
-          -target=aws_ecr_lifecycle_policy.argocd
-          -target=aws_ecr_repository.argocd_redis
-          -target=aws_ecr_lifecycle_policy.argocd_redis
-          -target=aws_ecr_repository.prometheus
-          -target=aws_ecr_lifecycle_policy.prometheus
-          -target=aws_ecr_repository.istio_pilot
-          -target=aws_ecr_lifecycle_policy.istio_pilot
-          -target=aws_ecr_repository.istio_proxyv2
-          -target=aws_ecr_lifecycle_policy.istio_proxyv2
-          -target=aws_ecr_repository.istio_install_cni
-          -target=aws_ecr_lifecycle_policy.istio_install_cni
-          -target=aws_ecr_repository.istio_ztunnel
-          -target=aws_ecr_lifecycle_policy.istio_ztunnel
-          $TF_MOVED_RESOURCE_TARGETS
-
       - name: Apply CodeBuild permissions, security group, and project
         if: inputs.action == 'apply'
         run: >
@@ -279,58 +228,6 @@ jobs:
           -target=aws_eks_access_policy_association.manifest_updater_ops_admin
           -target=aws_codebuild_project.manifest_updater
           $TF_MOVED_RESOURCE_TARGETS
-
-      - name: Login to Amazon ECR
-        if: inputs.action == 'apply'
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Ansible CodeBuild runtime image
-        if: inputs.action == 'apply'
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          IMAGE_URI="${REGISTRY}/${ANSIBLE_CODEBUILD_REPOSITORY}"
-
-          docker build \
-            -f tools/ansible-codebuild/Dockerfile \
-            -t "${IMAGE_URI}:${IMAGE_TAG}" \
-            -t "${IMAGE_URI}:latest" \
-            .
-
-          docker push "${IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${IMAGE_URI}:latest"
-
-      - name: Mirror platform images to ECR
-        if: inputs.action == 'apply'
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          mirror_image() {
-            source_image="$1"
-            target_image="$2"
-
-            docker pull "${source_image}"
-            docker tag "${source_image}" "${target_image}"
-            docker push "${target_image}"
-          }
-
-          mirror_image "${INTERNAL_GIT_SOURCE_IMAGE}" "${REGISTRY}/${INTERNAL_GIT_REPOSITORY}:latest"
-          mirror_image "${ARGOCD_SOURCE_IMAGE}" "${REGISTRY}/${ARGOCD_REPOSITORY}:latest"
-          mirror_image "${ARGOCD_REDIS_SOURCE_IMAGE}" "${REGISTRY}/${ARGOCD_REDIS_REPOSITORY}:latest"
-          mirror_image "${PROMETHEUS_SOURCE_IMAGE}" "${REGISTRY}/${PROMETHEUS_REPOSITORY}:v3.7.3"
-
-          for image in pilot proxyv2 install-cni ztunnel; do
-            for tag in "${ISTIO_VERSION}" "${ISTIO_VERSION}-distroless"; do
-              mirror_image \
-                "docker.io/istio/${image}:${tag}" \
-                "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:${tag}"
-            done
-
-            docker tag "docker.io/istio/${image}:${ISTIO_VERSION}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
-            docker push "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
-          done
 
       - name: Re-apply changed infrastructure
         if: inputs.action == 'reapply'
@@ -470,3 +367,4 @@ jobs:
 
             sleep 30
           done
+
