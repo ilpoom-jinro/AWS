@@ -303,3 +303,37 @@ resource "aws_ecr_lifecycle_policy" "istio_ztunnel" {
     }]
   })
 }
+
+resource "aws_ecr_repository" "teleport" {
+  name                 = var.teleport_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.teleport_image_repository_name
+    Purpose   = "teleport-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "teleport" {
+  repository = aws_ecr_repository.teleport.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Teleport images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
