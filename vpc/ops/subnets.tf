@@ -47,3 +47,21 @@ resource "aws_subnet" "db_b" {
     Type = "db"
   }
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 모니터링 전용 서브넷 (단일 AZ)
+# Grafana, Thanos, Loki, Alertmanager 전용 노드 그룹 배치
+# ──────────────────────────────────────────────────────────────────────────────
+
+resource "aws_subnet" "monitor_a" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = "10.20.31.0/24"
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = false
+
+  tags = {
+    Name                              = "financial-vpc2-monitor-a"
+    Type                              = "private"
+    "kubernetes.io/role/internal-elb" = "1"
+  }
+}

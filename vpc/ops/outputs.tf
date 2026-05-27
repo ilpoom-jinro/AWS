@@ -54,3 +54,12 @@ output "eks_node_role_arn" {
   value = aws_iam_role.eks_node.arn
 }
 
+output "monitor_subnet_id" {
+  description = "monitoring only subnet ID"
+  value       = aws_subnet.monitor_a.id
+}
+
+output "monitor_subnet_cidr" {
+  description = "monitoring only subnet CIDR"
+  value       = aws_subnet.monitor_a.cidr_block
+}
