@@ -163,3 +163,9 @@ variable "dev_mode" {
   type        = bool
   default     = false
 }
+
+variable "teleport_image_repository_name" {
+  description = "ECR repository name for Teleport image"
+  type        = string
+  default     = "financial/teleport"
+}
