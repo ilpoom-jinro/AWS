@@ -23,12 +23,12 @@ resource "aws_security_group" "endpoints" {
   }
 
   ingress {
-  description = "Allow SSH from VPC 3 (Teleport)"
-  from_port   = 22
-  to_port     = 22
-  protocol    = "tcp"
-  cidr_blocks = [var.vpc3_cidr] 
-}
+    description = "Allow SSH from VPC 3 (Teleport)"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc3_cidr]
+  }
 
   egress {
     from_port   = 0

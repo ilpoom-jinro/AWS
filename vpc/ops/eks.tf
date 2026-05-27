@@ -113,8 +113,8 @@ resource "aws_launch_template" "eks_node" {
 
   metadata_options {
     http_endpoint               = "enabled"
-    http_tokens                 = "required"  # IMDSv2 강제 (보안 강화)
-    http_put_response_hop_limit = 2           # EKS 노드 필수값
+    http_tokens                 = "required" # IMDSv2 강제 (보안 강화)
+    http_put_response_hop_limit = 2          # EKS 노드 필수값
   }
 
   tag_specifications {
