@@ -84,6 +84,29 @@
         timeout: "{{ istio_helm_timeout }}"
       loop: "{{ istio_clusters }}"
 
+    - name: Remove stuck Istio Helm releases before reinstall
+      ansible.builtin.shell: |
+        set -e
+        status="$(
+          helm --kube-context {{ item.0.kube_context }} \
+            -n {{ istio_namespace }} \
+            status {{ item.1 }} -o json 2>/dev/null \
+          | python3 -c 'import json, sys; print(json.load(sys.stdin).get("info", {}).get("status", ""))' \
+          || true
+        )"
+
+        case "${status}" in
+          failed|pending-install|pending-upgrade|pending-rollback|uninstalling)
+            helm --kube-context {{ item.0.kube_context }} \
+              -n {{ istio_namespace }} \
+              uninstall {{ item.1 }} \
+              --wait \
+              --timeout {{ istio_rollout_timeout }} || true
+            ;;
+        esac
+      loop: "{{ istio_clusters | product(['istiod', 'istio-cni', 'ztunnel']) | list }}"
+      changed_when: false
+
     - name: Install or upgrade Istio discovery control plane
       kubernetes.core.helm:
         context: "{{ item.kube_context }}"

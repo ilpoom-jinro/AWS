@@ -91,14 +91,16 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           for image in pilot proxyv2 install-cni ztunnel; do
-            source_image="docker.io/istio/${image}:${ISTIO_VERSION}"
-            target_image="${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:${ISTIO_VERSION}"
+            for tag in "${ISTIO_VERSION}" "${ISTIO_VERSION}-distroless"; do
+              source_image="docker.io/istio/${image}:${tag}"
+              target_image="${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:${tag}"
 
-            docker pull "${source_image}"
-            docker tag "${source_image}" "${target_image}"
-            docker tag "${source_image}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
+              docker pull "${source_image}"
+              docker tag "${source_image}" "${target_image}"
+              docker push "${target_image}"
+            done
 
-            docker push "${target_image}"
+            docker tag "docker.io/istio/${image}:${ISTIO_VERSION}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
             docker push "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
           done
 
