@@ -91,7 +91,7 @@ variable "argocd_namespace" {
 variable "eks_monitor_node_instance_types" {
   description = "monitoring node group instance types"
   type        = list(string)
-  default     = ["t3.large"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "eks_monitor_node_desired_size" {
