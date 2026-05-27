@@ -1,0 +1,5 @@
+aws_region       = "ap-northeast-2"
+teleport_version = "17.0.0"
+k3s_version      = "v1.31.0+k3s1"
+vpc_id           = "vpc-0b3a2feb20c50a292"
+subnet_id        = "subnet-0c2aba9e0651c1453"
