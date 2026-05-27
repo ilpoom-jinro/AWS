@@ -163,6 +163,7 @@ resource "aws_eks_node_group" "ops" {
     aws_vpc_endpoint.logs,
     aws_vpc_endpoint.s3,
     aws_vpc_endpoint.sts,
+    aws_vpc_endpoint.ec2,
   ]
 }
 
@@ -202,6 +203,9 @@ resource "aws_eks_addon" "ebs_csi" {
   depends_on = [
     aws_eks_node_group.ops,
     aws_eks_pod_identity_association.ebs_csi,
+    aws_vpc_endpoint.ec2,
+    aws_vpc_endpoint.eks_auth,
+    aws_vpc_endpoint.sts,
   ]
 }
 
