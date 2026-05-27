@@ -67,13 +67,13 @@ variable "eks_node_disk_size" {
 variable "eks_node_desired_size" {
   description = "Desired number of service EKS nodes"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "eks_node_min_size" {
   description = "Minimum number of service EKS nodes"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "eks_node_max_size" {
