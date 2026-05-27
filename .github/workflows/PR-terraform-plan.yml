@@ -11,7 +11,6 @@ on:
       - "tools/**"
       - ".github/workflows/terraform.yml"
       - ".github/workflows/terraform-operations.yml"
-      - ".github/workflows/mirror-codecommit.yml"
 
 permissions:
   id-token: write
@@ -57,6 +56,13 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -reconfigure
+
+      - name: Remove legacy CodeCommit state
+        shell: bash
+        run: |
+          if terraform state list | grep -Fxq 'aws_codecommit_repository.gitops'; then
+            terraform state rm 'aws_codecommit_repository.gitops'
+          fi
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
