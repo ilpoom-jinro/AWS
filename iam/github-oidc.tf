@@ -256,6 +256,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "eks:CreateCluster",
           "eks:DeleteCluster",
           "eks:DescribeCluster",
+          "eks:DescribeUpdate",
+          "eks:ListUpdates",
           "eks:UpdateClusterConfig",
           "eks:UpdateClusterVersion",
           "eks:TagResource",
