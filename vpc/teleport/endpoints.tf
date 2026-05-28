@@ -75,3 +75,44 @@ resource "aws_vpc_endpoint" "ec2messages" {
     Name = "financial-vpc3-endpoint-ec2messages"
   }
 }
+
+# ── ECR Interface Endpoints ────────────────────────────────────────────────────
+# K3s가 ECR에서 이미지 pull 하기 위해 필요
+
+resource "aws_vpc_endpoint" "ecr_api" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc3-endpoint-ecr-api"
+  }
+}
+
+resource "aws_vpc_endpoint" "ecr_dkr" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc3-endpoint-ecr-dkr"
+  }
+}
+
+# S3 Gateway Endpoint (ECR 이미지 레이어 저장소)
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.this.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id]
+
+  tags = {
+    Name = "financial-vpc3-endpoint-s3"
+  }
+}
