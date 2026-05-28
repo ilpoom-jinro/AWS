@@ -158,3 +158,59 @@ resource "aws_iam_group_policy_attachment" "sre_admin_dev" {
   group      = aws_iam_group.sre_engineers.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+# =============================================
+# Access Key 신규 생성 차단 정책 (#42)
+# dev_mode = true  → 정책 미적용 (개발 중 키 발급 필요할 수 있으므로)
+# dev_mode = false → 전 그룹 Access Key 생성 차단
+# 키 생성은 Terraform(GitHub Actions Role)을 통해서만 가능
+# 기존에 있는 키는 삭제되지 않고 그대로 작동함
+# =============================================
+resource "aws_iam_policy" "deny_create_access_key" {
+  name = "deny-create-access-key"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "DenyCreateAccessKey"
+      Effect   = "Deny"
+      Action   = ["iam:CreateAccessKey"]
+      Resource = "*"
+    }]
+  })
+}
+
+# infra-admin 그룹에 적용
+resource "aws_iam_group_policy_attachment" "infra_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.infra_admin.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
+
+# security-engineers 그룹에 적용
+resource "aws_iam_group_policy_attachment" "security_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.security_engineers.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
+
+# platform-engineers 그룹에 적용
+resource "aws_iam_group_policy_attachment" "platform_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.platform_engineers.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
+
+# sre-engineers 그룹에 적용
+resource "aws_iam_group_policy_attachment" "sre_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.sre_engineers.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
+
+# onfrem-engineers 그룹에 적용
+resource "aws_iam_group_policy_attachment" "onfrem_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.onfrem_engineers.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
