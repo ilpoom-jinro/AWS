@@ -214,3 +214,44 @@ resource "aws_iam_group_policy_attachment" "onfrem_deny_access_key" {
   group      = aws_iam_group.onfrem_engineers.name
   policy_arn = aws_iam_policy.deny_create_access_key.arn
 }
+
+# =============================================
+# CloudShell 접근 통제
+# infra-admin 외 전 그룹 CloudShell 사용 차단
+# dev_mode = true  → 미적용 (개발 중 필요할 수 있으므로)
+# dev_mode = false → security, platform, sre, onfrem 차단
+# =============================================
+resource "aws_iam_policy" "deny_cloudshell" {
+  name = "deny-cloudshell"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "DenyCloudShell"
+      Effect   = "Deny"
+      Action   = ["cloudshell:*"]
+      Resource = "*"
+    }]
+  })
+}
+
+# security-engineers 차단
+resource "aws_iam_group_policy_attachment" "security_deny_cloudshell" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.security_engineers.name
+  policy_arn = aws_iam_policy.deny_cloudshell.arn
+}
+
+# platform-engineers 차단
+resource "aws_iam_group_policy_attachment" "platform_deny_cloudshell" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.platform_engineers.name
+  policy_arn = aws_iam_policy.deny_cloudshell.arn
+}
+
+# sre-engineers 차단
+resource "aws_iam_group_policy_attachment" "sre_deny_cloudshell" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.sre_engineers.name
+  policy_arn = aws_iam_policy.deny_cloudshell.arn
+}
