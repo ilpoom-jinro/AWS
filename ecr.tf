@@ -337,3 +337,16 @@ resource "aws_ecr_lifecycle_policy" "teleport" {
     }]
   })
 }
+
+resource "aws_ecr_repository" "pause" {
+  name                 = "financial/pause"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  tags = {
+    Name      = "financial/pause"
+    Purpose   = "k3s-pause-image"
+    ManagedBy = "terraform"
+  }
+}
