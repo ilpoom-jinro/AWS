@@ -58,6 +58,11 @@ output "prometheus_image_repository_url" {
   value       = aws_ecr_repository.prometheus.repository_url
 }
 
+output "mas_runtime_image_repository_url" {
+  description = "ECR repository URL for the MAS runtime image"
+  value       = aws_ecr_repository.mas_runtime.repository_url
+}
+
 output "istio_image_repository_prefix" {
   description = "ECR repository prefix used as the Istio image hub"
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.istio_image_repository_prefix}"

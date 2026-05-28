@@ -46,3 +46,4 @@ terraform.rc
 mfa-auth.sh
 session-manager-plugin.deb
 packer/manifest.json
+__pycache__/

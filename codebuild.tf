@@ -5,6 +5,7 @@ locals {
   argocd_image_repository            = "${local.ecr_registry}/${var.argocd_image_repository_name}"
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
   prometheus_image_repository        = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
+  mas_runtime_image_repository       = "${local.ecr_registry}/${var.mas_runtime_image_repository_name}"
   istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
 }
 
@@ -216,6 +217,11 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     environment_variable {
       name  = "PROMETHEUS_IMAGE_TAG"
       value = var.prometheus_image_tag
+    }
+
+    environment_variable {
+      name  = "MAS_RUNTIME_IMAGE"
+      value = "${local.mas_runtime_image_repository}:${var.mas_runtime_image_tag}"
     }
 
     environment_variable {

@@ -145,6 +145,34 @@ resource "aws_vpc_endpoint" "monitoring" {
   }
 }
 
+# Bedrock control plane endpoint for MAS model metadata and management calls.
+resource "aws_vpc_endpoint" "bedrock" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.bedrock"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-bedrock"
+  }
+}
+
+# Bedrock runtime endpoint used by MAS agent pods for private model inference.
+resource "aws_vpc_endpoint" "bedrock_runtime" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.bedrock-runtime"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-bedrock-runtime"
+  }
+}
+
 # SSM — Systems Manager (노드 관리)
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = aws_vpc.this.id

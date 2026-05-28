@@ -20,6 +20,40 @@ prometheus_chart_ref: /opt/helm-charts/prometheus
 prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
 prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
 
+mas_namespace: mas
+mas_release_name: mas-runtime
+mas_service_name: mas-runtime
+mas_service_account_name: mas-runtime
+mas_runtime_image: "{{ lookup('env', 'MAS_RUNTIME_IMAGE') | default('financial/mas-runtime:latest', true) }}"
+mas_replicas: 1
+mas_container_port: 8080
+mas_service_port: 8080
+mas_bedrock_model_id: "{{ lookup('env', 'MAS_BEDROCK_MODEL_ID') | default('anthropic.claude-3-5-sonnet-20241022-v2:0', true) }}"
+mas_bedrock_max_tokens: 1000
+mas_prometheus_url: "http://prometheus-server.monitoring.svc.cluster.local"
+mas_cpu_request: 100m
+mas_memory_request: 128Mi
+mas_cpu_limit: 500m
+mas_memory_limit: 512Mi
+mas_agents:
+  - name: "{{ mas_release_name }}"
+    role: runtime
+    image: "{{ mas_runtime_image }}"
+    service_account_name: "{{ mas_service_account_name }}"
+    service_name: "{{ mas_service_name }}"
+    replicas: "{{ mas_replicas }}"
+    container_port: "{{ mas_container_port }}"
+    service_port: "{{ mas_service_port }}"
+    bedrock_model_id: "{{ mas_bedrock_model_id }}"
+    bedrock_max_tokens: "{{ mas_bedrock_max_tokens }}"
+    prometheus_url: "{{ mas_prometheus_url }}"
+    cpu_request: "{{ mas_cpu_request }}"
+    memory_request: "{{ mas_memory_request }}"
+    cpu_limit: "{{ mas_cpu_limit }}"
+    memory_limit: "{{ mas_memory_limit }}"
+    kubernetes_readonly: true
+    service_enabled: true
+
 istio_namespace: istio-system
 istio_base_chart_ref: /opt/helm-charts/base
 istio_istiod_chart_ref: /opt/helm-charts/istiod

@@ -168,6 +168,40 @@ resource "aws_ecr_lifecycle_policy" "prometheus" {
   })
 }
 
+resource "aws_ecr_repository" "mas_runtime" {
+  name                 = var.mas_runtime_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.mas_runtime_image_repository_name
+    Purpose   = "mas-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "mas_runtime" {
+  repository = aws_ecr_repository.mas_runtime.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 MAS runtime images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"

@@ -1,0 +1,137 @@
+{% for agent in mas_agents %}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ agent.service_account_name }}
+  namespace: {{ mas_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ agent.name }}
+    app.kubernetes.io/component: mas-agent
+    mas.financial.io/agent-role: {{ agent.role }}
+    app.kubernetes.io/managed-by: ansible
+{% if agent.kubernetes_readonly | default(false) %}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ agent.name }}-reader
+  labels:
+    app.kubernetes.io/name: {{ agent.name }}
+    app.kubernetes.io/component: mas-agent
+    app.kubernetes.io/managed-by: ansible
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "events", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ agent.name }}-reader
+  labels:
+    app.kubernetes.io/name: {{ agent.name }}
+    app.kubernetes.io/component: mas-agent
+    app.kubernetes.io/managed-by: ansible
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ agent.name }}-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ agent.service_account_name }}
+    namespace: {{ mas_namespace }}
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ agent.name }}
+  namespace: {{ mas_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ agent.name }}
+    app.kubernetes.io/component: mas-agent
+    mas.financial.io/agent-role: {{ agent.role }}
+    app.kubernetes.io/managed-by: ansible
+spec:
+  replicas: {{ agent.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ agent.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ agent.name }}
+        app.kubernetes.io/component: mas-agent
+        mas.financial.io/agent-role: {{ agent.role }}
+    spec:
+      serviceAccountName: {{ agent.service_account_name }}
+      containers:
+        - name: {{ agent.name }}
+          image: {{ agent.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ agent.container_port }}
+          env:
+            - name: MAS_SERVICE_NAME
+              value: {{ agent.name | quote }}
+            - name: MAS_AGENT_ROLE
+              value: {{ agent.role | quote }}
+            - name: AWS_REGION
+              value: {{ aws_region | quote }}
+            - name: BEDROCK_MODEL_ID
+              value: {{ agent.bedrock_model_id | quote }}
+            - name: BEDROCK_MAX_TOKENS
+              value: {{ agent.bedrock_max_tokens | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ agent.prometheus_url | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: {{ agent.cpu_request }}
+              memory: {{ agent.memory_request }}
+            limits:
+              cpu: {{ agent.cpu_limit }}
+              memory: {{ agent.memory_limit }}
+{% if agent.service_enabled | default(true) %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ agent.service_name }}
+  namespace: {{ mas_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ agent.name }}
+    app.kubernetes.io/component: mas-agent
+    mas.financial.io/agent-role: {{ agent.role }}
+    app.kubernetes.io/managed-by: ansible
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ agent.name }}
+  ports:
+    - name: http
+      port: {{ agent.service_port }}
+      targetPort: http
+{% endif %}
+{% if not loop.last %}
+---
+{% endif %}
+{% endfor %}

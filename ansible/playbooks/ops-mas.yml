@@ -1,0 +1,47 @@
+- name: Install MAS runtime on the Internal Ops EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Ensure MAS namespace exists
+      ansible.builtin.shell: >
+          kubectl --context {{ ops_kube_context }}
+          create namespace {{ mas_namespace }}
+          --dry-run=client -o yaml
+          | kubectl --context {{ ops_kube_context }} apply -f -
+      changed_when: false
+
+  tasks:
+    - name: Install MAS runtime Kubernetes resources
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition: "{{ lookup('template', '../templates/mas-runtime.yml.j2') | from_yaml_all | list }}"
+
+    - name: Wait for MAS runtime rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ mas_namespace }}
+          rollout status deployment/{{ item.name }}
+          --timeout={{ rollout_timeout }}
+      loop: "{{ mas_agents }}"
+      changed_when: false
+
+    - name: Show MAS runtime service
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          -n {{ mas_namespace }}
+          get deploy,svc,sa {{ mas_release_name }} -o wide
+      changed_when: false
+      failed_when: false

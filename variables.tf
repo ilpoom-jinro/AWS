@@ -55,6 +55,12 @@ variable "prometheus_image_repository_name" {
   default     = "financial/prometheus"
 }
 
+variable "mas_runtime_image_repository_name" {
+  description = "ECR repository name for the MAS runtime image"
+  type        = string
+  default     = "financial/mas-runtime"
+}
+
 variable "argocd_image_tag" {
   description = "Argo CD image tag used by the Helm release"
   type        = string
@@ -71,6 +77,12 @@ variable "prometheus_image_tag" {
   description = "Prometheus image tag used by the Helm release"
   type        = string
   default     = "v3.7.3"
+}
+
+variable "mas_runtime_image_tag" {
+  description = "MAS runtime image tag used by the Kubernetes deployment"
+  type        = string
+  default     = "latest"
 }
 
 variable "istio_image_repository_prefix" {

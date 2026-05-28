@@ -15,6 +15,7 @@ phases:
           kubectl --context financial-ops-eks get nodes -o wide || true
           kubectl --context financial-ops-eks get pods -A -o wide || true
           kubectl --context financial-ops-eks get events -A --sort-by=.lastTimestamp | tail -100 || true
+          kubectl --context financial-ops-eks get pods -n mas -o wide || true
           exit 1
         }
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
@@ -22,4 +23,5 @@ phases:
       - kubectl --context financial-service-eks get deploy,svc -n service-apps || true
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
       - kubectl --context financial-ops-eks get pods -n monitoring -o wide || true
+      - kubectl --context financial-ops-eks get pods -n mas -o wide || true
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true

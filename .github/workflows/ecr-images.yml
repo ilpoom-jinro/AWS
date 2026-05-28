@@ -7,6 +7,7 @@ on:
       - feature/eks
     paths:
       - "ansible/**"
+      - "mas/**"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
       - ".github/workflows/ecr-images.yml"
@@ -34,6 +35,11 @@ on:
         type: boolean
       mirror_prometheus:
         description: "Mirror the Prometheus image into ECR"
+        required: true
+        default: true
+        type: boolean
+      build_mas_runtime:
+        description: "Build and push the MAS runtime image"
         required: true
         default: true
         type: boolean
@@ -68,6 +74,7 @@ env:
   ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
   PROMETHEUS_REPOSITORY: financial/prometheus
   PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
+  MAS_RUNTIME_REPOSITORY: financial/mas-runtime
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
 
@@ -115,6 +122,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.argocd_redis
           -target=aws_ecr_repository.prometheus
           -target=aws_ecr_lifecycle_policy.prometheus
+          -target=aws_ecr_repository.mas_runtime
+          -target=aws_ecr_lifecycle_policy.mas_runtime
           -target=aws_ecr_repository.istio_pilot
           -target=aws_ecr_lifecycle_policy.istio_pilot
           -target=aws_ecr_repository.istio_proxyv2
@@ -136,6 +145,7 @@ jobs:
           aws ecr describe-repositories --repository-names "${ARGOCD_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ARGOCD_REDIS_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${PROMETHEUS_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_RUNTIME_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
@@ -190,6 +200,23 @@ jobs:
           docker pull "${PROMETHEUS_SOURCE_IMAGE}"
           docker tag "${PROMETHEUS_SOURCE_IMAGE}" "${IMAGE_URI}:v3.7.3"
           docker push "${IMAGE_URI}:v3.7.3"
+
+      - name: Build and push MAS runtime image
+        if: github.event_name == 'push' || inputs.build_mas_runtime == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
+
+          docker build \
+            -f mas/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            mas
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
 
       - name: Mirror Istio ambient images to ECR
         if: github.event_name == 'push' || inputs.mirror_istio == true
