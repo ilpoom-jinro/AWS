@@ -1,0 +1,282 @@
+:root {
+  color: #202632;
+  font-family:
+    Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f6f8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page {
+  min-height: 100vh;
+}
+
+.topbar {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e5ea;
+  display: flex;
+  gap: 48px;
+  min-height: 72px;
+  padding: 0 44px;
+}
+
+.brand {
+  align-items: center;
+  color: #1f2430;
+  display: flex;
+  font-size: 20px;
+  font-weight: 800;
+  gap: 12px;
+  min-width: 190px;
+}
+
+.brandMark {
+  align-items: center;
+  background: #e60012;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 22px;
+  font-weight: 900;
+  height: 36px;
+  justify-content: center;
+  letter-spacing: 0;
+  width: 54px;
+}
+
+.topbar nav {
+  align-items: stretch;
+  display: flex;
+  gap: 30px;
+  height: 72px;
+}
+
+.topbar nav a {
+  align-items: center;
+  border-bottom: 3px solid transparent;
+  display: flex;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.topbar nav a.active {
+  border-color: #e60012;
+  color: #e60012;
+}
+
+.subnav {
+  align-items: center;
+  background: #252b36;
+  color: #ffffff;
+  display: flex;
+  gap: 1px;
+  height: 52px;
+  padding-left: 44px;
+}
+
+.subnav span,
+.subnav strong {
+  align-items: center;
+  border-left: 1px solid #39404c;
+  display: flex;
+  font-size: 14px;
+  height: 100%;
+  padding: 0 20px;
+}
+
+.subnav strong {
+  background: #e60012;
+}
+
+.content {
+  margin: 0 auto;
+  max-width: 1160px;
+  padding: 36px 32px 64px;
+}
+
+.titleRow {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.eyebrow {
+  color: #e60012;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+h1 {
+  color: #151922;
+  font-size: 34px;
+  margin: 0;
+}
+
+.searchBox {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfd5de;
+  border-radius: 2px;
+  display: flex;
+  gap: 10px;
+  height: 44px;
+  max-width: 360px;
+  padding: 0 14px;
+  width: 100%;
+}
+
+.searchBox input {
+  border: 0;
+  color: #202632;
+  font: inherit;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.notice {
+  background: #ffffff;
+  border: 1px solid #e0e4ea;
+  border-left: 4px solid #e60012;
+  margin: 28px 0 34px;
+  padding: 18px 22px;
+}
+
+.notice strong {
+  color: #202632;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.tableWrap {
+  background: #ffffff;
+  border: 1px solid #e0e4ea;
+  border-top: 2px solid #e60012;
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  min-width: 980px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e1e5eb;
+  border-right: 1px solid #e8ebef;
+  padding: 18px 16px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+th {
+  background: #f7f8fa;
+  color: #252b36;
+  font-weight: 700;
+}
+
+td:nth-child(2) {
+  line-height: 1.55;
+  text-align: left;
+}
+
+th:last-child,
+td:last-child {
+  border-right: 0;
+}
+
+.stockName {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.ticker {
+  color: #667085;
+}
+
+.gain {
+  align-items: center;
+  color: #e60012;
+  display: table-cell;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.gain svg {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.state {
+  background: #ffffff;
+  border: 1px solid #e0e4ea;
+  padding: 28px;
+  text-align: center;
+}
+
+.state.error {
+  color: #b42318;
+}
+
+@media (max-width: 820px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 20px 0;
+  }
+
+  .topbar nav {
+    gap: 22px;
+    height: 50px;
+    overflow-x: auto;
+    width: 100%;
+  }
+
+  .topbar nav a {
+    font-size: 15px;
+  }
+
+  .subnav {
+    overflow-x: auto;
+    padding-left: 20px;
+  }
+
+  .content {
+    padding: 26px 18px 48px;
+  }
+
+  .titleRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+
+  .searchBox {
+    max-width: none;
+  }
+}
