@@ -11,7 +11,8 @@ on:
           apply     = create/update infrastructure and run Ansible CodeBuild
           destroy   = destroy infrastructure
           reapply   = run plain terraform apply for changed infrastructure
-          codebuild = run Ansible CodeBuild only
+          codebuild = run Ansible platform CodeBuild only
+          gitops    = run GitOps repository bootstrap CodeBuild only
         required: true
         default: plan
         type: choice
@@ -21,10 +22,11 @@ on:
           - destroy
           - reapply
           - codebuild
+          - gitops
       confirm_destroy:
         description: |
           Set true only when action is destroy.
-          Leave false for plan/apply/reapply/codebuild.
+          Leave false for plan/apply/reapply/codebuild/gitops.
         required: true
         default: false
         type: boolean
@@ -168,17 +170,30 @@ jobs:
 
       - name: Destroy CodeBuild project
         if: inputs.action == 'destroy'
-        run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=aws_codebuild_project.ansible_bootstrap
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=aws_codebuild_project.ansible_bootstrap
+          -target=aws_codebuild_project.gitops_bootstrap
+          -target=aws_codebuild_project.cluster_status
+          -target=aws_codebuild_project.service_cluster_status
+          -target=aws_codebuild_project.manifest_updater
 
       - name: Destroy CodeBuild permissions, EKS access, and security group
         if: inputs.action == 'destroy'
         run: >
           terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=aws_eks_access_policy_association.manifest_updater_ops_admin
+          -target=aws_eks_access_entry.manifest_updater_ops
           -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
           -target=aws_eks_access_entry.ansible_codebuild_ops
           -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
           -target=aws_eks_access_entry.ansible_codebuild_service
+          -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
+          -target=aws_security_group.service_cluster_status_codebuild
+          -target=aws_security_group.manifest_updater_codebuild
           -target=aws_security_group.ansible_codebuild
+          -target=aws_iam_role_policy.manifest_updater_codebuild
+          -target=aws_iam_role.manifest_updater_codebuild
           -target=aws_iam_role_policy.ansible_codebuild
           -target=aws_iam_role.ansible_codebuild
 
@@ -222,6 +237,10 @@ jobs:
           -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
           -target=aws_codebuild_project.ansible_bootstrap
           -target=aws_codebuild_project.gitops_bootstrap
+          -target=aws_codebuild_project.cluster_status
+          -target=aws_security_group.service_cluster_status_codebuild
+          -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
+          -target=aws_codebuild_project.service_cluster_status
           -target=aws_security_group.manifest_updater_codebuild
           -target=aws_iam_role.manifest_updater_codebuild
           -target=aws_iam_role_policy.manifest_updater_codebuild
@@ -255,61 +274,69 @@ jobs:
 
           echo "Final terraform plan has no changes."
 
-      - name: Run Ansible CodeBuild after apply
+      - name: Run bootstrap CodeBuild projects after apply
         if: inputs.action == 'apply'
         shell: bash
         run: |
-          build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
-          echo "Started CodeBuild: ${build_id}"
+          run_codebuild_and_wait() {
+            local project_name="$1"
+            local build_id
 
-          print_build_diagnostics() {
-            echo "::group::CodeBuild phases"
-            aws codebuild batch-get-builds \
-              --ids "${build_id}" \
-              --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
-              --output json || true
-            echo "::endgroup::"
+            build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
+            echo "Started CodeBuild (${project_name}): ${build_id}"
 
-            log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
-            log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
-            deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
-
-            echo "CloudWatch log link: ${deep_link}"
-
-            if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
-              echo "::group::CodeBuild CloudWatch logs"
-              aws logs get-log-events \
-                --log-group-name "${log_group}" \
-                --log-stream-name "${log_stream}" \
-                --limit 200 \
-                --query 'events[].message' \
-                --output text || true
+            print_build_diagnostics() {
+              echo "::group::CodeBuild phases (${project_name})"
+              aws codebuild batch-get-builds \
+                --ids "${build_id}" \
+                --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
+                --output json || true
               echo "::endgroup::"
-            fi
+
+              log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
+              log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
+              deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
+
+              echo "CloudWatch log link (${project_name}): ${deep_link}"
+
+              if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
+                echo "::group::CodeBuild CloudWatch logs (${project_name})"
+                aws logs get-log-events \
+                  --log-group-name "${log_group}" \
+                  --log-stream-name "${log_stream}" \
+                  --limit 200 \
+                  --query 'events[].message' \
+                  --output text || true
+                echo "::endgroup::"
+              fi
+            }
+
+            while true; do
+              status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+              echo "CodeBuild status (${project_name}): ${status}"
+
+              case "${status}" in
+                SUCCEEDED)
+                  return 0
+                  ;;
+                FAILED|FAULT|STOPPED|TIMED_OUT)
+                  echo "::error::CodeBuild ${project_name} finished with status ${status}."
+                  print_build_diagnostics
+                  return 1
+                  ;;
+              esac
+
+              sleep 30
+            done
           }
 
-          while true; do
-            status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
-            echo "CodeBuild status: ${status}"
-
-            case "${status}" in
-              SUCCEEDED)
-                exit 0
-                ;;
-              FAILED|FAULT|STOPPED|TIMED_OUT)
-                echo "::error::CodeBuild finished with status ${status}."
-                print_build_diagnostics
-                exit 1
-                ;;
-            esac
-
-            sleep 30
-          done
+          run_codebuild_and_wait financial-ansible-bootstrap
+          run_codebuild_and_wait financial-gitops-bootstrap
 
   codebuild:
-    name: Run Ansible CodeBuild
+    name: Run selected CodeBuild
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && inputs.action == 'codebuild'
+    if: github.ref == 'refs/heads/main' && contains(fromJSON('["codebuild","gitops"]'), inputs.action)
     environment: production
 
     steps:
@@ -322,11 +349,16 @@ jobs:
       - name: Start build and wait
         shell: bash
         run: |
-          build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
-          echo "Started CodeBuild: ${build_id}"
+          project_name="financial-ansible-bootstrap"
+          if [ "${{ inputs.action }}" = "gitops" ]; then
+            project_name="financial-gitops-bootstrap"
+          fi
+
+          build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
+          echo "Started CodeBuild (${project_name}): ${build_id}"
 
           print_build_diagnostics() {
-            echo "::group::CodeBuild phases"
+            echo "::group::CodeBuild phases (${project_name})"
             aws codebuild batch-get-builds \
               --ids "${build_id}" \
               --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
@@ -337,10 +369,10 @@ jobs:
             log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
             deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
 
-            echo "CloudWatch log link: ${deep_link}"
+            echo "CloudWatch log link (${project_name}): ${deep_link}"
 
             if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
-              echo "::group::CodeBuild CloudWatch logs"
+              echo "::group::CodeBuild CloudWatch logs (${project_name})"
               aws logs get-log-events \
                 --log-group-name "${log_group}" \
                 --log-stream-name "${log_stream}" \
@@ -353,14 +385,14 @@ jobs:
 
           while true; do
             status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
-            echo "CodeBuild status: ${status}"
+            echo "CodeBuild status (${project_name}): ${status}"
 
             case "${status}" in
               SUCCEEDED)
                 exit 0
                 ;;
               FAILED|FAULT|STOPPED|TIMED_OUT)
-                echo "::error::CodeBuild finished with status ${status}."
+                echo "::error::CodeBuild ${project_name} finished with status ${status}."
                 print_build_diagnostics
                 exit 1
                 ;;

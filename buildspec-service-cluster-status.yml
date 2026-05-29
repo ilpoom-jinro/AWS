@@ -35,7 +35,7 @@ phases:
             --output table
 
         run_check "Service Kubernetes API server version" \
-          kubectl --context "${SERVICE_CONTEXT}" version --short
+          kubectl --context "${SERVICE_CONTEXT}" version -o yaml
 
         run_check "Service cluster nodes" \
           kubectl --context "${SERVICE_CONTEXT}" get nodes -o wide
