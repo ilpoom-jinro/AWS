@@ -21,5 +21,4 @@ phases:
       - kubectl --context financial-service-eks get pods -n service-apps -o wide || true
       - kubectl --context financial-service-eks get deploy,svc -n service-apps || true
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
-      - kubectl --context financial-ops-eks get pods -n monitoring -o wide || true
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true

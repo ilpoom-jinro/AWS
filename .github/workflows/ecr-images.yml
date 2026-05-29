@@ -32,11 +32,6 @@ on:
         required: true
         default: false
         type: boolean
-      mirror_prometheus:
-        description: "Mirror the Prometheus image into ECR"
-        required: true
-        default: false
-        type: boolean
       mirror_istio:
         description: "Mirror Istio ambient mesh images into ECR"
         required: true
@@ -66,8 +61,6 @@ env:
   ARGOCD_SOURCE_IMAGE: quay.io/argoproj/argocd:latest
   ARGOCD_REDIS_REPOSITORY: financial/argocd-redis
   ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
-  PROMETHEUS_REPOSITORY: financial/prometheus
-  PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
 
@@ -156,8 +149,6 @@ jobs:
           -target=aws_ecr_lifecycle_policy.argocd
           -target=aws_ecr_repository.argocd_redis
           -target=aws_ecr_lifecycle_policy.argocd_redis
-          -target=aws_ecr_repository.prometheus
-          -target=aws_ecr_lifecycle_policy.prometheus
           -target=aws_ecr_repository.istio_pilot
           -target=aws_ecr_lifecycle_policy.istio_pilot
           -target=aws_ecr_repository.istio_proxyv2
@@ -182,7 +173,6 @@ jobs:
           aws ecr describe-repositories --repository-names "${INTERNAL_GIT_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ARGOCD_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ARGOCD_REDIS_REPOSITORY}"
-          aws ecr describe-repositories --repository-names "${PROMETHEUS_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
@@ -228,17 +218,6 @@ jobs:
           docker pull "${ARGOCD_REDIS_SOURCE_IMAGE}"
           docker tag "${ARGOCD_REDIS_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
           docker push "${IMAGE_URI}:latest"
-
-      - name: Mirror Prometheus image to ECR
-        if: github.event_name == 'workflow_dispatch' && inputs.mirror_prometheus == true
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-        run: |
-          IMAGE_URI="${REGISTRY}/${PROMETHEUS_REPOSITORY}"
-
-          docker pull "${PROMETHEUS_SOURCE_IMAGE}"
-          docker tag "${PROMETHEUS_SOURCE_IMAGE}" "${IMAGE_URI}:v3.7.3"
-          docker push "${IMAGE_URI}:v3.7.3"
 
       - name: Mirror Istio ambient images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_istio == true

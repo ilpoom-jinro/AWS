@@ -1,0 +1,127 @@
+name: Mirror Monitoring Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      mirror_all:
+        description: "Mirror every monitoring image"
+        required: true
+        default: true
+        type: boolean
+      mirror_grafana:
+        description: "Mirror Grafana"
+        required: true
+        default: false
+        type: boolean
+      mirror_loki:
+        description: "Mirror Loki"
+        required: true
+        default: false
+        type: boolean
+      mirror_thanos:
+        description: "Mirror Thanos"
+        required: true
+        default: false
+        type: boolean
+      mirror_alloy:
+        description: "Mirror Grafana Alloy"
+        required: true
+        default: false
+        type: boolean
+      mirror_alertmanager:
+        description: "Mirror Alertmanager"
+        required: true
+        default: false
+        type: boolean
+      mirror_xray_collector:
+        description: "Mirror AWS X-Ray collector"
+        required: true
+        default: false
+        type: boolean
+      mirror_prometheus:
+        description: "Mirror Prometheus"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+
+jobs:
+  mirror:
+    name: Mirror monitoring images to ECR
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Mirror selected monitoring images
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          MIRROR_ALL: ${{ inputs.mirror_all }}
+          MIRROR_GRAFANA: ${{ inputs.mirror_grafana }}
+          MIRROR_LOKI: ${{ inputs.mirror_loki }}
+          MIRROR_THANOS: ${{ inputs.mirror_thanos }}
+          MIRROR_ALLOY: ${{ inputs.mirror_alloy }}
+          MIRROR_ALERTMANAGER: ${{ inputs.mirror_alertmanager }}
+          MIRROR_XRAY_COLLECTOR: ${{ inputs.mirror_xray_collector }}
+          MIRROR_PROMETHEUS: ${{ inputs.mirror_prometheus }}
+        run: |
+          set -euo pipefail
+
+          should_mirror() {
+            local component="$1"
+
+            if [ "${MIRROR_ALL}" = "true" ]; then
+              return 0
+            fi
+
+            case "${component}" in
+              grafana) [ "${MIRROR_GRAFANA}" = "true" ] ;;
+              loki) [ "${MIRROR_LOKI}" = "true" ] ;;
+              thanos) [ "${MIRROR_THANOS}" = "true" ] ;;
+              alloy) [ "${MIRROR_ALLOY}" = "true" ] ;;
+              alertmanager) [ "${MIRROR_ALERTMANAGER}" = "true" ] ;;
+              xray-collector) [ "${MIRROR_XRAY_COLLECTOR}" = "true" ] ;;
+              prometheus) [ "${MIRROR_PROMETHEUS}" = "true" ] ;;
+              *) return 1 ;;
+            esac
+          }
+
+          while IFS=$'\t' read -r component source_image ecr_repository target_tag; do
+            if [ -z "${component}" ] || [[ "${component}" == \#* ]]; then
+              continue
+            fi
+
+            if ! should_mirror "${component}"; then
+              echo "Skipping ${component}"
+              continue
+            fi
+
+            echo "Checking ECR repository ${ecr_repository}"
+            aws ecr describe-repositories --repository-names "${ecr_repository}" >/dev/null
+
+            target_image="${REGISTRY}/${ecr_repository}:${target_tag}"
+            echo "Mirroring ${source_image} -> ${target_image}"
+
+            docker pull "${source_image}"
+            docker tag "${source_image}" "${target_image}"
+            docker push "${target_image}"
+          done < monitoring/images.tsv

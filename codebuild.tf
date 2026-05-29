@@ -4,7 +4,6 @@ locals {
   internal_git_image_repository      = "${local.ecr_registry}/${var.internal_git_image_repository_name}"
   argocd_image_repository            = "${local.ecr_registry}/${var.argocd_image_repository_name}"
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
-  prometheus_image_repository        = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
   istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
 }
 
@@ -209,16 +208,6 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
-      name  = "PROMETHEUS_IMAGE_REPOSITORY"
-      value = local.prometheus_image_repository
-    }
-
-    environment_variable {
-      name  = "PROMETHEUS_IMAGE_TAG"
-      value = var.prometheus_image_tag
-    }
-
-    environment_variable {
       name  = "ISTIO_IMAGE_HUB"
       value = local.istio_image_repository_prefix
     }
@@ -319,7 +308,7 @@ resource "aws_codebuild_project" "gitops_bootstrap" {
 
 resource "aws_codebuild_project" "cluster_status" {
   name          = var.cluster_status_codebuild_project_name
-  description   = "Prints Ops and Service EKS status for Argo CD, Istio, Prometheus, internal Git, and demo-app"
+  description   = "Prints Ops EKS status for Argo CD, Istio, internal Git, and GitOps applications"
   service_role  = aws_iam_role.ansible_codebuild.arn
   build_timeout = 20
 
