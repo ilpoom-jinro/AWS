@@ -38,7 +38,7 @@ function App() {
     fetch(`${apiBaseUrl}/api/recommendations`)
       .then((response) => {
         if (!response.ok) {
-          throw new Error("추천 종목을 불러오지 못했습니다.");
+          throw new Error("Failed to load recommendations.");
         }
         return response.json();
       })
@@ -86,34 +86,40 @@ function App() {
       </header>
 
       <section className="subnav">
-        <span>서비스 데모</span>
+        <span>Service Demo</span>
         <span>API Gateway</span>
         <span>Private Backend</span>
-        <strong>주식 추천 서비스</strong>
+        <strong>Stock Recommendation Service</strong>
       </section>
 
       <section className="content">
         <div className="titleRow">
           <div>
             <p className="eyebrow">KT Cloud Demo Architecture</p>
-            <h1>대형주 추천종목</h1>
+            <h1>Stock Recommendations</h1>
           </div>
           <label className="searchBox">
             <Search size={18} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="종목명, 코드, 추천사유 검색"
+              placeholder="Search by name, ticker, or reason"
             />
           </label>
         </div>
 
         <div className="notice">
-          <strong>Public Web, Private Backend, Private DB 구조를 보여주는 데모 화면입니다.</strong>
-          <p>아래 추천 종목은 서비스 흐름 확인을 위한 임시 샘플 데이터입니다.</p>
+          <strong>
+            This demo shows a public web tier, private backend, and private
+            database flow.
+          </strong>
+          <p>
+            The recommendation rows are seeded sample data for service
+            deployment checks.
+          </p>
         </div>
 
-        {isLoading && <div className="state">추천 종목을 불러오는 중입니다.</div>}
+        {isLoading && <div className="state">Loading recommendations...</div>}
         {errorMessage && <div className="state error">{errorMessage}</div>}
 
         {!isLoading && !errorMessage && (
@@ -121,12 +127,12 @@ function App() {
             <table>
               <thead>
                 <tr>
-                  <th>종목</th>
-                  <th>추천사유</th>
-                  <th>현재가(원)</th>
-                  <th>추천가(원)</th>
-                  <th>추천가대비</th>
-                  <th>추천일</th>
+                  <th>Stock</th>
+                  <th>Reason</th>
+                  <th>Current Price</th>
+                  <th>Recommended Price</th>
+                  <th>Upside</th>
+                  <th>Recommendation Date</th>
                 </tr>
               </thead>
               <tbody>

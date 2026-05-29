@@ -53,8 +53,16 @@ internal_git_repo: platform
 gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
 gitops_repo_name: internal-gitops
 
-demo_app_name: demo-redis
+demo_app_name: demo-app
 demo_app_namespace: service-apps
-demo_app_path: apps/demo
-demo_app_image: "{{ argocd_redis_image_repository }}:{{ argocd_redis_image_tag }}"
-demo_argocd_application_name: demo-service-app
+demo_app_path: apps/demo-app
+demo_backend_name: backend
+demo_frontend_name: frontend
+demo_db_name: postgres
+demo_backend_image: public.ecr.aws/docker/library/python:3.12-slim
+demo_frontend_image: public.ecr.aws/docker/library/nginx:1.27-alpine
+demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
+demo_db_name_value: stockdemo
+demo_db_user: stockuser
+demo_db_password: stockpass
+demo_argocd_application_name: demo-app
