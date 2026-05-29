@@ -13,6 +13,9 @@ module "vpc2" {
 
 module "vpc3" {
   source = "./vpc/teleport"
+
+  eks_endpoint = module.vpc2.eks_cluster_endpoint
+  eks_ca_data  = module.vpc2.eks_cluster_ca_data
 }
 
 module "vpc4" {

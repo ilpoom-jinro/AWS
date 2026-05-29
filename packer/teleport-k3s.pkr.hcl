@@ -93,11 +93,41 @@ build {
   # ── 2. K3s 설치 ────────────────────────────────────────────────────────────
   provisioner "shell" {
     inline = [
-      # K3s 바이너리 다운로드 (인터넷 가능한 빌드 환경에서)
-      "curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${var.k3s_version} INSTALL_K3S_SKIP_ENABLE=true sh -",
+      # K3s 설치 및 시작 (이미지 pull을 위해 실행 필요)
+      "curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=${var.k3s_version} sh -",
+      "sudo systemctl enable k3s",
 
-      # K3s 자동 시작 비활성화 (EC2 시작 시 user_data에서 설정 후 시작)
-      "sudo systemctl disable k3s || true"
+      # K3s 준비 대기
+      "until sudo k3s kubectl get nodes 2>/dev/null | grep -q Ready; do echo 'K3s 준비 대기중...'; sleep 5; done",
+      "echo 'K3s 준비 완료'"
+    ]
+  }
+
+  # ── K3s 내장 이미지 사전 pull ────────────────────────────────────────────────
+  provisioner "shell" {
+    inline = [
+      "sudo k3s ctr images pull docker.io/rancher/mirrored-pause:3.6",
+      "sudo k3s ctr images pull docker.io/rancher/mirrored-coredns-coredns:1.11.1",
+      "sudo k3s ctr images pull docker.io/rancher/mirrored-metrics-server:v0.7.0",
+      "sudo k3s ctr images pull docker.io/rancher/local-path-provisioner:v0.0.28",
+      "sudo k3s ctr images pull docker.io/rancher/mirrored-library-traefik:2.10.7",
+      "sudo k3s ctr images pull docker.io/rancher/klipper-lb:v0.4.9",
+      "echo '모든 K3s 이미지 pull 완료'"
+    ]
+  }
+
+  # ── K3s 중지 및 클러스터 상태 초기화 (EC2 시작 시 fresh 클러스터로 시작) ────
+  provisioner "shell" {
+    inline = [
+      "sudo systemctl stop k3s",
+      "sudo systemctl disable k3s",
+      # 빌드 노드의 클러스터 상태 제거 (노드 등록 정보, etcd 등)
+      # 이미지 캐시(/var/lib/rancher/k3s/agent/containerd)는 유지
+      "sudo rm -rf /var/lib/rancher/k3s/server",
+      "sudo rm -rf /var/lib/rancher/k3s/agent/client-*.crt",
+      "sudo rm -rf /var/lib/rancher/k3s/agent/client-*.key",
+      "sudo rm -rf /var/lib/rancher/k3s/agent/node-name.conf",
+      "sudo rm -rf /etc/rancher/k3s/k3s.yaml"
     ]
   }
 
@@ -141,6 +171,15 @@ build {
 
       # Teleport 자동 시작 비활성화 (user_data에서 설정 후 시작)
       "sudo systemctl disable teleport || true"
+    ]
+  }
+
+  # ── aws-iam-authenticator 설치 ──────────────────────────────────────────────
+  provisioner "shell" {
+    inline = [
+      "curl -L -o /usr/local/bin/aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.14/aws-iam-authenticator_0.6.14_linux_amd64",
+      "chmod +x /usr/local/bin/aws-iam-authenticator",
+      "aws-iam-authenticator version"
     ]
   }
 

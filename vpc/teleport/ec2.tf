@@ -29,6 +29,20 @@ resource "aws_iam_role_policy_attachment" "teleport_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy" "teleport_eks" {
+  name = "teleport-eks-describe"
+  role = aws_iam_role.teleport_ec2.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["eks:DescribeCluster"]
+      Resource = "arn:aws:eks:ap-northeast-2:${data.aws_caller_identity.current.account_id}:cluster/financial-ops-eks"
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "teleport_ec2" {
   name = "financial-vpc3-teleport-ec2-profile"
   role = aws_iam_role.teleport_ec2.name
@@ -49,22 +63,10 @@ resource "aws_instance" "teleport" {
     encrypted   = true
   }
 
-  user_data = <<-EOF
-    #!/bin/bash
-    # IP Forwarding 활성화
-    sysctl -p /etc/sysctl.d/99-teleport.conf
-
-    # K3s 시작
-    systemctl enable k3s
-    systemctl start k3s
-
-    # K3s 준비 대기
-    until kubectl get nodes 2>/dev/null | grep -q Ready; do
-      echo "K3s 준비 대기중..."
-      sleep 5
-    done
-    echo "K3s 준비 완료"
-  EOF
+  user_data = base64encode(templatefile("${path.module}/userdata.sh.tpl", {
+    eks_endpoint = var.eks_endpoint
+    eks_ca_data  = var.eks_ca_data
+  }))
 
   tags = {
     Name = "financial-vpc3-teleport"
