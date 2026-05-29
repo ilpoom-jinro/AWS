@@ -39,7 +39,15 @@ resource "aws_iam_policy" "security_extra" {
         "securityhub:GetInsights",        # 인사이트 조회
         "iam:AttachGroupPolicy",          # IAM 권한 설정
         "iam:CreatePolicy",               # IAM 정책 생성
-        "iam:UpdateAccountPasswordPolicy" # 비밀번호 정책 설정
+        "iam:UpdateAccountPasswordPolicy", # 비밀번호 정책 설정
+        "iam:UpdateAccountPasswordPolicy", # 비밀번호 정책 설정
+        # KMS 긴급 대응 권한 (financial-kms-admin-role Assume 불가 시)
+        "kms:CreateKey",                   # CMK 생성
+        "kms:PutKeyPolicy",                # 키 정책 설정
+        "kms:ScheduleKeyDeletion",         # 키 삭제 예약
+        "kms:CancelKeyDeletion",           # 키 삭제 취소
+        "kms:DisableKey",                  # 키 비활성화
+        "kms:EnableKeyRotation"            # 키 로테이션 활성화
       ]
       Resource = "*"
     }]

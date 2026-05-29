@@ -72,3 +72,19 @@ output "istio_image_repository_prefix" {
   description = "ECR repository prefix used as the Istio image hub"
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.istio_image_repository_prefix}"
 }
+
+# =============================================
+# Output: rds.tf 작성 시 참조
+# 사용법:
+#   kms_key_id = data.terraform_remote_state.root.outputs.kms_key_rds_ops_arn
+# =============================================
+
+output "kms_key_rds_ops_arn" {
+  description = "RDS CMK ARN for financial-vpc2-ops (준호씨 rds.tf에서 참조)"
+  value       = aws_kms_key.key_rds_ops.arn
+}
+
+output "kms_key_rds_globalservice_arn" {
+  description = "RDS CMK ARN for financial-vpc1-service (준호씨 rds.tf에서 참조)"
+  value       = aws_kms_key.key_rds_globalservice.arn
+}
