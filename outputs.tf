@@ -43,6 +43,11 @@ output "ansible_codebuild_project_name" {
   value       = aws_codebuild_project.ansible_bootstrap.name
 }
 
+output "cluster_status_codebuild_project_name" {
+  description = "CodeBuild project that prints Ops and Service EKS workload status"
+  value       = aws_codebuild_project.cluster_status.name
+}
+
 output "ansible_codebuild_image_repository_url" {
   description = "ECR repository URL for the Ansible CodeBuild runtime image"
   value       = aws_ecr_repository.ansible_codebuild.repository_url

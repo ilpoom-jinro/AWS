@@ -91,6 +91,12 @@ variable "manifest_updater_codebuild_project_name" {
   default     = "financial-manifest-updater"
 }
 
+variable "cluster_status_codebuild_project_name" {
+  description = "CodeBuild project name for checking Ops and Service EKS workload status"
+  type        = string
+  default     = "financial-cluster-status"
+}
+
 variable "manifest_updater_image" {
   description = "Full CodeBuild runtime image URI. If null, the repository name and tag variables are used."
   type        = string
