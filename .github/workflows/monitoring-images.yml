@@ -1,4 +1,4 @@
-name: Mirror Monitoring Images
+name: Monitoring Images
 
 on:
   workflow_dispatch:
@@ -7,6 +7,11 @@ on:
         description: "Mirror every monitoring image"
         required: true
         default: true
+        type: boolean
+      build_custom:
+        description: "Build every custom monitoring image from monitoring/custom-images.tsv"
+        required: true
+        default: false
         type: boolean
       mirror_grafana:
         description: "Mirror Grafana"
@@ -53,7 +58,7 @@ env:
 
 jobs:
   mirror:
-    name: Mirror monitoring images to ECR
+    name: Mirror and build monitoring images to ECR
     runs-on: ubuntu-latest
     environment: development
 
@@ -125,3 +130,40 @@ jobs:
             docker tag "${source_image}" "${target_image}"
             docker push "${target_image}"
           done < monitoring/images.tsv
+
+      - name: Build selected custom monitoring images
+        if: inputs.build_custom == true
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+
+          while IFS=$'\t' read -r component dockerfile build_context ecr_repository target_tag; do
+            if [ -z "${component}" ] || [[ "${component}" == \#* ]]; then
+              continue
+            fi
+
+            if [ ! -f "${dockerfile}" ]; then
+              echo "::error::Dockerfile not found for ${component}: ${dockerfile}"
+              exit 1
+            fi
+
+            if [ ! -d "${build_context}" ]; then
+              echo "::error::Build context not found for ${component}: ${build_context}"
+              exit 1
+            fi
+
+            echo "Checking ECR repository ${ecr_repository}"
+            aws ecr describe-repositories --repository-names "${ecr_repository}" >/dev/null
+
+            target_image="${REGISTRY}/${ecr_repository}:${target_tag}"
+            echo "Building ${component} -> ${target_image}"
+
+            docker build \
+              -f "${dockerfile}" \
+              -t "${target_image}" \
+              "${build_context}"
+
+            docker push "${target_image}"
+          done < monitoring/custom-images.tsv
