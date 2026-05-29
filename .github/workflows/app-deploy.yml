@@ -3,45 +3,23 @@ name: App Deploy
 on:
   workflow_dispatch:
     inputs:
-      app_name:
-        description: "Application name passed to CodeBuild"
+      component:
+        description: "Application component to build and deploy"
         required: true
-        default: "demo-app-backend"
-        type: string
-      ecr_repository:
-        description: "ECR repository name for the application image"
-        required: true
-        default: "financial/demo-app-backend"
-        type: string
+        default: "backend"
+        type: choice
+        options:
+          - backend
+          - frontend
       codebuild_project:
         description: "CodeBuild project that updates the internal Git manifest"
         required: true
         default: "financial-manifest-updater"
         type: string
-      dockerfile:
-        description: "Dockerfile path"
-        required: true
-        default: "demo-app/backend/Dockerfile"
-        type: string
-      build_context:
-        description: "Docker build context path"
-        required: true
-        default: "demo-app/backend"
-        type: string
       gitops_branch:
         description: "Internal Git branch to update"
         required: true
         default: "main"
-        type: string
-      manifest_path:
-        description: "Manifest path in the internal GitOps repository"
-        required: false
-        default: "apps/demo-app/backend.yaml"
-        type: string
-      target_container:
-        description: "Container name to update inside the manifest"
-        required: false
-        default: "backend"
         type: string
 
 permissions:
@@ -49,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-deploy-${{ inputs.app_name }}-${{ inputs.gitops_branch }}
+  group: app-deploy-${{ inputs.component }}-${{ inputs.gitops_branch }}
   cancel-in-progress: false
 
 env:
@@ -75,12 +53,46 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Resolve component settings
+        id: component
+        shell: bash
+        run: |
+          case "${{ inputs.component }}" in
+            backend)
+              app_name="demo-app-backend"
+              ecr_repository="financial/demo-app-backend"
+              dockerfile="demo-app/backend/Dockerfile"
+              build_context="demo-app/backend"
+              manifest_path="apps/demo-app/backend.yaml"
+              target_container="backend"
+              ;;
+            frontend)
+              app_name="demo-app-frontend"
+              ecr_repository="financial/demo-app-frontend"
+              dockerfile="demo-app/frontend/Dockerfile"
+              build_context="demo-app/frontend"
+              manifest_path="apps/demo-app/frontend.yaml"
+              target_container="frontend"
+              ;;
+            *)
+              echo "::error::Unsupported component: ${{ inputs.component }}"
+              exit 1
+              ;;
+          esac
+
+          echo "app_name=${app_name}" >> "${GITHUB_OUTPUT}"
+          echo "ecr_repository=${ecr_repository}" >> "${GITHUB_OUTPUT}"
+          echo "dockerfile=${dockerfile}" >> "${GITHUB_OUTPUT}"
+          echo "build_context=${build_context}" >> "${GITHUB_OUTPUT}"
+          echo "manifest_path=${manifest_path}" >> "${GITHUB_OUTPUT}"
+          echo "target_container=${target_container}" >> "${GITHUB_OUTPUT}"
+
       - name: Prepare image metadata
         id: image
         shell: bash
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          ECR_REPOSITORY: ${{ steps.component.outputs.ecr_repository }}
         run: |
           short_sha="${GITHUB_SHA::7}"
           image_tag="$(date -u +%Y%m%d)-${short_sha}"
@@ -92,7 +104,7 @@ jobs:
       - name: Check ECR repository
         shell: bash
         env:
-          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          ECR_REPOSITORY: ${{ steps.component.outputs.ecr_repository }}
         run: |
           aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}"
 
@@ -102,9 +114,9 @@ jobs:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
         run: |
           docker build \
-            -f "${{ inputs.dockerfile }}" \
+            -f "${{ steps.component.outputs.dockerfile }}" \
             -t "${IMAGE_URI}" \
-            "${{ inputs.build_context }}"
+            "${{ steps.component.outputs.build_context }}"
 
       - name: Push image
         shell: bash
@@ -117,19 +129,16 @@ jobs:
         id: codebuild
         shell: bash
         env:
-          APP_NAME: ${{ inputs.app_name }}
+          APP_NAME: ${{ steps.component.outputs.app_name }}
           CODEBUILD_PROJECT: ${{ inputs.codebuild_project }}
-          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          ECR_REPOSITORY: ${{ steps.component.outputs.ecr_repository }}
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           GITOPS_BRANCH: ${{ inputs.gitops_branch }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
           IMAGE_URI: ${{ steps.image.outputs.uri }}
-          MANIFEST_PATH: ${{ inputs.manifest_path }}
-          TARGET_CONTAINER: ${{ inputs.target_container }}
+          MANIFEST_PATH: ${{ steps.component.outputs.manifest_path }}
+          TARGET_CONTAINER: ${{ steps.component.outputs.target_container }}
         run: |
-          MANIFEST_PATH="${MANIFEST_PATH:-apps/${APP_NAME}/deployment.yaml}"
-          TARGET_CONTAINER="${TARGET_CONTAINER:-${APP_NAME}}"
-
           build_id="$(
             aws codebuild start-build \
               --project-name "${CODEBUILD_PROJECT}" \
