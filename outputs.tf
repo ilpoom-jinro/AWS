@@ -43,6 +43,11 @@ output "ansible_codebuild_project_name" {
   value       = aws_codebuild_project.ansible_bootstrap.name
 }
 
+output "gitops_bootstrap_codebuild_project_name" {
+  description = "CodeBuild project that bootstraps internal GitOps repositories and Argo CD Applications"
+  value       = aws_codebuild_project.gitops_bootstrap.name
+}
+
 output "cluster_status_codebuild_project_name" {
   description = "CodeBuild project that prints Ops EKS and Argo CD workload status"
   value       = aws_codebuild_project.cluster_status.name

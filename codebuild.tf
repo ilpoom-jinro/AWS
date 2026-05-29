@@ -261,6 +261,62 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
   ]
 }
 
+resource "aws_codebuild_project" "gitops_bootstrap" {
+  name          = var.gitops_bootstrap_codebuild_project_name
+  description   = "Bootstraps internal GitOps repositories, demo-app manifests, and Argo CD Applications"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 30
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "ANSIBLE_CONFIG"
+      value = "/workspace/ansible/ansible.cfg"
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_USERNAME"
+      value = var.internal_git_admin_username
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_PASSWORD"
+      value = var.internal_git_admin_password
+      type  = "PLAINTEXT"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-gitops-bootstrap.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc2.vpc_id
+    subnets            = module.vpc2.private_subnet_ids
+    security_group_ids = [aws_security_group.ansible_codebuild.id, module.vpc2.eks_node_sg_id]
+  }
+
+  tags = {
+    Name      = var.gitops_bootstrap_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_ops_admin,
+    aws_eks_access_policy_association.ansible_codebuild_service_admin
+  ]
+}
+
 resource "aws_codebuild_project" "cluster_status" {
   name          = var.cluster_status_codebuild_project_name
   description   = "Prints Ops and Service EKS status for Argo CD, Istio, Prometheus, internal Git, and demo-app"

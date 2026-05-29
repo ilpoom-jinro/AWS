@@ -221,6 +221,7 @@ jobs:
           -target=aws_eks_access_entry.ansible_codebuild_service
           -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
           -target=aws_codebuild_project.ansible_bootstrap
+          -target=aws_codebuild_project.gitops_bootstrap
           -target=aws_security_group.manifest_updater_codebuild
           -target=aws_iam_role.manifest_updater_codebuild
           -target=aws_iam_role_policy.manifest_updater_codebuild

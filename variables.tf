@@ -91,6 +91,12 @@ variable "manifest_updater_codebuild_project_name" {
   default     = "financial-manifest-updater"
 }
 
+variable "gitops_bootstrap_codebuild_project_name" {
+  description = "CodeBuild project name for bootstrapping internal GitOps repositories and Argo CD Applications"
+  type        = string
+  default     = "financial-gitops-bootstrap"
+}
+
 variable "cluster_status_codebuild_project_name" {
   description = "CodeBuild project name for checking Ops and Service EKS workload status"
   type        = string

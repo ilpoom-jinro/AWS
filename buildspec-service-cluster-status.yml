@@ -49,6 +49,10 @@ phases:
         run_check "Demo app workloads" \
           kubectl --context "${SERVICE_CONTEXT}" -n service-apps get deploy,svc,pods -o wide
 
+        run_check "Frontend LoadBalancer endpoint" \
+          kubectl --context "${SERVICE_CONTEXT}" -n service-apps get svc frontend \
+            -o jsonpath='{.status.loadBalancer.ingress[*].hostname}{"\n"}'
+
         section "Rollout checks"
         for item in \
           "istio-system:deployment/istiod" \
