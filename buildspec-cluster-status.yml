@@ -51,9 +51,6 @@ phases:
         run_check "Argo CD pods and services" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get deploy,sts,svc,pods -o wide
 
-        run_check "Prometheus pods and services" \
-          kubectl --context "${OPS_CONTEXT}" -n monitoring get deploy,sts,svc,pods -o wide
-
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 

@@ -134,40 +134,6 @@ resource "aws_ecr_lifecycle_policy" "argocd_redis" {
   })
 }
 
-resource "aws_ecr_repository" "prometheus" {
-  name                 = var.prometheus_image_repository_name
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name      = var.prometheus_image_repository_name
-    Purpose   = "prometheus-runtime"
-    ManagedBy = "terraform"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "prometheus" {
-  repository = aws_ecr_repository.prometheus.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep the last 10 Prometheus images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
-}
-
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"
