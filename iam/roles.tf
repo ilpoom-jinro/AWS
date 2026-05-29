@@ -18,6 +18,8 @@
 # =============================================
 # 1. KMS 일반 관리 Role
 # =============================================
+data "aws_caller_identity" "current" {}
+
 resource "aws_iam_role" "kms_admin" {
   name        = "financial-kms-admin-role"
   description = "KMS 키 일반 관리 전용 Role (보안팀 전용)"

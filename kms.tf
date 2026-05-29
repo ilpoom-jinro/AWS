@@ -42,10 +42,11 @@ resource "aws_kms_key" "key_rds_ops" {
       {
         # kms_admin Role: 일반 관리 작업만 허용
         # 삭제/비활성화는 포함하지 않음
+        # iam 모듈과 루트 모듈이 분리되어 있어서 ARN 문자열로 직접 참조
         Sid    = "AllowKMSAdminRole"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.kms_admin.arn
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
         }
         Action = [
           "kms:CreateKey",
@@ -71,10 +72,11 @@ resource "aws_kms_key" "key_rds_ops" {
       {
         # kms_breakglass Role: 삭제/비활성화만 허용
         # MFA 인증된 세션에서만 사용 가능 (roles.tf에서 Assume 조건으로 강제)
+        # iam 모듈과 루트 모듈이 분리되어 있어서 ARN 문자열로 직접 참조
         Sid    = "AllowKMSBreakGlassRole"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.kms_breakglass.arn
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
         }
         Action = [
           "kms:ScheduleKeyDeletion", # 키 삭제 예약
@@ -120,16 +122,16 @@ resource "aws_kms_key" "key_rds_ops" {
         }
       },
       {
-        # 금융권 필수: CloudTrail 비활성화 차단
-        # 감사 로그 끄는 행위 자체를 KMS 레벨에서 차단
-        Sid    = "DenyCloudTrailDisable"
+        # 금융권 필수: MFA 없는 키 삭제/비활성화 차단
+        # BreakGlass Role도 MFA 없으면 차단 (이중 방어)
+        Sid    = "DenyWithoutMFA"
         Effect = "Deny"
         Principal = {
           AWS = "*"
         }
         Action = [
-          "kms:DisableKey",         # 키 비활성화 (BreakGlass 제외)
-          "kms:ScheduleKeyDeletion" # 키 삭제 예약 (BreakGlass 제외)
+          "kms:DisableKey",         # 키 비활성화
+          "kms:ScheduleKeyDeletion" # 키 삭제 예약
         ]
         Resource = "*"
         Condition = {
@@ -152,7 +154,7 @@ resource "aws_kms_key" "key_rds_ops" {
 }
 
 # alias: 사람이 읽기 쉬운 키 이름표
-# 준호씨 rds.tf에서 alias/key-rds-ops 로 참조 가능
+# rds.tf에서 alias/key-rds-ops 로 참조 가능
 resource "aws_kms_alias" "key_rds_ops" {
   name          = "alias/key-rds-ops"
   target_key_id = aws_kms_key.key_rds_ops.key_id
@@ -183,7 +185,7 @@ resource "aws_kms_key" "key_rds_globalservice" {
         Sid    = "AllowKMSAdminRole"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.kms_admin.arn
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
         }
         Action = [
           "kms:CreateKey",
@@ -210,7 +212,7 @@ resource "aws_kms_key" "key_rds_globalservice" {
         Sid    = "AllowKMSBreakGlassRole"
         Effect = "Allow"
         Principal = {
-          AWS = aws_iam_role.kms_breakglass.arn
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
         }
         Action = [
           "kms:ScheduleKeyDeletion",
@@ -251,7 +253,7 @@ resource "aws_kms_key" "key_rds_globalservice" {
         }
       },
       {
-        Sid    = "DenyCloudTrailDisable"
+        Sid    = "DenyWithoutMFA"
         Effect = "Deny"
         Principal = {
           AWS = "*"
