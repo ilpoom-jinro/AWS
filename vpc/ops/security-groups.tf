@@ -26,6 +26,14 @@ resource "aws_security_group" "eks_node" {
   }
 
   ingress {
+    description = "Allow HTTPS from Teleport (VPC3) - EKS API kube proxy"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc3_cidr]
+  }
+
+  ingress {
     description = "Allow inbound from VPC 1 service (Peering)"
     from_port   = 0
     to_port     = 0
