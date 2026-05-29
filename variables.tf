@@ -97,6 +97,12 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
+variable "service_cluster_status_codebuild_project_name" {
+  description = "CodeBuild project name for checking Service EKS workload status from inside the Service VPC"
+  type        = string
+  default     = "financial-service-cluster-status"
+}
+
 variable "manifest_updater_image" {
   description = "Full CodeBuild runtime image URI. If null, the repository name and tag variables are used."
   type        = string

@@ -315,3 +315,82 @@ resource "aws_codebuild_project" "cluster_status" {
     aws_eks_access_policy_association.ansible_codebuild_service_admin
   ]
 }
+
+resource "aws_security_group" "service_cluster_status_codebuild" {
+  name        = "financial-service-cluster-status-codebuild-sg"
+  description = "CodeBuild security group for checking Service EKS workload status"
+  vpc_id      = module.vpc1.vpc_id
+
+  egress {
+    description = "Allow HTTPS to private EKS API and AWS services through NAT"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name      = "financial-service-cluster-status-codebuild-sg"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_security_group_rule" "service_cluster_status_to_service_eks_api" {
+  type                     = "ingress"
+  description              = "Allow Service VPC status CodeBuild to access the private Service EKS API"
+  security_group_id        = module.vpc1.eks_cluster_security_group_id
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.service_cluster_status_codebuild.id
+}
+
+resource "aws_codebuild_project" "service_cluster_status" {
+  name          = var.service_cluster_status_codebuild_project_name
+  description   = "Prints Service EKS status for Istio and demo-app from inside the Service VPC"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 15
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    }
+
+    environment_variable {
+      name  = "SERVICE_EKS_CLUSTER_NAME"
+      value = module.vpc1.eks_cluster_name
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-service-cluster-status.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc1.vpc_id
+    subnets            = module.vpc1.private_subnet_ids
+    security_group_ids = [aws_security_group.service_cluster_status_codebuild.id]
+  }
+
+  tags = {
+    Name      = var.service_cluster_status_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_service_admin,
+    aws_security_group_rule.service_cluster_status_to_service_eks_api
+  ]
+}

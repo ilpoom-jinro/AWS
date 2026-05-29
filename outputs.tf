@@ -44,8 +44,13 @@ output "ansible_codebuild_project_name" {
 }
 
 output "cluster_status_codebuild_project_name" {
-  description = "CodeBuild project that prints Ops and Service EKS workload status"
+  description = "CodeBuild project that prints Ops EKS and Argo CD workload status"
   value       = aws_codebuild_project.cluster_status.name
+}
+
+output "service_cluster_status_codebuild_project_name" {
+  description = "CodeBuild project that prints Service EKS workload status"
+  value       = aws_codebuild_project.service_cluster_status.name
 }
 
 output "ansible_codebuild_image_repository_url" {
