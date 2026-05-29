@@ -111,7 +111,7 @@ resource "aws_kms_key" "key_rds_ops" {
         Principal = {
           AWS = "*"
         }
-        Action = "kms:*"
+        Action   = "kms:*"
         Resource = "*"
         Condition = {
           StringNotEquals = {
@@ -128,8 +128,8 @@ resource "aws_kms_key" "key_rds_ops" {
           AWS = "*"
         }
         Action = [
-          "kms:DisableKey",          # 키 비활성화 (BreakGlass 제외)
-          "kms:ScheduleKeyDeletion"  # 키 삭제 예약 (BreakGlass 제외)
+          "kms:DisableKey",         # 키 비활성화 (BreakGlass 제외)
+          "kms:ScheduleKeyDeletion" # 키 삭제 예약 (BreakGlass 제외)
         ]
         Resource = "*"
         Condition = {
@@ -242,7 +242,7 @@ resource "aws_kms_key" "key_rds_globalservice" {
         Principal = {
           AWS = "*"
         }
-        Action = "kms:*"
+        Action   = "kms:*"
         Resource = "*"
         Condition = {
           StringNotEquals = {

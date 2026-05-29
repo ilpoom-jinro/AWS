@@ -34,7 +34,7 @@ resource "aws_iam_role" "kms_admin" {
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/infra",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/platform",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/sre"
-        ] : [
+          ] : [
           # dev_mode = false → security 유저만 (운영)
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/security"
         ]
@@ -84,9 +84,9 @@ resource "aws_iam_policy" "kms_admin_policy" {
       {
         # 금융권 필수: Cross-account 키 공유 명시적 차단
         # 다른 AWS 계정에서 이 키 사용 불가
-        Sid    = "DenyCrossAccount"
-        Effect = "Deny"
-        Action = "kms:*"
+        Sid      = "DenyCrossAccount"
+        Effect   = "Deny"
+        Action   = "kms:*"
         Resource = "*"
         Condition = {
           StringNotEquals = {
@@ -131,7 +131,7 @@ resource "aws_iam_role" "kms_breakglass" {
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/infra",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/platform",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/sre"
-        ] : [
+          ] : [
           # dev_mode = false → security 유저만
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/security"
         ]
@@ -179,9 +179,9 @@ resource "aws_iam_policy" "kms_breakglass_policy" {
       },
       {
         # Cross-account 차단
-        Sid    = "DenyCrossAccount"
-        Effect = "Deny"
-        Action = "kms:*"
+        Sid      = "DenyCrossAccount"
+        Effect   = "Deny"
+        Action   = "kms:*"
         Resource = "*"
         Condition = {
           StringNotEquals = {
