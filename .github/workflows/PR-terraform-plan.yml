@@ -7,6 +7,7 @@ on:
       - "**.tf"
       - ".terraform.lock.hcl"
       - "ansible/**"
+      - "mas/**"
       - "buildspec-ansible.yml"
       - "tools/**"
       - ".github/workflows/terraform.yml"

@@ -1,0 +1,199 @@
+name: Deploy MAS Agents
+
+on:
+  push:
+    branches:
+      - main
+      - feature/MAS
+    paths:
+      - "mas/**"
+      - "ansible/group_vars/all.yml"
+      - "ansible/playbooks/ops-mas.yml"
+      - "ansible/templates/mas-runtime.yml.j2"
+      - "vpc/ops/mas.tf"
+      - "vpc/ops/endpoints.tf"
+      - "ecr.tf"
+      - "codebuild.tf"
+      - "variables.tf"
+      - "outputs.tf"
+      - "buildspec-ansible.yml"
+      - "tools/ansible-codebuild/**"
+      - ".github/workflows/mas-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      run_bootstrap:
+        description: "Run the Ansible bootstrap after building images and applying MAS infrastructure"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: mas-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+  TF_VAR_dev_mode: "true"
+  TF_MOVED_RESOURCE_TARGETS: >-
+    -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
+    -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
+  ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
+  MAS_RUNTIME_REPOSITORY: financial/mas-runtime
+
+jobs:
+  deploy:
+    name: Build, Apply, and Deploy MAS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Remove legacy CodeCommit state
+        shell: bash
+        run: |
+          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
+          if [ "${#codecommit_state[@]}" -gt 0 ]; then
+            terraform state rm "${codecommit_state[@]}"
+          fi
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Compile MAS Python sources
+        run: python -m compileall mas/app
+
+      - name: Apply MAS ECR repositories
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_ecr_repository.mas_runtime
+          -target=aws_ecr_lifecycle_policy.mas_runtime
+          -target=aws_ecr_repository.ansible_codebuild
+          -target=aws_ecr_lifecycle_policy.ansible_codebuild
+          $TF_MOVED_RESOURCE_TARGETS
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push MAS runtime image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
+
+          docker build \
+            -f mas/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            mas
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Build and push Ansible CodeBuild image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ANSIBLE_CODEBUILD_REPOSITORY}"
+
+          docker build \
+            -f tools/ansible-codebuild/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            .
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Apply MAS infrastructure and CodeBuild runtime config
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.vpc2.aws_vpc_endpoint.bedrock
+          -target=module.vpc2.aws_vpc_endpoint.bedrock_runtime
+          -target=module.vpc2.aws_iam_role.mas_runtime
+          -target=module.vpc2.aws_iam_role_policy.mas_runtime
+          -target=module.vpc2.aws_eks_pod_identity_association.mas_runtime
+          -target=aws_codebuild_project.ansible_bootstrap
+          $TF_MOVED_RESOURCE_TARGETS
+
+      - name: Run Ansible CodeBuild for MAS deployment
+        if: github.event_name == 'push' || inputs.run_bootstrap == true
+        shell: bash
+        run: |
+          build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
+          echo "Started CodeBuild: ${build_id}"
+
+          print_build_diagnostics() {
+            echo "::group::CodeBuild phases"
+            aws codebuild batch-get-builds \
+              --ids "${build_id}" \
+              --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
+              --output json || true
+            echo "::endgroup::"
+
+            log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
+            log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
+            deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
+
+            echo "CloudWatch log link: ${deep_link}"
+
+            if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
+              echo "::group::CodeBuild CloudWatch logs"
+              aws logs get-log-events \
+                --log-group-name "${log_group}" \
+                --log-stream-name "${log_stream}" \
+                --limit 200 \
+                --query 'events[].message' \
+                --output text || true
+              echo "::endgroup::"
+            fi
+          }
+
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                print_build_diagnostics
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done

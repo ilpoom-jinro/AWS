@@ -43,3 +43,25 @@ mas/app/agents/planner.py
 ansible/group_vars/all.yml -> mas_agents item named mas-planner-agent
 vpc/ops/mas.tf -> Pod Identity role/policy for mas-planner-agent
 ```
+
+## CI/CD
+
+`.github/workflows/mas-deploy.yml` is the MAS deployment path.
+
+On changes to `mas/**`, MAS Ansible files, or MAS Terraform files, it:
+
+1. validates Terraform and compiles MAS Python sources,
+2. applies the MAS and Ansible CodeBuild ECR repositories,
+3. builds and pushes `financial/mas-runtime:latest`,
+4. rebuilds `financial/ansible-codebuild:latest` so the latest Ansible templates are baked in,
+5. applies the MAS Bedrock endpoints, Pod Identity role, and CodeBuild runtime config,
+6. starts `financial-ansible-bootstrap` to deploy the agent pods into the `mas` namespace.
+
+That means a normal agent change should usually touch only:
+
+```text
+mas/app/agents/<agent_name>.py
+mas/app/tools/<tool_name>.py
+ansible/group_vars/all.yml
+vpc/ops/mas.tf
+```
