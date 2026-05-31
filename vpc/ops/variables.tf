@@ -16,6 +16,12 @@ variable "vpc1_cidr" {
   default     = "10.10.0.0/16"
 }
 
+variable "service_eks_private_subnet_cidrs" {
+  description = "Service VPC EKS private subnet CIDRs allowed to push monitoring data"
+  type        = list(string)
+  default     = ["10.10.11.0/24", "10.10.12.0/24"]
+}
+
 variable "vpc3_cidr" {
   description = "VPC 3 CIDR - for Security Group rules"
   type        = string
