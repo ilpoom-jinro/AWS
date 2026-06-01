@@ -49,6 +49,18 @@ phases:
         run_check "Demo app workloads" \
           kubectl --context "${SERVICE_CONTEXT}" -n service-apps get deploy,svc,pods -o wide
 
+        run_check "Backend deployment details" \
+          kubectl --context "${SERVICE_CONTEXT}" -n service-apps describe deployment/backend
+
+        run_check "Backend pod details" \
+          kubectl --context "${SERVICE_CONTEXT}" -n service-apps describe pod -l app.kubernetes.io/name=backend
+
+        run_check "Backend previous logs" \
+          kubectl --context "${SERVICE_CONTEXT}" -n service-apps logs -l app.kubernetes.io/name=backend --previous --tail=200
+
+        run_check "Backend current logs" \
+          kubectl --context "${SERVICE_CONTEXT}" -n service-apps logs -l app.kubernetes.io/name=backend --tail=200
+
         run_check "Frontend LoadBalancer endpoint" \
           kubectl --context "${SERVICE_CONTEXT}" -n service-apps get svc frontend \
             -o jsonpath='{.status.loadBalancer.ingress[*].hostname}{"\n"}'

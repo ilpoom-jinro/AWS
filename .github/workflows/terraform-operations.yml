@@ -11,7 +11,7 @@ on:
           apply     = create/update infrastructure and run Ansible CodeBuild
           destroy   = destroy infrastructure
           reapply   = run plain terraform apply for changed infrastructure
-          codebuild = run Ansible platform CodeBuild only
+          codebuild = update changed CodeBuild project definitions only
           gitops    = run GitOps repository bootstrap CodeBuild only
         required: true
         default: plan
@@ -23,6 +23,13 @@ on:
           - reapply
           - codebuild
           - gitops
+      codebuild_project_name:
+        description: |
+          Optional. When action is codebuild, run this CodeBuild project after updating project definitions.
+          Leave empty to update CodeBuild projects only.
+        required: false
+        default: ""
+        type: string
       confirm_destroy:
         description: |
           Set true only when action is destroy.
@@ -168,15 +175,27 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Destroy CodeBuild project
+      - name: Destroy CodeBuild projects
         if: inputs.action == 'destroy'
-        run: >
-          terraform destroy -auto-approve -input=false -lock-timeout=5m
-          -target=aws_codebuild_project.ansible_bootstrap
-          -target=aws_codebuild_project.gitops_bootstrap
-          -target=aws_codebuild_project.cluster_status
-          -target=aws_codebuild_project.service_cluster_status
-          -target=aws_codebuild_project.manifest_updater
+        shell: bash
+        run: |
+          mapfile -t codebuild_targets < <(
+            grep -RhoE 'resource[[:space:]]+"aws_codebuild_project"[[:space:]]+"[^"]+"' -- *.tf |
+              sed -E 's/.*"aws_codebuild_project"[[:space:]]+"([^"]+)".*/aws_codebuild_project.\1/' |
+              sort -u
+          )
+
+          if [ "${#codebuild_targets[@]}" -eq 0 ]; then
+            echo "No aws_codebuild_project resources found."
+            exit 0
+          fi
+
+          target_args=()
+          for target in "${codebuild_targets[@]}"; do
+            target_args+=("-target=${target}")
+          done
+
+          terraform destroy -auto-approve -input=false -lock-timeout=5m "${target_args[@]}"
 
       - name: Destroy CodeBuild permissions, EKS access, and security group
         if: inputs.action == 'destroy'
@@ -224,30 +243,43 @@ jobs:
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering $TF_MOVED_RESOURCE_TARGETS
 
-      - name: Apply CodeBuild permissions, security group, and project
+      - name: Apply CodeBuild permissions, security group, and projects
         if: inputs.action == 'apply'
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=aws_security_group.ansible_codebuild
-          -target=aws_iam_role.ansible_codebuild
-          -target=aws_iam_role_policy.ansible_codebuild
-          -target=aws_eks_access_entry.ansible_codebuild_ops
-          -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
-          -target=aws_eks_access_entry.ansible_codebuild_service
-          -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
-          -target=aws_codebuild_project.ansible_bootstrap
-          -target=aws_codebuild_project.gitops_bootstrap
-          -target=aws_codebuild_project.cluster_status
-          -target=aws_security_group.service_cluster_status_codebuild
-          -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
-          -target=aws_codebuild_project.service_cluster_status
-          -target=aws_security_group.manifest_updater_codebuild
-          -target=aws_iam_role.manifest_updater_codebuild
-          -target=aws_iam_role_policy.manifest_updater_codebuild
-          -target=aws_eks_access_entry.manifest_updater_ops
-          -target=aws_eks_access_policy_association.manifest_updater_ops_admin
-          -target=aws_codebuild_project.manifest_updater
-          $TF_MOVED_RESOURCE_TARGETS
+        shell: bash
+        run: |
+          mapfile -t codebuild_targets < <(
+            grep -RhoE 'resource[[:space:]]+"aws_codebuild_project"[[:space:]]+"[^"]+"' -- *.tf |
+              sed -E 's/.*"aws_codebuild_project"[[:space:]]+"([^"]+)".*/aws_codebuild_project.\1/' |
+              sort -u
+          )
+
+          if [ "${#codebuild_targets[@]}" -eq 0 ]; then
+            echo "::error::No aws_codebuild_project resources found."
+            exit 1
+          fi
+
+          target_args=(
+            -target=aws_security_group.ansible_codebuild
+            -target=aws_iam_role.ansible_codebuild
+            -target=aws_iam_role_policy.ansible_codebuild
+            -target=aws_eks_access_entry.ansible_codebuild_ops
+            -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
+            -target=aws_eks_access_entry.ansible_codebuild_service
+            -target=aws_eks_access_policy_association.ansible_codebuild_service_admin
+            -target=aws_security_group.service_cluster_status_codebuild
+            -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
+            -target=aws_security_group.manifest_updater_codebuild
+            -target=aws_iam_role.manifest_updater_codebuild
+            -target=aws_iam_role_policy.manifest_updater_codebuild
+            -target=aws_eks_access_entry.manifest_updater_ops
+            -target=aws_eks_access_policy_association.manifest_updater_ops_admin
+          )
+
+          for target in "${codebuild_targets[@]}"; do
+            target_args+=("-target=${target}")
+          done
+
+          terraform apply -auto-approve -input=false -lock-timeout=5m "${target_args[@]}" $TF_MOVED_RESOURCE_TARGETS
 
       - name: Re-apply changed infrastructure
         if: inputs.action == 'reapply'
@@ -334,24 +366,84 @@ jobs:
           run_codebuild_and_wait financial-gitops-bootstrap
 
   codebuild:
-    name: Run selected CodeBuild
+    name: Update or run CodeBuild
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && contains(fromJSON('["codebuild","gitops"]'), inputs.action)
     environment: production
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Setup Terraform
+        if: inputs.action == 'codebuild'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        if: inputs.action == 'codebuild'
+        run: terraform init -reconfigure
+
+      - name: Remove legacy CodeCommit state
+        if: inputs.action == 'codebuild'
+        shell: bash
+        run: |
+          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
+          if [ "${#codecommit_state[@]}" -gt 0 ]; then
+            terraform state rm "${codecommit_state[@]}"
+          fi
+
+      - name: Terraform Format Check
+        if: inputs.action == 'codebuild'
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        if: inputs.action == 'codebuild'
+        run: terraform validate -no-color
+
+      - name: Update CodeBuild project definitions
+        if: inputs.action == 'codebuild'
+        shell: bash
+        run: |
+          mapfile -t codebuild_targets < <(
+            grep -RhoE 'resource[[:space:]]+"aws_codebuild_project"[[:space:]]+"[^"]+"' -- *.tf |
+              sed -E 's/.*"aws_codebuild_project"[[:space:]]+"([^"]+)".*/aws_codebuild_project.\1/' |
+              sort -u
+          )
+
+          if [ "${#codebuild_targets[@]}" -eq 0 ]; then
+            echo "::error::No aws_codebuild_project resources found."
+            exit 1
+          fi
+
+          echo "Discovered CodeBuild project resources:"
+          printf ' - %s\n' "${codebuild_targets[@]}"
+
+          target_args=()
+          for target in "${codebuild_targets[@]}"; do
+            target_args+=("-target=${target}")
+          done
+
+          terraform apply -auto-approve -input=false -lock-timeout=5m "${target_args[@]}" $TF_MOVED_RESOURCE_TARGETS
+
       - name: Start build and wait
         shell: bash
         run: |
-          project_name="financial-ansible-bootstrap"
+          project_name="${{ inputs.codebuild_project_name }}"
           if [ "${{ inputs.action }}" = "gitops" ]; then
             project_name="financial-gitops-bootstrap"
+          fi
+
+          if [ -z "${project_name}" ]; then
+            echo "No CodeBuild project requested. Project definitions were updated only."
+            exit 0
           fi
 
           build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"

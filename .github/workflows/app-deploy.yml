@@ -97,9 +97,11 @@ jobs:
           short_sha="${GITHUB_SHA::7}"
           image_tag="$(date -u +%Y%m%d)-${short_sha}"
           image_uri="${REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
+          latest_uri="${REGISTRY}/${ECR_REPOSITORY}:latest"
 
           echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
           echo "uri=${image_uri}" >> "${GITHUB_OUTPUT}"
+          echo "latest_uri=${latest_uri}" >> "${GITHUB_OUTPUT}"
 
       - name: Check ECR repository
         shell: bash
@@ -112,18 +114,22 @@ jobs:
         shell: bash
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
         run: |
           docker build \
             -f "${{ steps.component.outputs.dockerfile }}" \
             -t "${IMAGE_URI}" \
+            -t "${LATEST_IMAGE_URI}" \
             "${{ steps.component.outputs.build_context }}"
 
       - name: Push image
         shell: bash
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
         run: |
           docker push "${IMAGE_URI}"
+          docker push "${LATEST_IMAGE_URI}"
 
       - name: Start manifest update CodeBuild
         id: codebuild

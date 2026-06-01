@@ -4,6 +4,8 @@ locals {
   internal_git_image_repository      = "${local.ecr_registry}/${var.internal_git_image_repository_name}"
   argocd_image_repository            = "${local.ecr_registry}/${var.argocd_image_repository_name}"
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
+  demo_backend_image_repository      = "${local.ecr_registry}/${var.demo_backend_image_repository_name}"
+  demo_frontend_image_repository     = "${local.ecr_registry}/${var.demo_frontend_image_repository_name}"
   istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
 }
 
@@ -208,6 +210,16 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "DEMO_BACKEND_IMAGE"
+      value = "${local.demo_backend_image_repository}:${var.demo_backend_image_tag}"
+    }
+
+    environment_variable {
+      name  = "DEMO_FRONTEND_IMAGE"
+      value = "${local.demo_frontend_image_repository}:${var.demo_frontend_image_tag}"
+    }
+
+    environment_variable {
       name  = "ISTIO_IMAGE_HUB"
       value = local.istio_image_repository_prefix
     }
@@ -280,6 +292,16 @@ resource "aws_codebuild_project" "gitops_bootstrap" {
       name  = "INTERNAL_GIT_ADMIN_PASSWORD"
       value = var.internal_git_admin_password
       type  = "PLAINTEXT"
+    }
+
+    environment_variable {
+      name  = "DEMO_BACKEND_IMAGE"
+      value = "${local.demo_backend_image_repository}:${var.demo_backend_image_tag}"
+    }
+
+    environment_variable {
+      name  = "DEMO_FRONTEND_IMAGE"
+      value = "${local.demo_frontend_image_repository}:${var.demo_frontend_image_tag}"
     }
   }
 

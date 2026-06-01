@@ -1,141 +1,69 @@
-name: PR 후 자동 Terraform Plan
+aws_region: ap-northeast-2
 
-on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "**.tf"
-      - ".terraform.lock.hcl"
-      - "ansible/**"
-      - "gitops/**"
-      - "buildspec-ansible.yml"
-      - "buildspec-gitops-bootstrap.yml"
-      - "tools/**"
-      - ".github/workflows/terraform.yml"
-      - ".github/workflows/terraform-operations.yml"
+ops_eks_cluster_name: financial-ops-eks
+ops_kube_context: financial-ops-eks
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
+service_eks_cluster_name: financial-service-eks
+service_kube_context: financial-service-eks
 
-concurrency:
-  group: terraform-plan-${{ github.ref }}
-  cancel-in-progress: false
+argocd_namespace: argocd
+argocd_release_name: argocd
+argocd_chart_ref: /opt/helm-charts/argo-cd
+argocd_image_repository: "{{ lookup('env', 'ARGOCD_IMAGE_REPOSITORY') }}"
+argocd_image_tag: "{{ lookup('env', 'ARGOCD_IMAGE_TAG') | default('latest', true) }}"
+argocd_redis_image_repository: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_REPOSITORY') }}"
+argocd_redis_image_tag: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_TAG') | default('latest', true) }}"
 
-env:
-  TF_VERSION: "1.11.0"
-  TF_IN_AUTOMATION: "true"
-  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
-  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
-  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
-  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
-  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
-  TF_VAR_dev_mode: "true"   # 개발 완료 후 이 줄 삭제
+prometheus_namespace: monitoring
+prometheus_release_name: prometheus
+prometheus_chart_ref: /opt/helm-charts/prometheus
+prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
+prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
 
-jobs:
-  plan:
-    name: Terraform Plan
-    runs-on: ubuntu-latest
+istio_namespace: istio-system
+istio_base_chart_ref: /opt/helm-charts/base
+istio_istiod_chart_ref: /opt/helm-charts/istiod
+istio_cni_chart_ref: /opt/helm-charts/cni
+istio_ztunnel_chart_ref: /opt/helm-charts/ztunnel
+istio_image_hub: "{{ lookup('env', 'ISTIO_IMAGE_HUB') }}"
+istio_image_tag: "{{ lookup('env', 'ISTIO_IMAGE_TAG') | default('1.30.0', true) }}"
+istio_helm_timeout: 15m
+istio_rollout_timeout: 300s
+addon_helm_timeout: 15m
+rollout_timeout: 600s
+service_ambient_namespaces:
+  - service-apps
+ops_ambient_namespaces:
+  - agents
 
-    outputs:
-      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
+internal_git_namespace: git
+internal_git_release_name: internal-git
+internal_git_service_name: internal-git-http
+internal_git_image: "{{ lookup('env', 'INTERNAL_GIT_IMAGE') | default('gitea/gitea:1.22-rootless', true) }}"
+internal_git_http_port: 3000
+internal_git_local_http_port: 13000
+internal_git_demo_local_http_port: 13001
+internal_git_platform_local_http_port: 13002
+internal_git_ssh_port: 2222
+internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
+internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"
+internal_git_admin_email: "gitadmin@internal.ops.local"
+internal_git_org: gitops
+internal_git_repo: platform
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
+gitops_repo_name: internal-gitops
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-
-      - name: Terraform Validate
-        run: terraform validate -no-color
-
-      - name: Terraform Plan
-        id: plan
-        shell: bash
-        run: |
-          set +e
-          terraform plan -input=false -lock-timeout=5m -detailed-exitcode -out=tfplan
-          exitcode=$?
-          echo "exitcode=${exitcode}" >> "${GITHUB_OUTPUT}"
-
-          if [ "${exitcode}" -eq 1 ]; then
-            echo "::error::Terraform plan failed. Check the Terraform Plan step logs for the error details."
-            exit 1
-          fi
-
-          exit 0
-
-      - name: Upload Terraform Plan
-        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ github.sha }}
-          path: tfplan
-          retention-days: 3
-
-      - name: Comment plan result on PR
-        uses: actions/github-script@v7
-        if: always()
-        with:
-          script: |
-            const marker = '<!-- terraform-plan -->';
-            const exitCode = '${{ steps.plan.outputs.exitcode }}';
-            const status = exitCode === '0'
-              ? 'No changes'
-              : exitCode === '2'
-                ? 'Changes pending'
-                : 'Failed';
-            const body = `${marker}
-            ## Terraform Plan
-
-            **Status:** ${status}
-            **Commit:** \`${context.sha}\`
-
-            The full plan artifact is attached to this workflow run.`;
-
-            const comments = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.data.find(comment => comment.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+demo_app_name: demo-app
+demo_app_namespace: service-apps
+demo_app_path: apps/demo-app
+demo_backend_name: backend
+demo_frontend_name: frontend
+demo_db_name: postgres
+demo_backend_image: "{{ lookup('env', 'DEMO_BACKEND_IMAGE') | default('public.ecr.aws/docker/library/python:3.12-slim', true) }}"
+demo_frontend_image: "{{ lookup('env', 'DEMO_FRONTEND_IMAGE') | default('public.ecr.aws/docker/library/nginx:1.27-alpine', true) }}"
+demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
+demo_db_name_value: stockdemo
+demo_db_user: stockuser
+demo_db_password: stockpass
+demo_argocd_application_name: demo-app
