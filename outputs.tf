@@ -73,6 +73,11 @@ output "istio_image_repository_prefix" {
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.istio_image_repository_prefix}"
 }
 
+output "aws_load_balancer_controller_image_repository_url" {
+  description = "ECR repository URL for the mirrored AWS Load Balancer Controller image"
+  value       = aws_ecr_repository.aws_load_balancer_controller.repository_url
+}
+
 # =============================================
 # Output: rds.tf 작성 시 참조
 # 사용법:
