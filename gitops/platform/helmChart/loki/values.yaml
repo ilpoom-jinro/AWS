@@ -1,0 +1,76 @@
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  # TODO: Replace this test schema with a production schema before long-term storage is enabled.
+  useTestSchema: true
+  commonConfig:
+    replication_factor: 1
+  limits_config:
+    retention_period: 168h
+  compactor:
+    retention_enabled: true
+    working_directory: /var/loki/compactor
+  storage:
+    type: filesystem
+  image:
+    # Mirrored Loki image in the private ECR registry.
+    registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+    repository: financial/monitoring/loki
+    tag: latest
+
+singleBinary:
+  replicas: 1
+  service:
+    # Expose the Loki pod directly through an internal NLB. This avoids
+    # requiring the chart's optional Nginx gateway image in the offline VPC.
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      # TODO: Replace with terraform output ops_loki_nlb_sg_id after apply.
+      service.beta.kubernetes.io/aws-load-balancer-security-groups: REPLACE_WITH_OPS_LOKI_NLB_SG_ID
+      service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
+  nodeSelector:
+    role: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+
+# Disable the chart's default SimpleScalable workloads. This deployment uses
+# one SingleBinary Loki pod to keep the initial footprint small.
+read:
+  replicas: 0
+
+write:
+  replicas: 0
+
+backend:
+  replicas: 0
+
+gateway:
+  enabled: false
+
+# Keep the initial offline deployment small. These optional components can be
+# enabled later after their images are mirrored into ECR.
+test:
+  enabled: false
+
+lokiCanary:
+  enabled: false
+
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+sidecar:
+  rules:
+    enabled: false
+
+# TODO: Add S3 object storage later if long-term log archive is required.
+# TODO: S3 Vectors should be fed by a separate AI indexing pipeline, not directly by Loki.
