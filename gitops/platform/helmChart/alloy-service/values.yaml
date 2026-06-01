@@ -49,7 +49,7 @@ alloy:
 
       loki.write "monitoring_loki" {
         endpoint {
-          // TODO: Replace with the Loki internal NLB DNS name.
+          // Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
           url = "http://loki-internal-nlb.example.local/loki/api/v1/push"
         }
       }
@@ -124,7 +124,7 @@ alloy:
         }
 
         endpoint {
-          // TODO: Replace with the Thanos Receive internal NLB DNS name.
+          // Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
           url = "http://thanos-receive-internal-nlb.example.local/api/v1/receive"
         }
       }
