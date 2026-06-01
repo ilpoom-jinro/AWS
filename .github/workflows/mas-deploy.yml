@@ -10,7 +10,7 @@ on:
       - "ansible/group_vars/all.yml"
       - "ansible/playbooks/ops-mas.yml"
       - "ansible/templates/mas-runtime.yml.j2"
-      - "vpc/ops/mas.tf"
+      - "vpc/ops/mas-*.tf"
       - "vpc/ops/endpoints.tf"
       - "ecr.tf"
       - "codebuild.tf"
@@ -112,7 +112,7 @@ jobs:
           IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
 
           docker build \
-            -f mas/Dockerfile \
+            -f mas/pods/runtime/Dockerfile \
             -t "${IMAGE_URI}:${IMAGE_TAG}" \
             -t "${IMAGE_URI}:latest" \
             mas

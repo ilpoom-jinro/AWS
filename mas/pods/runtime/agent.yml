@@ -1,0 +1,17 @@
+name: mas-runtime
+role: runtime
+image: "{{ mas_runtime_image }}"
+service_account_name: mas-runtime
+service_name: mas-runtime
+replicas: 1
+container_port: 8080
+service_port: 8080
+bedrock_model_id: "{{ mas_bedrock_model_id }}"
+bedrock_max_tokens: 1000
+prometheus_url: "{{ mas_prometheus_url }}"
+cpu_request: 100m
+memory_request: 128Mi
+cpu_limit: 500m
+memory_limit: 512Mi
+kubernetes_readonly: true
+service_enabled: true

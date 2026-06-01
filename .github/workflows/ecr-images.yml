@@ -210,7 +210,7 @@ jobs:
           IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
 
           docker build \
-            -f mas/Dockerfile \
+            -f mas/pods/runtime/Dockerfile \
             -t "${IMAGE_URI}:${IMAGE_TAG}" \
             -t "${IMAGE_URI}:latest" \
             mas

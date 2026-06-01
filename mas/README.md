@@ -13,8 +13,11 @@ Config = what role this agent performs
 
 ```text
 mas/
-  Dockerfile
   requirements.txt
+  pods/
+    runtime/
+      Dockerfile            # container image for the runtime pod
+      agent.yml             # Kubernetes deployment config for this pod
   app/
     main.py                 # API entrypoint for the current mas-runtime pod
     config.py               # environment-driven runtime settings
@@ -32,16 +35,19 @@ mas/
 
 1. Add agent code under `mas/app/agents/<agent_name>.py`.
 2. Add shared integrations under `mas/app/tools/` if needed.
-3. Add a new item to `mas_agents` in `ansible/group_vars/all.yml`.
-4. If the agent needs AWS permissions, add a dedicated role or policy in `vpc/ops/mas.tf`.
-5. Rebuild and push the agent image, then run the Ansible bootstrap.
+3. Add a pod folder under `mas/pods/<agent_name>/`.
+4. Add `mas/pods/<agent_name>/agent.yml` for Kubernetes deployment config.
+5. Add `mas/pods/<agent_name>/Dockerfile` if the agent needs a dedicated image.
+6. If the agent needs AWS permissions, add a dedicated role or policy in `vpc/ops/mas-<agent_name>.tf`.
+7. Rebuild and push the agent image, then run the Ansible bootstrap.
 
 For example, a future planner pod would usually add:
 
 ```text
 mas/app/agents/planner.py
-ansible/group_vars/all.yml -> mas_agents item named mas-planner-agent
-vpc/ops/mas.tf -> Pod Identity role/policy for mas-planner-agent
+mas/pods/planner/agent.yml
+mas/pods/planner/Dockerfile
+vpc/ops/mas-planner.tf
 ```
 
 ## CI/CD
@@ -62,6 +68,6 @@ That means a normal agent change should usually touch only:
 ```text
 mas/app/agents/<agent_name>.py
 mas/app/tools/<tool_name>.py
-ansible/group_vars/all.yml
-vpc/ops/mas.tf
+mas/pods/<agent_name>/agent.yml
+vpc/ops/mas-<agent_name>.tf
 ```

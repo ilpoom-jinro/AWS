@@ -20,6 +20,20 @@
           | kubectl --context {{ ops_kube_context }} apply -f -
       changed_when: false
 
+    - name: Discover MAS agent definitions
+      ansible.builtin.set_fact:
+        mas_agent_definition_files: "{{ lookup('ansible.builtin.fileglob', playbook_dir + '/../../mas/pods/*/agent.yml', wantlist=True) }}"
+
+    - name: Stop when no MAS agent definitions exist
+      ansible.builtin.fail:
+        msg: "No MAS agent definitions found under mas/pods/*/agent.yml"
+      when: mas_agent_definition_files | length == 0
+
+    - name: Load MAS agent definitions
+      ansible.builtin.set_fact:
+        mas_agents: "{{ (mas_agents | default([])) + [lookup('ansible.builtin.template', item) | from_yaml] }}"
+      loop: "{{ mas_agent_definition_files }}"
+
   tasks:
     - name: Install MAS runtime Kubernetes resources
       kubernetes.core.k8s:

@@ -35,24 +35,6 @@ mas_cpu_request: 100m
 mas_memory_request: 128Mi
 mas_cpu_limit: 500m
 mas_memory_limit: 512Mi
-mas_agents:
-  - name: "{{ mas_release_name }}"
-    role: runtime
-    image: "{{ mas_runtime_image }}"
-    service_account_name: "{{ mas_service_account_name }}"
-    service_name: "{{ mas_service_name }}"
-    replicas: "{{ mas_replicas }}"
-    container_port: "{{ mas_container_port }}"
-    service_port: "{{ mas_service_port }}"
-    bedrock_model_id: "{{ mas_bedrock_model_id }}"
-    bedrock_max_tokens: "{{ mas_bedrock_max_tokens }}"
-    prometheus_url: "{{ mas_prometheus_url }}"
-    cpu_request: "{{ mas_cpu_request }}"
-    memory_request: "{{ mas_memory_request }}"
-    cpu_limit: "{{ mas_cpu_limit }}"
-    memory_limit: "{{ mas_memory_limit }}"
-    kubernetes_readonly: true
-    service_enabled: true
 
 istio_namespace: istio-system
 istio_base_chart_ref: /opt/helm-charts/base
