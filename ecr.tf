@@ -316,3 +316,37 @@ resource "aws_ecr_repository" "pause" {
     ManagedBy = "terraform"
   }
 }
+
+resource "aws_ecr_repository" "aws_load_balancer_controller" {
+  name                 = "financial/system/aws-load-balancer-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/system/aws-load-balancer-controller"
+    Purpose   = "aws-load-balancer-controller-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "aws_load_balancer_controller" {
+  repository = aws_ecr_repository.aws_load_balancer_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 AWS Load Balancer Controller images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
