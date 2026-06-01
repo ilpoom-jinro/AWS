@@ -1,0 +1,21 @@
+# AWS Load Balancer Controller runs in the Ops EKS cluster and creates the
+# internal NLBs requested by the Loki and Thanos Kubernetes Services.
+clusterName: financial-ops-eks
+region: ap-northeast-2
+
+# Ops VPC where the Loki and Thanos internal NLBs will be provisioned.
+vpcId: vpc-010d9833129a29421
+
+replicaCount: 2
+
+image:
+  # Terraform creates this private ECR repository. The monitoring image mirror
+  # workflow copies public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0.
+  repository: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/system/aws-load-balancer-controller
+  tag: v3.3.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  # Terraform Pod Identity Association must use this exact ServiceAccount name.
+  name: aws-load-balancer-controller

@@ -1,0 +1,151 @@
+image:
+  # Mirrored Alloy image in the private ECR registry.
+  registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+  repository: financial/monitoring/alloy
+  tag: latest
+
+alloy:
+  configMap:
+    create: true
+    content: |
+      logging {
+        level = "info"
+      }
+
+      // Each DaemonSet pod discovers only the pods running on its own node.
+      // This prevents duplicate logs and duplicate metric samples.
+      discovery.kubernetes "local_pods" {
+        role = "pod"
+
+        selectors {
+          role  = "pod"
+          field = "spec.nodeName=" + sys.env("HOSTNAME")
+        }
+      }
+
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.local_pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+      }
+
+      loki.source.kubernetes "pod_logs" {
+        targets    = discovery.relabel.pod_logs.output
+        forward_to = [loki.write.ops_loki.receiver]
+      }
+
+      loki.write "ops_loki" {
+        endpoint {
+          url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
+
+      // Scrape application metrics only from pods that explicitly opt in with:
+      // prometheus.io/scrape: "true"
+      // prometheus.io/port: "<metrics-port>"
+      discovery.relabel "annotated_pod_metrics" {
+        targets = discovery.kubernetes.local_pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+          action        = "keep"
+          regex         = "true"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+          target_label  = "__metrics_path__"
+          regex         = "(.+)"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_ip", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+          separator     = ";"
+          target_label  = "__address__"
+          regex         = "(.+);(.+)"
+          replacement   = "$1:$2"
+        }
+      }
+
+      prometheus.scrape "annotated_pods" {
+        targets    = discovery.relabel.annotated_pod_metrics.output
+        forward_to = [prometheus.remote_write.ops_thanos.receiver]
+      }
+
+      // Kubelet exposes node health and cAdvisor exposes pod/container usage.
+      prometheus.scrape "kubelet" {
+        targets = [{
+          "__address__"     = "kubernetes.default.svc.cluster.local:443",
+          "__metrics_path__" = "/api/v1/nodes/" + sys.env("HOSTNAME") + "/proxy/metrics",
+        }]
+        scheme            = "https"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+        tls_config {
+          ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        }
+
+        forward_to = [prometheus.remote_write.ops_thanos.receiver]
+      }
+
+      prometheus.scrape "cadvisor" {
+        targets = [{
+          "__address__"     = "kubernetes.default.svc.cluster.local:443",
+          "__metrics_path__" = "/api/v1/nodes/" + sys.env("HOSTNAME") + "/proxy/metrics/cadvisor",
+        }]
+        scheme            = "https"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+        tls_config {
+          ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        }
+
+        forward_to = [prometheus.remote_write.ops_thanos.receiver]
+      }
+
+      prometheus.remote_write "ops_thanos" {
+        external_labels = {
+          cluster = "financial-ops-eks",
+          vpc     = "ops",
+        }
+
+        endpoint {
+          url = "http://thanos-receive.observability.svc.cluster.local:19291/api/v1/receive"
+        }
+      }
+
+      // TODO: S3 Vectors ingestion should be handled by a separate AI indexing pipeline.
+
+# GitOps updates restart Alloy through the ConfigMap checksum. Disabling this
+# optional sidecar removes the need to mirror config-reloader into ECR.
+configReloader:
+  enabled: false
+
+controller:
+  type: daemonset
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+
+rbac:
+  clusterRules:
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/pods", "nodes/metrics", "nodes/proxy"]
+      verbs: ["get", "list", "watch"]
+    - nonResourceURLs: ["/metrics"]
+      verbs: ["get"]
