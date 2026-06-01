@@ -12,14 +12,21 @@ stored in ECR, while these YAML files should live in Git and be applied by Argo 
 | `financial-service-eks` | service/globalservice VPC | Frontend, backend, X-Ray Collector, and service VPC Alloy |
 | `financial-ops-eks` | ops/internal VPC | Grafana, Loki, Thanos, Alertmanager, and ops VPC Alloy |
 
-## Values To Replace Later
+## Values Injected Automatically Into Internal Gitea
 
-| Placeholder | Replace With |
+GitHub keeps reusable placeholders. `gitops-platform-sync.yml` replaces the
+infrastructure-specific values only in the internal Gitea deployment copy.
+
+| Placeholder | Automatically Replaced With |
 |---|---|
-| `rds-endpoint.example.ap-northeast-2.rds.amazonaws.com` | RDS endpoint |
+| `REPLACE_WITH_OPS_VPC_ID` | Current Ops EKS VPC ID |
+| `REPLACE_WITH_OPS_LOKI_NLB_SG_ID` | Current Loki internal NLB security group ID |
+| `REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID` | Current Thanos Receive internal NLB security group ID |
 | `loki-internal-nlb.example.local` | Loki internal NLB DNS |
 | `thanos-receive-internal-nlb.example.local` | Thanos Receive internal NLB DNS |
-| `arn:aws:iam::ACCOUNT_ID:role/...` | IAM Role ARN created by Terraform |
+
+RDS is intentionally deferred. Its endpoint placeholder and credentials still
+require a separate follow-up deployment.
 
 ## Important
 
