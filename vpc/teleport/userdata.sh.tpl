@@ -64,6 +64,7 @@ proxy_service:
   web_listen_addr: 0.0.0.0:3080
   tunnel_listen_addr: 0.0.0.0:3024
   public_addr: localhost:3080
+  ssh_public_addr: localhost:3080
   kube_listen_addr: 0.0.0.0:3026
 ssh_service:
   enabled: no
