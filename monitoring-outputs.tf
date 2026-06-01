@@ -22,3 +22,13 @@ output "ops_thanos_receive_nlb_sg_id" {
   description = "Security group ID to insert into the Thanos Receive internal NLB Service values"
   value       = module.vpc2.thanos_receive_nlb_sg_id
 }
+
+output "service_xray_collector_role_arn" {
+  description = "IAM role ARN used by the Service EKS ADOT Collector through Pod Identity"
+  value       = module.vpc1.xray_collector_role_arn
+}
+
+output "ops_grafana_cloudwatch_role_arn" {
+  description = "IAM role ARN used by the Ops EKS Grafana Pod through Pod Identity"
+  value       = module.vpc2.grafana_cloudwatch_role_arn
+}
