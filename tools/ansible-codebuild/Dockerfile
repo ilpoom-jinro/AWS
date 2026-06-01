@@ -72,6 +72,7 @@ RUN aws --version \
     && pkill --version
 
 COPY ansible /workspace/ansible
+COPY gitops /workspace/gitops
 COPY buildspec-ansible.yml /workspace/buildspec-ansible.yml
 
 WORKDIR /workspace
