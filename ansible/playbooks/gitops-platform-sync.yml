@@ -25,6 +25,51 @@
         msg: "GitOps platform seed was not found at {{ gitops_platform_seed_dir }}."
       when: not gitops_platform_seed.stat.exists
 
+    - name: Read the Ops VPC ID from the EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks describe-cluster
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --query cluster.resourcesVpcConfig.vpcId
+          --output text
+      register: ops_vpc_id
+      changed_when: false
+
+    - name: Read the Loki internal NLB security group ID
+      ansible.builtin.command:
+        cmd: >
+          aws ec2 describe-security-groups
+          --region {{ aws_region }}
+          --filters
+          Name=vpc-id,Values={{ ops_vpc_id.stdout }}
+          Name=group-name,Values=financial-vpc2-loki-nlb-sg
+          --query SecurityGroups[0].GroupId
+          --output text
+      register: loki_nlb_sg_id
+      changed_when: false
+
+    - name: Read the Thanos Receive internal NLB security group ID
+      ansible.builtin.command:
+        cmd: >
+          aws ec2 describe-security-groups
+          --region {{ aws_region }}
+          --filters
+          Name=vpc-id,Values={{ ops_vpc_id.stdout }}
+          Name=group-name,Values=financial-vpc2-thanos-receive-nlb-sg
+          --query SecurityGroups[0].GroupId
+          --output text
+      register: thanos_receive_nlb_sg_id
+      changed_when: false
+
+    - name: Stop when an automatically discovered AWS value is missing
+      ansible.builtin.fail:
+        msg: "Failed to discover the Ops VPC ID or monitoring NLB security group IDs."
+      when: >
+        ops_vpc_id.stdout in ["", "None"] or
+        loki_nlb_sg_id.stdout in ["", "None"] or
+        thanos_receive_nlb_sg_id.stdout in ["", "None"]
+
   tasks:
     - name: Start local port-forward to the internal Git service
       ansible.builtin.shell: |
@@ -57,6 +102,30 @@
         rm -f MY_TASKS.md TEAM_REQUESTS.md
         cp -R "{{ gitops_platform_seed_dir }}/." .
         find . -name .DS_Store -delete
+
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+
+        replacements = {
+            "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
+            "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
+            "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
+        }
+
+        files = [
+            Path("helmChart/aws-load-balancer-controller/values.yaml"),
+            Path("helmChart/loki/values.yaml"),
+            Path("helmChart/thanos/values.yaml"),
+        ]
+
+        for path in files:
+            content = path.read_text()
+            for placeholder, value in replacements.items():
+                content = content.replace(placeholder, value)
+            path.write_text(content)
+        PY
+
         git add -A
 
         if git diff --cached --quiet; then
@@ -67,12 +136,75 @@
         git commit -m "Sync platform GitOps seed"
         git push origin main
       no_log: true
+      environment:
+        OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
+        LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
+        THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
 
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present
         src: "{{ gitops_platform_seed_dir }}/bootstrap/platform-app-of-apps.yaml"
+
+    - name: Wait for the Loki and Thanos Receive internal NLB DNS names
+      ansible.builtin.shell: |
+        set -e
+
+        for attempt in $(seq 1 90); do
+          loki_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc loki -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+          thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+
+          if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ]; then
+            printf '%s|%s\n' "${loki_dns}" "${thanos_dns}"
+            exit 0
+          fi
+
+          echo "Waiting for monitoring internal NLB DNS names (${attempt}/90)..." >&2
+          sleep 10
+        done
+
+        echo "Timed out waiting for monitoring internal NLB DNS names." >&2
+        exit 1
+      register: monitoring_nlb_dns
+      changed_when: false
+
+    - name: Store the discovered internal NLB DNS names
+      ansible.builtin.set_fact:
+        loki_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[0] }}"
+        thanos_receive_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[1] }}"
+
+    - name: Push discovered NLB DNS names into the internal GitOps repository
+      ansible.builtin.shell: |
+        set -e
+        cd "{{ gitops_platform_workdir }}"
+
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+
+        path = Path("helmChart/alloy-service/values.yaml")
+        content = path.read_text()
+        content = content.replace("loki-internal-nlb.example.local", os.environ["LOKI_NLB_DNS"])
+        content = content.replace("thanos-receive-internal-nlb.example.local", os.environ["THANOS_RECEIVE_NLB_DNS"])
+        path.write_text(content)
+        PY
+
+        git add helmChart/alloy-service/values.yaml
+
+        if git diff --cached --quiet; then
+          echo "Alloy NLB endpoints are already up to date."
+          exit 0
+        fi
+
+        git commit -m "Configure Service Alloy monitoring NLB endpoints"
+        git push origin main
+      no_log: true
+      environment:
+        LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
+        THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"
 
   post_tasks:
     - name: Stop local internal Git port-forward
