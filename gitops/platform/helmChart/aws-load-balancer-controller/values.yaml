@@ -3,8 +3,9 @@
 clusterName: financial-ops-eks
 region: ap-northeast-2
 
-# Ops VPC where the Loki and Thanos internal NLBs will be provisioned.
-vpcId: vpc-010d9833129a29421
+# Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
+# Keeping a placeholder in GitHub makes destroy -> apply repeatable.
+vpcId: REPLACE_WITH_OPS_VPC_ID
 
 replicaCount: 2
 
