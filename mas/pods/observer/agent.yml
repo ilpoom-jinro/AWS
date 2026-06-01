@@ -1,12 +1,12 @@
-name: mas-runtime
-role: runtime
+name: mas-observer-agent
+role: observer
 image: "{{ mas_runtime_image }}"
-service_account_name: mas-runtime
-service_name: mas-runtime
+service_account_name: mas-observer-agent
+service_name: mas-observer-agent
 replicas: 1
 container_port: 8080
 service_port: 8080
-bedrock_model_id: "{{ mas_bedrock_model_id }}"
+bedrock_model_id: ""
 bedrock_max_tokens: 1000
 prometheus_url: "{{ mas_prometheus_url }}"
 cpu_request: 100m

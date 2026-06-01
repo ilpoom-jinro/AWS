@@ -112,7 +112,7 @@ jobs:
           IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
 
           docker build \
-            -f mas/pods/runtime/Dockerfile \
+            -f mas/pods/orchestrator/Dockerfile \
             -t "${IMAGE_URI}:${IMAGE_TAG}" \
             -t "${IMAGE_URI}:latest" \
             mas
@@ -141,9 +141,9 @@ jobs:
           terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=module.vpc2.aws_vpc_endpoint.bedrock
           -target=module.vpc2.aws_vpc_endpoint.bedrock_runtime
-          -target=module.vpc2.aws_iam_role.mas_runtime
-          -target=module.vpc2.aws_iam_role_policy.mas_runtime
-          -target=module.vpc2.aws_eks_pod_identity_association.mas_runtime
+          -target=module.vpc2.aws_iam_role.mas_analyzer
+          -target=module.vpc2.aws_iam_role_policy.mas_analyzer
+          -target=module.vpc2.aws_eks_pod_identity_association.mas_analyzer
           -target=aws_codebuild_project.ansible_bootstrap
           $TF_MOVED_RESOURCE_TARGETS
 

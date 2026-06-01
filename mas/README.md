@@ -15,16 +15,22 @@ Config = what role this agent performs
 mas/
   requirements.txt
   pods/
-    runtime/
-      Dockerfile            # container image for the runtime pod
+    orchestrator/
+      Dockerfile            # container image for the orchestrator pod
+      agent.yml             # Kubernetes deployment config for this pod
+    observer/
+      Dockerfile            # container image for the observer pod
+      agent.yml             # Kubernetes deployment config for this pod
+    analyzer/
+      Dockerfile            # container image for the analyzer pod
       agent.yml             # Kubernetes deployment config for this pod
   app/
-    main.py                 # API entrypoint for the current mas-runtime pod
+    main.py                 # API entrypoint shared by MAS agent pods
     config.py               # environment-driven runtime settings
     agents/                 # role-specific agent code
+      orchestrator.py       # calls observer and analyzer services
       observer.py           # reads Prometheus/Kubernetes signals
       analyzer.py           # calls Bedrock and explains signals
-      runtime.py            # composes observer + analyzer for the first pod
     tools/                  # external systems used by agents
       bedrock.py
       kubernetes.py
@@ -50,6 +56,25 @@ mas/pods/planner/Dockerfile
 vpc/ops/mas-planner.tf
 ```
 
+## Current Pod Split
+
+```text
+mas-orchestrator
+  POST /analyze
+  -> calls mas-observer-agent /observe
+  -> calls mas-analyzer-agent /analyze-signals
+
+mas-observer-agent
+  POST /observe
+  -> reads Prometheus and Kubernetes
+  -> returns structured signals
+
+mas-analyzer-agent
+  POST /analyze-signals
+  -> calls Bedrock Runtime
+  -> returns analysis
+```
+
 ## CI/CD
 
 `.github/workflows/mas-deploy.yml` is the MAS deployment path.
@@ -70,4 +95,10 @@ mas/app/agents/<agent_name>.py
 mas/app/tools/<tool_name>.py
 mas/pods/<agent_name>/agent.yml
 vpc/ops/mas-<agent_name>.tf
+```
+
+The current Bedrock permission lives in:
+
+```text
+vpc/ops/mas-analyzer.tf
 ```

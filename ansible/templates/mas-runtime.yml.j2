@@ -91,6 +91,14 @@ spec:
               value: {{ agent.bedrock_max_tokens | quote }}
             - name: PROMETHEUS_URL
               value: {{ agent.prometheus_url | quote }}
+{% if agent.observer_url is defined %}
+            - name: MAS_OBSERVER_URL
+              value: {{ agent.observer_url | quote }}
+{% endif %}
+{% if agent.analyzer_url is defined %}
+            - name: MAS_ANALYZER_URL
+              value: {{ agent.analyzer_url | quote }}
+{% endif %}
           readinessProbe:
             httpGet:
               path: /health

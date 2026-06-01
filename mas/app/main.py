@@ -1,20 +1,16 @@
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
 from app.agents.analyzer import AnalyzerAgent
 from app.agents.observer import ObserverAgent
-from app.agents.runtime import RuntimeAgent
+from app.agents.orchestrator import OrchestratorAgent
 from app.config import load_settings
+from app.schemas import AnalyzeRequest, AnalyzeSignalsRequest, ObserveRequest
 from app.tools.bedrock import BedrockClient, BedrockConfigError
 from app.tools.kubernetes import KubernetesClient
 from app.tools.prometheus import PrometheusClient
-
-
-class AnalyzeRequest(BaseModel):
-    namespace: str = "argocd"
-    prompt: str | None = None
 
 
 settings = load_settings()
@@ -55,11 +51,38 @@ def kubernetes_test(namespace: str = "mas") -> dict[str, Any]:
 
 @app.post("/analyze")
 async def analyze(request: AnalyzeRequest) -> dict[str, Any]:
+    orchestrator = OrchestratorAgent(
+        observer_url=settings.observer_url,
+        analyzer_url=settings.analyzer_url,
+    )
     try:
-        runtime = RuntimeAgent(
-            observer=ObserverAgent(PrometheusClient.from_url(settings.prometheus_url)),
-            analyzer=AnalyzerAgent(BedrockClient.from_env()),
-        )
-        return await runtime.analyze_namespace(request.namespace, request.prompt)
+        return await orchestrator.analyze_namespace(request.namespace, request.prompt)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/observe")
+async def observe(request: ObserveRequest) -> dict[str, Any]:
+    observer = ObserverAgent(
+        prometheus=PrometheusClient.from_url(settings.prometheus_url),
+        kubernetes=KubernetesClient.from_cluster(),
+    )
+    signals = await observer.collect_namespace_signals(request.namespace)
+    return {
+        "namespace": request.namespace,
+        "signals": signals,
+    }
+
+
+@app.post("/analyze-signals")
+async def analyze_signals(request: AnalyzeSignalsRequest) -> dict[str, Any]:
+    try:
+        analyzer = AnalyzerAgent(BedrockClient.from_env())
+        analysis = analyzer.analyze_signals(request.namespace, request.signals, request.prompt)
     except BedrockConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "namespace": request.namespace,
+        "analysis": analysis,
+    }
