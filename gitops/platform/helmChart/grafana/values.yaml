@@ -1,0 +1,49 @@
+adminUser: admin
+adminPassword: CHANGE_ME
+
+service:
+  type: ClusterIP
+
+nodeSelector:
+  role: monitoring
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
+
+serviceAccount:
+  create: true
+  name: grafana
+
+image:
+  # Mirrored Grafana image in the private ECR registry.
+  registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+  repository: financial/monitoring/grafana
+  tag: latest
+
+# Disable the optional Helm test pod so the offline cluster does not need the
+# public docker.io/bats/bats image.
+testFramework:
+  enabled: false
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Thanos
+        type: prometheus
+        access: proxy
+        url: http://thanos-query.observability.svc.cluster.local:9090
+        isDefault: true
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.observability.svc.cluster.local:3100
+      - name: CloudWatch
+        type: cloudwatch
+        access: proxy
+        jsonData:
+          authType: default
+          defaultRegion: ap-northeast-2
