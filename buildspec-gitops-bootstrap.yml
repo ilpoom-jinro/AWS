@@ -19,6 +19,15 @@ phases:
           kubectl --context financial-ops-eks get events -A --sort-by=.lastTimestamp | tail -100 || true
           exit 1
         }
+      - |
+        ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
+          echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
+          aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true
+          kubectl --context financial-ops-eks get pods -n git -o wide || true
+          kubectl --context financial-ops-eks get pods -n argocd -o wide || true
+          kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
+          exit 1
+        }
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
