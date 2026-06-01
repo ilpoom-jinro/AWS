@@ -1,0 +1,184 @@
+name: Update MAS Agents
+
+on:
+  push:
+    branches:
+      - main
+      - feature/MAS
+    paths:
+      - "mas/**"
+      - "ansible/group_vars/all.yml"
+      - "ansible/playbooks/gitops-mas.yml"
+      - "ansible/templates/mas-runtime.yml.j2"
+      - "buildspec-mas-gitops-sync.yml"
+      - "buildspec-mas-analyze.yml"
+      - "tools/ansible-codebuild/**"
+      - ".github/workflows/mas-update.yml"
+      - ".github/workflows/mas-analyze.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: mas-update-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+  TF_VAR_dev_mode: "true"
+  TF_MOVED_RESOURCE_TARGETS: >-
+    -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
+    -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
+  ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
+  MAS_BASE_REPOSITORY: financial/mas-base
+  MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
+  MAS_OBSERVER_REPOSITORY: financial/mas-observer
+  MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
+  MAS_GITOPS_SYNC_PROJECT: financial-mas-gitops-sync
+
+jobs:
+  update:
+    name: Build Images and Sync MAS GitOps
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Compile MAS Python sources
+        run: python -m compileall mas/app
+
+      - name: Apply MAS image repositories and GitOps sync CodeBuild
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_ecr_repository.ansible_codebuild
+          -target=aws_ecr_lifecycle_policy.ansible_codebuild
+          -target=aws_ecr_repository.mas_base
+          -target=aws_ecr_lifecycle_policy.mas_base
+          -target=aws_ecr_repository.mas_orchestrator
+          -target=aws_ecr_lifecycle_policy.mas_orchestrator
+          -target=aws_ecr_repository.mas_observer
+          -target=aws_ecr_lifecycle_policy.mas_observer
+          -target=aws_ecr_repository.mas_analyzer
+          -target=aws_ecr_lifecycle_policy.mas_analyzer
+          -target=aws_codebuild_project.mas_gitops_sync
+          -target=aws_codebuild_project.mas_analyze
+          $TF_MOVED_RESOURCE_TARGETS
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push MAS images
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          BASE_IMAGE_URI="${REGISTRY}/${MAS_BASE_REPOSITORY}"
+
+          docker build \
+            -f mas/base/Dockerfile \
+            -t "${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${BASE_IMAGE_URI}:latest" \
+            mas
+
+          docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${BASE_IMAGE_URI}:latest"
+
+          for agent in orchestrator observer analyzer; do
+            repository_var="MAS_${agent^^}_REPOSITORY"
+            image_uri="${REGISTRY}/${!repository_var}"
+
+            docker build \
+              --build-arg "MAS_BASE_IMAGE=${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+              -f "mas/pods/${agent}/Dockerfile" \
+              -t "${image_uri}:${IMAGE_TAG}" \
+              -t "${image_uri}:latest" \
+              mas
+
+            docker push "${image_uri}:${IMAGE_TAG}"
+            docker push "${image_uri}:latest"
+          done
+
+      - name: Build and push Ansible CodeBuild image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ANSIBLE_CODEBUILD_REPOSITORY}"
+
+          docker build \
+            -f tools/ansible-codebuild/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            .
+
+          docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Sync MAS manifests to internal Git
+        id: codebuild
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${MAS_GITOPS_SYNC_PROJECT}" \
+              --environment-variables-override \
+                name=MAS_ORCHESTRATOR_IMAGE,value="${REGISTRY}/${MAS_ORCHESTRATOR_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
+                name=MAS_OBSERVER_IMAGE,value="${REGISTRY}/${MAS_OBSERVER_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
+                name=MAS_ANALYZER_IMAGE,value="${REGISTRY}/${MAS_ANALYZER_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
+              --query 'build.id' \
+              --output text
+          )"
+
+          echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "Started CodeBuild: ${build_id}"
+
+      - name: Wait for MAS GitOps sync
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.id }}
+        run: |
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done

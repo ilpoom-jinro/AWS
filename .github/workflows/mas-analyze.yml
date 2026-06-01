@@ -1,0 +1,108 @@
+name: Analyze With MAS
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: "Kubernetes namespace to analyze"
+        required: true
+        default: "argocd"
+        type: string
+      prompt:
+        description: "Prompt for MAS analyzer"
+        required: true
+        default: "Kubernetes 리소스 상태를 분석하고, 문제가 있으면 원인과 다음 확인 작업을 알려줘."
+        type: string
+      codebuild_project:
+        description: "MAS analyze CodeBuild project"
+        required: true
+        default: "financial-mas-analyze"
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: mas-analyze-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+
+jobs:
+  analyze:
+    name: Run MAS Analysis
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start MAS analyze CodeBuild
+        id: codebuild
+        shell: bash
+        env:
+          CODEBUILD_PROJECT: ${{ inputs.codebuild_project }}
+          MAS_ANALYZE_NAMESPACE: ${{ inputs.namespace }}
+          MAS_ANALYZE_PROMPT: ${{ inputs.prompt }}
+        run: |
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${CODEBUILD_PROJECT}" \
+              --environment-variables-override \
+                name=MAS_ANALYZE_NAMESPACE,value="${MAS_ANALYZE_NAMESPACE}",type=PLAINTEXT \
+                name=MAS_ANALYZE_PROMPT,value="${MAS_ANALYZE_PROMPT}",type=PLAINTEXT \
+              --query 'build.id' \
+              --output text
+          )"
+
+          echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "Started CodeBuild: ${build_id}"
+
+      - name: Wait for MAS analysis
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.id }}
+        run: |
+          print_build_logs() {
+            log_group="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.groupName' --output text || true)"
+            log_stream="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.streamName' --output text || true)"
+            deep_link="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.deepLink' --output text || true)"
+
+            echo "CloudWatch log link: ${deep_link}"
+
+            if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
+              echo "::group::MAS analysis CodeBuild logs"
+              aws logs get-log-events \
+                --log-group-name "${log_group}" \
+                --log-stream-name "${log_stream}" \
+                --limit 300 \
+                --query 'events[].message' \
+                --output text || true
+              echo "::endgroup::"
+            fi
+          }
+
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                print_build_logs
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                print_build_logs
+                exit 1
+                ;;
+            esac
+
+            sleep 20
+          done

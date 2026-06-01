@@ -22,9 +22,17 @@ prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.
 
 mas_namespace: mas
 mas_release_name: mas-runtime
+mas_argocd_application_name: mas
+mas_gitops_repo: mas
+mas_gitops_repo_name: mas-gitops
+mas_gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/mas.git"
+mas_app_path: apps/mas
 mas_service_name: mas-runtime
 mas_service_account_name: mas-runtime
 mas_runtime_image: "{{ lookup('env', 'MAS_RUNTIME_IMAGE') | default('financial/mas-runtime:latest', true) }}"
+mas_orchestrator_image: "{{ lookup('env', 'MAS_ORCHESTRATOR_IMAGE') | default('financial/mas-orchestrator:latest', true) }}"
+mas_observer_image: "{{ lookup('env', 'MAS_OBSERVER_IMAGE') | default('financial/mas-observer:latest', true) }}"
+mas_analyzer_image: "{{ lookup('env', 'MAS_ANALYZER_IMAGE') | default('financial/mas-analyzer:latest', true) }}"
 mas_replicas: 1
 mas_container_port: 8080
 mas_service_port: 8080

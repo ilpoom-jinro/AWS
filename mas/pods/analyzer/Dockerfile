@@ -1,14 +1,13 @@
-FROM python:3.12-slim
+ARG MAS_BASE_IMAGE=financial/mas-base:latest
+FROM ${MAS_BASE_IMAGE}
 
-ENV PYTHONUNBUFFERED=1
+COPY app/__init__.py ./app/
+COPY app/config.py app/schemas.py ./app/
+COPY app/agents/__init__.py ./app/agents/
+COPY app/agents/analyzer.py ./app/agents/
+COPY app/tools/__init__.py ./app/tools/
+COPY app/tools/bedrock.py ./app/tools/
+COPY app/entrypoints/__init__.py ./app/entrypoints/
+COPY app/entrypoints/analyzer.py ./app/entrypoints/
 
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY app/ ./app/
-
-EXPOSE 8080
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "app.entrypoints.analyzer:app", "--host", "0.0.0.0", "--port", "8080"]

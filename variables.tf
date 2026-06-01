@@ -61,6 +61,30 @@ variable "mas_runtime_image_repository_name" {
   default     = "financial/mas-runtime"
 }
 
+variable "mas_base_image_repository_name" {
+  description = "ECR repository name for the MAS base image"
+  type        = string
+  default     = "financial/mas-base"
+}
+
+variable "mas_orchestrator_image_repository_name" {
+  description = "ECR repository name for the MAS orchestrator agent image"
+  type        = string
+  default     = "financial/mas-orchestrator"
+}
+
+variable "mas_observer_image_repository_name" {
+  description = "ECR repository name for the MAS observer agent image"
+  type        = string
+  default     = "financial/mas-observer"
+}
+
+variable "mas_analyzer_image_repository_name" {
+  description = "ECR repository name for the MAS analyzer agent image"
+  type        = string
+  default     = "financial/mas-analyzer"
+}
+
 variable "argocd_image_tag" {
   description = "Argo CD image tag used by the Helm release"
   type        = string
@@ -85,6 +109,12 @@ variable "mas_runtime_image_tag" {
   default     = "latest"
 }
 
+variable "mas_agent_image_tag" {
+  description = "MAS agent image tag used by Kubernetes deployments"
+  type        = string
+  default     = "latest"
+}
+
 variable "istio_image_repository_prefix" {
   description = "ECR repository prefix for mirrored Istio images"
   type        = string
@@ -101,6 +131,18 @@ variable "manifest_updater_codebuild_project_name" {
   description = "CodeBuild project name for updating internal GitOps manifests"
   type        = string
   default     = "financial-manifest-updater"
+}
+
+variable "mas_gitops_sync_codebuild_project_name" {
+  description = "CodeBuild project name for syncing MAS manifests into the internal GitOps repository"
+  type        = string
+  default     = "financial-mas-gitops-sync"
+}
+
+variable "mas_analyze_codebuild_project_name" {
+  description = "CodeBuild project name for invoking the MAS orchestrator analyze API"
+  type        = string
+  default     = "financial-mas-analyze"
 }
 
 variable "manifest_updater_image" {

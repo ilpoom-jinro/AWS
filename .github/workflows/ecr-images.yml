@@ -39,7 +39,7 @@ on:
         default: true
         type: boolean
       build_mas_runtime:
-        description: "Build and push the MAS runtime image"
+        description: "Build and push the MAS base and agent images"
         required: true
         default: true
         type: boolean
@@ -75,6 +75,10 @@ env:
   PROMETHEUS_REPOSITORY: financial/prometheus
   PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
   MAS_RUNTIME_REPOSITORY: financial/mas-runtime
+  MAS_BASE_REPOSITORY: financial/mas-base
+  MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
+  MAS_OBSERVER_REPOSITORY: financial/mas-observer
+  MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
 
@@ -124,6 +128,14 @@ jobs:
           -target=aws_ecr_lifecycle_policy.prometheus
           -target=aws_ecr_repository.mas_runtime
           -target=aws_ecr_lifecycle_policy.mas_runtime
+          -target=aws_ecr_repository.mas_base
+          -target=aws_ecr_lifecycle_policy.mas_base
+          -target=aws_ecr_repository.mas_orchestrator
+          -target=aws_ecr_lifecycle_policy.mas_orchestrator
+          -target=aws_ecr_repository.mas_observer
+          -target=aws_ecr_lifecycle_policy.mas_observer
+          -target=aws_ecr_repository.mas_analyzer
+          -target=aws_ecr_lifecycle_policy.mas_analyzer
           -target=aws_ecr_repository.istio_pilot
           -target=aws_ecr_lifecycle_policy.istio_pilot
           -target=aws_ecr_repository.istio_proxyv2
@@ -146,6 +158,10 @@ jobs:
           aws ecr describe-repositories --repository-names "${ARGOCD_REDIS_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${PROMETHEUS_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${MAS_RUNTIME_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_BASE_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_ORCHESTRATOR_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_OBSERVER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_ANALYZER_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
@@ -201,22 +217,37 @@ jobs:
           docker tag "${PROMETHEUS_SOURCE_IMAGE}" "${IMAGE_URI}:v3.7.3"
           docker push "${IMAGE_URI}:v3.7.3"
 
-      - name: Build and push MAS runtime image
+      - name: Build and push MAS agent images
         if: github.event_name == 'push' || inputs.build_mas_runtime == true
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
+          BASE_IMAGE_URI="${REGISTRY}/${MAS_BASE_REPOSITORY}"
 
           docker build \
-            -f mas/pods/orchestrator/Dockerfile \
-            -t "${IMAGE_URI}:${IMAGE_TAG}" \
-            -t "${IMAGE_URI}:latest" \
+            -f mas/base/Dockerfile \
+            -t "${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${BASE_IMAGE_URI}:latest" \
             mas
 
-          docker push "${IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${IMAGE_URI}:latest"
+          docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${BASE_IMAGE_URI}:latest"
+
+          for agent in orchestrator observer analyzer; do
+            repository_var="MAS_${agent^^}_REPOSITORY"
+            image_uri="${REGISTRY}/${!repository_var}"
+
+            docker build \
+              --build-arg "MAS_BASE_IMAGE=${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+              -f "mas/pods/${agent}/Dockerfile" \
+              -t "${image_uri}:${IMAGE_TAG}" \
+              -t "${image_uri}:latest" \
+              mas
+
+            docker push "${image_uri}:${IMAGE_TAG}"
+            docker push "${image_uri}:latest"
+          done
 
       - name: Mirror Istio ambient images to ECR
         if: github.event_name == 'push' || inputs.mirror_istio == true

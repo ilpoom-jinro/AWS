@@ -15,13 +15,20 @@ class ObserverAgent:
             f'{{namespace="{namespace}"}}[15m])) by (pod)'
         )
         signals: dict[str, Any] = {
-            "pod_restarts_15m": {
+            "prometheus": {},
+            "kubernetes": {},
+        }
+
+        try:
+            signals["prometheus"]["pod_restarts_15m"] = {
                 "query": restarts_query,
                 "result": await self.prometheus.query(restarts_query),
             }
-        }
+        except Exception as exc:
+            signals["prometheus"]["status"] = "unavailable"
+            signals["prometheus"]["error"] = str(exc)
 
         if self.kubernetes:
-            signals["pods"] = self.kubernetes.list_pods(namespace)
+            signals["kubernetes"] = self.kubernetes.namespace_snapshot(namespace)
 
         return signals

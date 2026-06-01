@@ -56,6 +56,8 @@
         cmd: >
           kubectl --context {{ ops_kube_context }}
           -n {{ mas_namespace }}
-          get deploy,svc,sa {{ mas_release_name }} -o wide
+          get deploy,svc,sa
+          -l app.kubernetes.io/component=mas-agent
+          -o wide
       changed_when: false
       failed_when: false

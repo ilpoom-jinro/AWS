@@ -1,6 +1,6 @@
 name: mas-observer-agent
 role: observer
-image: "{{ mas_runtime_image }}"
+image: "{{ mas_observer_image }}"
 service_account_name: mas-observer-agent
 service_name: mas-observer-agent
 replicas: 1

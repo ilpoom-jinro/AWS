@@ -43,6 +43,16 @@ output "ansible_codebuild_project_name" {
   value       = aws_codebuild_project.ansible_bootstrap.name
 }
 
+output "mas_gitops_sync_codebuild_project_name" {
+  description = "CodeBuild project that syncs MAS manifests into internal Git"
+  value       = aws_codebuild_project.mas_gitops_sync.name
+}
+
+output "mas_analyze_codebuild_project_name" {
+  description = "CodeBuild project that invokes the MAS analyze API"
+  value       = aws_codebuild_project.mas_analyze.name
+}
+
 output "ansible_codebuild_image_repository_url" {
   description = "ECR repository URL for the Ansible CodeBuild runtime image"
   value       = aws_ecr_repository.ansible_codebuild.repository_url
@@ -61,6 +71,26 @@ output "prometheus_image_repository_url" {
 output "mas_runtime_image_repository_url" {
   description = "ECR repository URL for the MAS runtime image"
   value       = aws_ecr_repository.mas_runtime.repository_url
+}
+
+output "mas_base_image_repository_url" {
+  description = "ECR repository URL for the MAS base image"
+  value       = aws_ecr_repository.mas_base.repository_url
+}
+
+output "mas_orchestrator_image_repository_url" {
+  description = "ECR repository URL for the MAS orchestrator image"
+  value       = aws_ecr_repository.mas_orchestrator.repository_url
+}
+
+output "mas_observer_image_repository_url" {
+  description = "ECR repository URL for the MAS observer image"
+  value       = aws_ecr_repository.mas_observer.repository_url
+}
+
+output "mas_analyzer_image_repository_url" {
+  description = "ECR repository URL for the MAS analyzer image"
+  value       = aws_ecr_repository.mas_analyzer.repository_url
 }
 
 output "istio_image_repository_prefix" {

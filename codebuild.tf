@@ -6,6 +6,10 @@ locals {
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
   prometheus_image_repository        = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
   mas_runtime_image_repository       = "${local.ecr_registry}/${var.mas_runtime_image_repository_name}"
+  mas_base_image_repository          = "${local.ecr_registry}/${var.mas_base_image_repository_name}"
+  mas_orchestrator_image_repository  = "${local.ecr_registry}/${var.mas_orchestrator_image_repository_name}"
+  mas_observer_image_repository      = "${local.ecr_registry}/${var.mas_observer_image_repository_name}"
+  mas_analyzer_image_repository      = "${local.ecr_registry}/${var.mas_analyzer_image_repository_name}"
   istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
 }
 
@@ -225,6 +229,21 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "MAS_ORCHESTRATOR_IMAGE"
+      value = "${local.mas_orchestrator_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "MAS_OBSERVER_IMAGE"
+      value = "${local.mas_observer_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "MAS_ANALYZER_IMAGE"
+      value = "${local.mas_analyzer_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
       name  = "ISTIO_IMAGE_HUB"
       value = local.istio_image_repository_prefix
     }
@@ -264,5 +283,144 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
   depends_on = [
     aws_iam_role_policy.ansible_codebuild
+  ]
+}
+
+resource "aws_codebuild_project" "mas_gitops_sync" {
+  name          = var.mas_gitops_sync_codebuild_project_name
+  description   = "Syncs MAS Kubernetes manifests into the internal GitOps repository for Argo CD"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 20
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "ANSIBLE_CONFIG"
+      value = "/workspace/ansible/ansible.cfg"
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_USERNAME"
+      value = var.internal_git_admin_username
+    }
+
+    environment_variable {
+      name  = "INTERNAL_GIT_ADMIN_PASSWORD"
+      value = var.internal_git_admin_password
+      type  = "PLAINTEXT"
+    }
+
+    environment_variable {
+      name  = "MAS_ORCHESTRATOR_IMAGE"
+      value = "${local.mas_orchestrator_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "MAS_OBSERVER_IMAGE"
+      value = "${local.mas_observer_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "MAS_ANALYZER_IMAGE"
+      value = "${local.mas_analyzer_image_repository}:${var.mas_agent_image_tag}"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-mas-gitops-sync.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc2.vpc_id
+    subnets            = module.vpc2.private_subnet_ids
+    security_group_ids = [aws_security_group.ansible_codebuild.id, module.vpc2.eks_node_sg_id]
+  }
+
+  tags = {
+    Name      = var.mas_gitops_sync_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_ops_admin
+  ]
+}
+
+resource "aws_codebuild_project" "mas_analyze" {
+  name          = var.mas_analyze_codebuild_project_name
+  description   = "Invokes the MAS orchestrator analyze API from inside the Ops VPC"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 20
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    }
+
+    environment_variable {
+      name  = "OPS_EKS_CLUSTER_NAME"
+      value = var.ops_eks_cluster_name
+    }
+
+    environment_variable {
+      name  = "MAS_NAMESPACE"
+      value = "mas"
+    }
+
+    environment_variable {
+      name  = "MAS_ORCHESTRATOR_SERVICE"
+      value = "mas-orchestrator"
+    }
+
+    environment_variable {
+      name  = "MAS_ANALYZE_NAMESPACE"
+      value = "argocd"
+    }
+
+    environment_variable {
+      name  = "MAS_ANALYZE_PROMPT"
+      value = "Kubernetes 리소스 상태를 분석하고, 문제가 있으면 원인과 다음 확인 작업을 알려줘."
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-mas-analyze.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc2.vpc_id
+    subnets            = module.vpc2.private_subnet_ids
+    security_group_ids = [aws_security_group.ansible_codebuild.id, module.vpc2.eks_node_sg_id]
+  }
+
+  tags = {
+    Name      = var.mas_analyze_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_ops_admin
   ]
 }

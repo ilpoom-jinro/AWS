@@ -1,0 +1,84 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+
+        : "${AWS_REGION:?AWS_REGION is required}"
+        : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
+
+        MAS_NAMESPACE="${MAS_NAMESPACE:-mas}"
+        MAS_ORCHESTRATOR_SERVICE="${MAS_ORCHESTRATOR_SERVICE:-mas-orchestrator}"
+        MAS_ANALYZE_NAMESPACE="${MAS_ANALYZE_NAMESPACE:-argocd}"
+        MAS_ANALYZE_PROMPT="${MAS_ANALYZE_PROMPT:-Kubernetes 리소스 상태를 분석하고, 문제가 있으면 원인과 다음 확인 작업을 알려줘.}"
+        OPS_CONTEXT="mas-analyze-${OPS_EKS_CLUSTER_NAME}"
+
+        section() {
+          printf '\n===== %s =====\n' "$1"
+        }
+
+        aws eks update-kubeconfig \
+          --region "${AWS_REGION}" \
+          --name "${OPS_EKS_CLUSTER_NAME}" \
+          --alias "${OPS_CONTEXT}"
+
+        section "MAS pods"
+        kubectl --context "${OPS_CONTEXT}" -n "${MAS_NAMESPACE}" get deploy,svc,pods -o wide
+
+        section "Wait for MAS orchestrator"
+        kubectl --context "${OPS_CONTEXT}" \
+          -n "${MAS_NAMESPACE}" \
+          rollout status "deployment/${MAS_ORCHESTRATOR_SERVICE}" \
+          --timeout=180s
+
+        section "Port-forward MAS orchestrator"
+        kubectl --context "${OPS_CONTEXT}" \
+          -n "${MAS_NAMESPACE}" \
+          port-forward "svc/${MAS_ORCHESTRATOR_SERVICE}" 18080:8080 \
+          >/tmp/mas-port-forward.log 2>&1 &
+        PORT_FORWARD_PID="$!"
+        trap 'kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
+
+        for i in $(seq 1 60); do
+          if curl -fsS http://127.0.0.1:18080/health >/tmp/mas-health.json; then
+            break
+          fi
+          if [ "${i}" -eq 60 ]; then
+            cat /tmp/mas-port-forward.log || true
+            echo "Timed out waiting for MAS orchestrator port-forward."
+            exit 1
+          fi
+          sleep 2
+        done
+
+        section "MAS health"
+        python3 -m json.tool /tmp/mas-health.json || cat /tmp/mas-health.json
+
+        section "Analyze request"
+        export MAS_ANALYZE_NAMESPACE MAS_ANALYZE_PROMPT
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        request = {
+            "namespace": os.environ["MAS_ANALYZE_NAMESPACE"],
+            "prompt": os.environ["MAS_ANALYZE_PROMPT"],
+        }
+        Path("/tmp/mas-request.json").write_text(
+            json.dumps(request, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(json.dumps(request, ensure_ascii=False, indent=2))
+        PY
+
+        section "MAS analysis result"
+        curl -fsS \
+          -X POST http://127.0.0.1:18080/analyze \
+          -H 'Content-Type: application/json' \
+          --data @/tmp/mas-request.json \
+          -o /tmp/mas-response.json
+
+        python3 -m json.tool /tmp/mas-response.json || cat /tmp/mas-response.json

@@ -1,0 +1,201 @@
+- name: Bootstrap MAS GitOps deployment for the Ops EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Discover MAS agent definitions
+      ansible.builtin.set_fact:
+        mas_agent_definition_files: "{{ lookup('ansible.builtin.fileglob', playbook_dir + '/../../mas/pods/*/agent.yml', wantlist=True) }}"
+
+    - name: Stop when no MAS agent definitions exist
+      ansible.builtin.fail:
+        msg: "No MAS agent definitions found under mas/pods/*/agent.yml"
+      when: mas_agent_definition_files | length == 0
+
+    - name: Load MAS agent definitions
+      ansible.builtin.set_fact:
+        mas_agents: "{{ (mas_agents | default([])) + [lookup('ansible.builtin.template', item) | from_yaml] }}"
+      loop: "{{ mas_agent_definition_files }}"
+
+  tasks:
+    - name: Start local port-forward to internal Git service
+      ansible.builtin.shell: |
+        set -e
+        rm -f /tmp/internal-git-mas-port-forward.log
+        nohup kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          port-forward svc/{{ internal_git_service_name }} {{ internal_git_demo_local_http_port }}:{{ internal_git_http_port }} \
+          >/tmp/internal-git-mas-port-forward.log 2>&1 &
+        echo $!
+      changed_when: false
+      register: internal_git_mas_port_forward_pid
+
+    - name: Wait for internal Git MAS port-forward listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ internal_git_demo_local_http_port }}"
+        timeout: 30
+      register: internal_git_mas_port_forward_wait
+      failed_when: false
+
+    - name: Show internal Git MAS port-forward log when listener is not ready
+      ansible.builtin.command:
+        cmd: cat /tmp/internal-git-mas-port-forward.log
+      when: internal_git_mas_port_forward_wait.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when internal Git MAS port-forward listener is not ready
+      ansible.builtin.fail:
+        msg: "Internal Git port-forward did not open 127.0.0.1:{{ internal_git_demo_local_http_port }}. Check the port-forward log above."
+      when: internal_git_mas_port_forward_wait.failed | default(false)
+
+    - name: Wait for internal Git API through MAS port-forward
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/version"
+        method: GET
+        status_code: 200
+      register: internal_git_mas_api_probe
+      retries: 30
+      delay: 2
+      until: internal_git_mas_api_probe.status == 200
+      ignore_errors: true
+
+    - name: Stop when internal Git API is not ready through MAS port-forward
+      ansible.builtin.fail:
+        msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during MAS bootstrap."
+      when: internal_git_mas_api_probe.failed | default(false)
+
+    - name: Render MAS manifests for GitOps
+      ansible.builtin.copy:
+        dest: /tmp/mas-gitops-manifest.yaml
+        mode: "0644"
+        content: "{{ lookup('template', '../templates/mas-runtime.yml.j2') }}"
+      changed_when: false
+
+    - name: Ensure MAS GitOps repository exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/orgs/{{ internal_git_org }}/repos"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 409, 422]
+        body_format: json
+        body:
+          name: "{{ mas_gitops_repo }}"
+          description: MAS GitOps source of truth
+          private: false
+          auto_init: false
+          default_branch: main
+      no_log: true
+
+    - name: Check whether the MAS GitOps repository already has a main branch
+      ansible.builtin.shell: |
+        set -e
+        git ls-remote \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ mas_gitops_repo }}.git" \
+          refs/heads/main
+      register: mas_gitops_main_branch
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Push initial MAS GitOps repository commit
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/mas-gitops-initial
+        mkdir -p /tmp/mas-gitops-initial
+        cd /tmp/mas-gitops-initial
+        git init -b main
+        git config user.name "MAS GitOps Bot"
+        git config user.email "mas-gitops@internal.ops.local"
+        cat > README.md <<'EOF'
+        # MAS GitOps Repository
+
+        This repository is managed automatically for MAS agent workloads.
+        EOF
+        git add README.md
+        git commit -m "Initial MAS GitOps bootstrap"
+        git remote add origin \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ mas_gitops_repo }}.git"
+        git push -u origin main
+      when: mas_gitops_main_branch.rc != 0 or mas_gitops_main_branch.stdout | length == 0
+      no_log: true
+
+    - name: Push MAS manifests to internal Git
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/internal-gitops-mas
+        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ mas_gitops_repo }}.git" /tmp/internal-gitops-mas
+        cd /tmp/internal-gitops-mas
+        git config user.name "MAS GitOps Bot"
+        git config user.email "mas-gitops@internal.ops.local"
+        git checkout main || git checkout -b main
+        mkdir -p "{{ mas_app_path }}"
+        cp /tmp/mas-gitops-manifest.yaml "{{ mas_app_path }}/mas.yaml"
+        git add "{{ mas_app_path }}/mas.yaml"
+        git diff --cached --quiet && exit 0
+        git commit -m "deploy: sync mas agents"
+        git push origin main
+      no_log: true
+
+    - name: Create Argo CD repository secret for MAS GitOps
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ mas_gitops_repo_name }}"
+            namespace: "{{ argocd_namespace }}"
+            labels:
+              argocd.argoproj.io/secret-type: repository
+          stringData:
+            type: git
+            url: "{{ mas_gitops_repo_url }}"
+            project: default
+            username: "{{ internal_git_admin_username }}"
+            password: "{{ internal_git_admin_password }}"
+      no_log: true
+
+    - name: Create Argo CD Application for MAS
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: "{{ mas_argocd_application_name }}"
+            namespace: "{{ argocd_namespace }}"
+          spec:
+            project: default
+            source:
+              repoURL: "{{ mas_gitops_repo_url }}"
+              targetRevision: main
+              path: "{{ mas_app_path }}"
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: "{{ mas_namespace }}"
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+              syncOptions:
+                - CreateNamespace=true
+
+    - name: Stop internal Git MAS port-forward
+      ansible.builtin.shell: |
+        kill {{ internal_git_mas_port_forward_pid.stdout }} >/dev/null 2>&1 || true
+      changed_when: false
+      failed_when: false

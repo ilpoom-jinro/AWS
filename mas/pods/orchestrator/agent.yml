@@ -1,6 +1,6 @@
 name: mas-orchestrator
 role: orchestrator
-image: "{{ mas_runtime_image }}"
+image: "{{ mas_orchestrator_image }}"
 service_account_name: mas-orchestrator
 service_name: mas-orchestrator
 replicas: 1

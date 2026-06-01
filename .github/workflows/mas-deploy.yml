@@ -1,24 +1,6 @@
 name: Deploy MAS Agents
 
 on:
-  push:
-    branches:
-      - main
-      - feature/MAS
-    paths:
-      - "mas/**"
-      - "ansible/group_vars/all.yml"
-      - "ansible/playbooks/ops-mas.yml"
-      - "ansible/templates/mas-runtime.yml.j2"
-      - "vpc/ops/mas-*.tf"
-      - "vpc/ops/endpoints.tf"
-      - "ecr.tf"
-      - "codebuild.tf"
-      - "variables.tf"
-      - "outputs.tf"
-      - "buildspec-ansible.yml"
-      - "tools/ansible-codebuild/**"
-      - ".github/workflows/mas-deploy.yml"
   workflow_dispatch:
     inputs:
       run_bootstrap:
@@ -48,7 +30,10 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
   ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
-  MAS_RUNTIME_REPOSITORY: financial/mas-runtime
+  MAS_BASE_REPOSITORY: financial/mas-base
+  MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
+  MAS_OBSERVER_REPOSITORY: financial/mas-observer
+  MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
 
 jobs:
   deploy:
@@ -96,6 +81,14 @@ jobs:
           terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=aws_ecr_repository.mas_runtime
           -target=aws_ecr_lifecycle_policy.mas_runtime
+          -target=aws_ecr_repository.mas_base
+          -target=aws_ecr_lifecycle_policy.mas_base
+          -target=aws_ecr_repository.mas_orchestrator
+          -target=aws_ecr_lifecycle_policy.mas_orchestrator
+          -target=aws_ecr_repository.mas_observer
+          -target=aws_ecr_lifecycle_policy.mas_observer
+          -target=aws_ecr_repository.mas_analyzer
+          -target=aws_ecr_lifecycle_policy.mas_analyzer
           -target=aws_ecr_repository.ansible_codebuild
           -target=aws_ecr_lifecycle_policy.ansible_codebuild
           $TF_MOVED_RESOURCE_TARGETS
@@ -104,21 +97,36 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push MAS runtime image
+      - name: Build and push MAS agent images
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI="${REGISTRY}/${MAS_RUNTIME_REPOSITORY}"
+          BASE_IMAGE_URI="${REGISTRY}/${MAS_BASE_REPOSITORY}"
 
           docker build \
-            -f mas/pods/orchestrator/Dockerfile \
-            -t "${IMAGE_URI}:${IMAGE_TAG}" \
-            -t "${IMAGE_URI}:latest" \
+            -f mas/base/Dockerfile \
+            -t "${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${BASE_IMAGE_URI}:latest" \
             mas
 
-          docker push "${IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${IMAGE_URI}:latest"
+          docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${BASE_IMAGE_URI}:latest"
+
+          for agent in orchestrator observer analyzer; do
+            repository_var="MAS_${agent^^}_REPOSITORY"
+            image_uri="${REGISTRY}/${!repository_var}"
+
+            docker build \
+              --build-arg "MAS_BASE_IMAGE=${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+              -f "mas/pods/${agent}/Dockerfile" \
+              -t "${image_uri}:${IMAGE_TAG}" \
+              -t "${image_uri}:latest" \
+              mas
+
+            docker push "${image_uri}:${IMAGE_TAG}"
+            docker push "${image_uri}:latest"
+          done
 
       - name: Build and push Ansible CodeBuild image
         env:
@@ -145,55 +153,65 @@ jobs:
           -target=module.vpc2.aws_iam_role_policy.mas_analyzer
           -target=module.vpc2.aws_eks_pod_identity_association.mas_analyzer
           -target=aws_codebuild_project.ansible_bootstrap
+          -target=aws_codebuild_project.mas_gitops_sync
+          -target=aws_codebuild_project.mas_analyze
           $TF_MOVED_RESOURCE_TARGETS
 
-      - name: Run Ansible CodeBuild for MAS deployment
+      - name: Run platform and MAS GitOps CodeBuild for initial deployment
         if: github.event_name == 'push' || inputs.run_bootstrap == true
         shell: bash
         run: |
-          build_id="$(aws codebuild start-build --project-name financial-ansible-bootstrap --query 'build.id' --output text)"
-          echo "Started CodeBuild: ${build_id}"
+          run_codebuild_and_wait() {
+            local project_name="$1"
+            local build_id
 
-          print_build_diagnostics() {
-            echo "::group::CodeBuild phases"
-            aws codebuild batch-get-builds \
-              --ids "${build_id}" \
-              --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
-              --output json || true
-            echo "::endgroup::"
+            build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
+            echo "Started CodeBuild (${project_name}): ${build_id}"
 
-            log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
-            log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
-            deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
-
-            echo "CloudWatch log link: ${deep_link}"
-
-            if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
-              echo "::group::CodeBuild CloudWatch logs"
-              aws logs get-log-events \
-                --log-group-name "${log_group}" \
-                --log-stream-name "${log_stream}" \
-                --limit 200 \
-                --query 'events[].message' \
-                --output text || true
+            print_build_diagnostics() {
+              echo "::group::CodeBuild phases (${project_name})"
+              aws codebuild batch-get-builds \
+                --ids "${build_id}" \
+                --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
+                --output json || true
               echo "::endgroup::"
-            fi
+
+              log_group="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.groupName' --output text || true)"
+              log_stream="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.streamName' --output text || true)"
+              deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text || true)"
+
+              echo "CloudWatch log link (${project_name}): ${deep_link}"
+
+              if [ -n "${log_group}" ] && [ "${log_group}" != "None" ] && [ -n "${log_stream}" ] && [ "${log_stream}" != "None" ]; then
+                echo "::group::CodeBuild CloudWatch logs (${project_name})"
+                aws logs get-log-events \
+                  --log-group-name "${log_group}" \
+                  --log-stream-name "${log_stream}" \
+                  --limit 200 \
+                  --query 'events[].message' \
+                  --output text || true
+                echo "::endgroup::"
+              fi
+            }
+
+            while true; do
+              status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+              echo "CodeBuild status (${project_name}): ${status}"
+
+              case "${status}" in
+                SUCCEEDED)
+                  return 0
+                  ;;
+                FAILED|FAULT|STOPPED|TIMED_OUT)
+                  echo "::error::CodeBuild ${project_name} finished with status ${status}."
+                  print_build_diagnostics
+                  return 1
+                  ;;
+              esac
+
+              sleep 30
+            done
           }
 
-          while true; do
-            status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
-            echo "CodeBuild status: ${status}"
-
-            case "${status}" in
-              SUCCEEDED)
-                exit 0
-                ;;
-              FAILED|FAULT|STOPPED|TIMED_OUT)
-                echo "::error::CodeBuild finished with status ${status}."
-                print_build_diagnostics
-                exit 1
-                ;;
-            esac
-
-            sleep 30
-          done
+          run_codebuild_and_wait financial-ansible-bootstrap
+          run_codebuild_and_wait financial-mas-gitops-sync

@@ -1,6 +1,6 @@
 name: mas-analyzer-agent
 role: analyzer
-image: "{{ mas_runtime_image }}"
+image: "{{ mas_analyzer_image }}"
 service_account_name: mas-analyzer-agent
 service_name: mas-analyzer-agent
 replicas: 1
