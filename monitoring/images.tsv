@@ -1,0 +1,10 @@
+# component	source_image	ecr_repository	target_tag
+grafana	docker.io/grafana/grafana:latest	financial/monitoring/grafana	latest
+loki	docker.io/grafana/loki:latest	financial/monitoring/loki	latest
+thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	v0.41.0
+thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	latest
+alloy	docker.io/grafana/alloy:latest	financial/monitoring/alloy	latest
+alertmanager	quay.io/prometheus/alertmanager:latest	financial/monitoring/alertmanager	latest
+xray-collector	public.ecr.aws/aws-observability/aws-otel-collector:latest	financial/monitoring/xray-collector	latest
+prometheus	quay.io/prometheus/prometheus:v3.7.3	financial/monitoring/prometheus	v3.7.3
+aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/system/aws-load-balancer-controller	v3.3.0
