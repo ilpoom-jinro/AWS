@@ -59,8 +59,8 @@ demo_app_path: apps/demo-app
 demo_backend_name: backend
 demo_frontend_name: frontend
 demo_db_name: postgres
-demo_backend_image: public.ecr.aws/docker/library/python:3.12-slim
-demo_frontend_image: public.ecr.aws/docker/library/nginx:1.27-alpine
+demo_backend_image: "{{ lookup('env', 'DEMO_BACKEND_IMAGE') | default('public.ecr.aws/docker/library/python:3.12-slim', true) }}"
+demo_frontend_image: "{{ lookup('env', 'DEMO_FRONTEND_IMAGE') | default('public.ecr.aws/docker/library/nginx:1.27-alpine', true) }}"
 demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
 demo_db_name_value: stockdemo
 demo_db_user: stockuser

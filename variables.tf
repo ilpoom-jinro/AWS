@@ -61,6 +61,30 @@ variable "argocd_redis_image_tag" {
   default     = "latest"
 }
 
+variable "demo_backend_image_repository_name" {
+  description = "ECR repository name for the demo-app backend image"
+  type        = string
+  default     = "financial/demo-app-backend"
+}
+
+variable "demo_backend_image_tag" {
+  description = "Initial demo-app backend image tag used by the GitOps bootstrap manifest"
+  type        = string
+  default     = "latest"
+}
+
+variable "demo_frontend_image_repository_name" {
+  description = "ECR repository name for the demo-app frontend image"
+  type        = string
+  default     = "financial/demo-app-frontend"
+}
+
+variable "demo_frontend_image_tag" {
+  description = "Initial demo-app frontend image tag used by the GitOps bootstrap manifest"
+  type        = string
+  default     = "latest"
+}
+
 variable "istio_image_repository_prefix" {
   description = "ECR repository prefix for mirrored Istio images"
   type        = string
