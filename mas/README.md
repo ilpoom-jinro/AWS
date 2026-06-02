@@ -27,6 +27,9 @@ mas/
     analyzer/
       Dockerfile            # FROM mas-base, adds analyzer code
       agent.yml             # Kubernetes deployment config for this pod
+    ui/
+      Dockerfile            # FROM mas-base, adds the operator chat UI
+      agent.yml             # Kubernetes deployment config for the UI pod
   app/
     main.py                 # all-in-one local/dev API entrypoint
     config.py               # environment-driven runtime settings
@@ -38,6 +41,7 @@ mas/
       orchestrator.py
       observer.py
       analyzer.py
+      ui.py
     tools/                  # external systems used by agents
       bedrock.py
       kubernetes.py
@@ -80,6 +84,12 @@ mas-analyzer-agent
   POST /analyze-signals
   -> calls Bedrock Runtime
   -> returns analysis
+
+mas-ui
+  GET /
+  -> shows a small internal chat UI
+  POST /api/chat
+  -> forwards the prompt to mas-orchestrator /analyze
 ```
 
 ## CI/CD
@@ -106,6 +116,11 @@ updates `apps/mas/mas.yaml` in the internal GitOps repository, then Argo CD sync
 `.github/workflows/mas-analyze.yml` is the first operator-facing analysis path. It accepts a
 namespace and prompt, starts `financial-mas-analyze`, port-forwards to `mas-orchestrator`
 inside the Ops EKS cluster, calls `/analyze`, and prints the JSON result in the CodeBuild log.
+
+The UI path is `mas-ui`. It is deployed as a Kubernetes Service in the `mas` namespace and calls
+`mas-orchestrator` internally. Teleport App Service support is templated but disabled by default;
+enable it with `TELEPORT_APP_SERVICE_ENABLED=true` and provide the `teleport-app-join-token`
+Secret before syncing MAS GitOps manifests.
 
 That means a normal agent change should usually touch only:
 

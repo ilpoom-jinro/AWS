@@ -225,6 +225,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.mas_observer
           -target=aws_ecr_repository.mas_analyzer
           -target=aws_ecr_lifecycle_policy.mas_analyzer
+          -target=aws_ecr_repository.mas_ui
+          -target=aws_ecr_lifecycle_policy.mas_ui
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply CodeBuild permissions, security group, and project

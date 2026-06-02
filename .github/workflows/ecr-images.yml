@@ -79,6 +79,7 @@ env:
   MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
   MAS_OBSERVER_REPOSITORY: financial/mas-observer
   MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
+  MAS_UI_REPOSITORY: financial/mas-ui
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
 
@@ -136,6 +137,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.mas_observer
           -target=aws_ecr_repository.mas_analyzer
           -target=aws_ecr_lifecycle_policy.mas_analyzer
+          -target=aws_ecr_repository.mas_ui
+          -target=aws_ecr_lifecycle_policy.mas_ui
           -target=aws_ecr_repository.istio_pilot
           -target=aws_ecr_lifecycle_policy.istio_pilot
           -target=aws_ecr_repository.istio_proxyv2
@@ -162,6 +165,7 @@ jobs:
           aws ecr describe-repositories --repository-names "${MAS_ORCHESTRATOR_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${MAS_OBSERVER_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${MAS_ANALYZER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${MAS_UI_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
@@ -234,7 +238,7 @@ jobs:
           docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
           docker push "${BASE_IMAGE_URI}:latest"
 
-          for agent in orchestrator observer analyzer; do
+          for agent in orchestrator observer analyzer ui; do
             repository_var="MAS_${agent^^}_REPOSITORY"
             image_uri="${REGISTRY}/${!repository_var}"
 

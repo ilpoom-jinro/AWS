@@ -10,7 +10,9 @@ locals {
   mas_orchestrator_image_repository  = "${local.ecr_registry}/${var.mas_orchestrator_image_repository_name}"
   mas_observer_image_repository      = "${local.ecr_registry}/${var.mas_observer_image_repository_name}"
   mas_analyzer_image_repository      = "${local.ecr_registry}/${var.mas_analyzer_image_repository_name}"
+  mas_ui_image_repository            = "${local.ecr_registry}/${var.mas_ui_image_repository_name}"
   istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
+  teleport_image_repository          = "${local.ecr_registry}/${var.teleport_image_repository_name}"
 }
 
 resource "aws_security_group" "ansible_codebuild" {
@@ -244,6 +246,16 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
+      name  = "MAS_UI_IMAGE"
+      value = "${local.mas_ui_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_IMAGE"
+      value = "${local.teleport_image_repository}:latest"
+    }
+
+    environment_variable {
       name  = "ISTIO_IMAGE_HUB"
       value = local.istio_image_repository_prefix
     }
@@ -331,6 +343,16 @@ resource "aws_codebuild_project" "mas_gitops_sync" {
     environment_variable {
       name  = "MAS_ANALYZER_IMAGE"
       value = "${local.mas_analyzer_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "MAS_UI_IMAGE"
+      value = "${local.mas_ui_image_repository}:${var.mas_agent_image_tag}"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_IMAGE"
+      value = "${local.teleport_image_repository}:latest"
     }
   }
 

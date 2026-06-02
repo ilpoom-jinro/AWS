@@ -338,6 +338,40 @@ resource "aws_ecr_lifecycle_policy" "mas_analyzer" {
   })
 }
 
+resource "aws_ecr_repository" "mas_ui" {
+  name                 = var.mas_ui_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.mas_ui_image_repository_name
+    Purpose   = "mas-ui"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "mas_ui" {
+  repository = aws_ecr_repository.mas_ui.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 MAS UI images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"

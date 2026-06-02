@@ -1,0 +1,18 @@
+name: mas-ui
+role: ui
+image: "{{ mas_ui_image }}"
+service_account_name: mas-ui
+service_name: mas-ui
+replicas: 1
+container_port: 8080
+service_port: 8080
+bedrock_model_id: ""
+bedrock_max_tokens: 1000
+prometheus_url: "{{ mas_prometheus_url }}"
+orchestrator_url: "http://mas-orchestrator.mas.svc.cluster.local:8080"
+cpu_request: 100m
+memory_request: 128Mi
+cpu_limit: 500m
+memory_limit: 512Mi
+kubernetes_readonly: false
+service_enabled: true

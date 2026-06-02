@@ -42,6 +42,7 @@ env:
   MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
   MAS_OBSERVER_REPOSITORY: financial/mas-observer
   MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
+  MAS_UI_REPOSITORY: financial/mas-ui
   MAS_GITOPS_SYNC_PROJECT: financial-mas-gitops-sync
 
 jobs:
@@ -87,6 +88,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.mas_observer
           -target=aws_ecr_repository.mas_analyzer
           -target=aws_ecr_lifecycle_policy.mas_analyzer
+          -target=aws_ecr_repository.mas_ui
+          -target=aws_ecr_lifecycle_policy.mas_ui
           -target=aws_codebuild_project.mas_gitops_sync
           -target=aws_codebuild_project.mas_analyze
           $TF_MOVED_RESOURCE_TARGETS
@@ -111,7 +114,7 @@ jobs:
           docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
           docker push "${BASE_IMAGE_URI}:latest"
 
-          for agent in orchestrator observer analyzer; do
+          for agent in orchestrator observer analyzer ui; do
             repository_var="MAS_${agent^^}_REPOSITORY"
             image_uri="${REGISTRY}/${!repository_var}"
 
@@ -155,6 +158,7 @@ jobs:
                 name=MAS_ORCHESTRATOR_IMAGE,value="${REGISTRY}/${MAS_ORCHESTRATOR_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
                 name=MAS_OBSERVER_IMAGE,value="${REGISTRY}/${MAS_OBSERVER_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
                 name=MAS_ANALYZER_IMAGE,value="${REGISTRY}/${MAS_ANALYZER_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
+                name=MAS_UI_IMAGE,value="${REGISTRY}/${MAS_UI_REPOSITORY}:${IMAGE_TAG}",type=PLAINTEXT \
               --query 'build.id' \
               --output text
           )"

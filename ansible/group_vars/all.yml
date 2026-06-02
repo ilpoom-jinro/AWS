@@ -33,6 +33,7 @@ mas_runtime_image: "{{ lookup('env', 'MAS_RUNTIME_IMAGE') | default('financial/m
 mas_orchestrator_image: "{{ lookup('env', 'MAS_ORCHESTRATOR_IMAGE') | default('financial/mas-orchestrator:latest', true) }}"
 mas_observer_image: "{{ lookup('env', 'MAS_OBSERVER_IMAGE') | default('financial/mas-observer:latest', true) }}"
 mas_analyzer_image: "{{ lookup('env', 'MAS_ANALYZER_IMAGE') | default('financial/mas-analyzer:latest', true) }}"
+mas_ui_image: "{{ lookup('env', 'MAS_UI_IMAGE') | default('financial/mas-ui:latest', true) }}"
 mas_replicas: 1
 mas_container_port: 8080
 mas_service_port: 8080
@@ -43,6 +44,12 @@ mas_cpu_request: 100m
 mas_memory_request: 128Mi
 mas_cpu_limit: 500m
 mas_memory_limit: 512Mi
+
+teleport_app_service_enabled: "{{ lookup('env', 'TELEPORT_APP_SERVICE_ENABLED') | default('false', true) | bool }}"
+teleport_app_image: "{{ lookup('env', 'TELEPORT_APP_IMAGE') | default('financial/teleport:latest', true) }}"
+teleport_proxy_server: "{{ lookup('env', 'TELEPORT_PROXY_SERVER') | default('teleport.example.internal:443', true) }}"
+teleport_mas_ui_public_addr: "{{ lookup('env', 'TELEPORT_MAS_UI_PUBLIC_ADDR') | default('mas-ui.teleport.example.internal', true) }}"
+teleport_app_join_token_secret_name: "{{ lookup('env', 'TELEPORT_APP_JOIN_TOKEN_SECRET_NAME') | default('teleport-app-join-token', true) }}"
 
 istio_namespace: istio-system
 istio_base_chart_ref: /opt/helm-charts/base

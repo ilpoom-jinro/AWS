@@ -85,6 +85,12 @@ variable "mas_analyzer_image_repository_name" {
   default     = "financial/mas-analyzer"
 }
 
+variable "mas_ui_image_repository_name" {
+  description = "ECR repository name for the MAS UI image"
+  type        = string
+  default     = "financial/mas-ui"
+}
+
 variable "argocd_image_tag" {
   description = "Argo CD image tag used by the Helm release"
   type        = string

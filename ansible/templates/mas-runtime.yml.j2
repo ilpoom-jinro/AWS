@@ -99,6 +99,10 @@ spec:
             - name: MAS_ANALYZER_URL
               value: {{ agent.analyzer_url | quote }}
 {% endif %}
+{% if agent.orchestrator_url is defined %}
+            - name: MAS_ORCHESTRATOR_URL
+              value: {{ agent.orchestrator_url | quote }}
+{% endif %}
           readinessProbe:
             httpGet:
               path: /health
@@ -143,3 +147,85 @@ spec:
 ---
 {% endif %}
 {% endfor %}
+{% if teleport_app_service_enabled | default(false) %}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: teleport-app-service
+  namespace: {{ mas_namespace }}
+  labels:
+    app.kubernetes.io/name: teleport-app-service
+    app.kubernetes.io/component: access-proxy
+    app.kubernetes.io/managed-by: ansible
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teleport-app-service
+  namespace: {{ mas_namespace }}
+  labels:
+    app.kubernetes.io/name: teleport-app-service
+    app.kubernetes.io/component: access-proxy
+    app.kubernetes.io/managed-by: ansible
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teleport-app-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teleport-app-service
+        app.kubernetes.io/component: access-proxy
+    spec:
+      serviceAccountName: teleport-app-service
+      containers:
+        - name: teleport-app-service
+          image: {{ teleport_app_image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              TOKEN="$(cat /var/run/secrets/teleport/token)"
+              cat > /tmp/teleport.yaml <<EOF
+              version: v3
+              teleport:
+                nodename: mas-ui-app-service
+                data_dir: /var/lib/teleport
+                auth_token: ${TOKEN}
+                proxy_server: {{ teleport_proxy_server }}
+                log:
+                  output: stderr
+                  severity: INFO
+              auth_service:
+                enabled: false
+              ssh_service:
+                enabled: false
+              proxy_service:
+                enabled: false
+              app_service:
+                enabled: true
+                apps:
+                  - name: mas-ui
+                    uri: http://mas-ui.{{ mas_namespace }}.svc.cluster.local:8080
+                    public_addr: {{ teleport_mas_ui_public_addr }}
+              EOF
+              teleport start -c /tmp/teleport.yaml
+          volumeMounts:
+            - name: teleport-join-token
+              mountPath: /var/run/secrets/teleport
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: teleport-join-token
+          secret:
+            secretName: {{ teleport_app_join_token_secret_name }}
+{% endif %}

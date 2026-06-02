@@ -11,6 +11,7 @@ class Settings:
     bedrock_max_tokens: int
     bedrock_temperature: float
     prometheus_url: str
+    orchestrator_url: str
     observer_url: str
     analyzer_url: str
 
@@ -26,6 +27,10 @@ def load_settings() -> Settings:
         prometheus_url=os.getenv(
             "PROMETHEUS_URL",
             "http://prometheus-server.monitoring.svc.cluster.local",
+        ),
+        orchestrator_url=os.getenv(
+            "MAS_ORCHESTRATOR_URL",
+            "http://mas-orchestrator.mas.svc.cluster.local:8080",
         ),
         observer_url=os.getenv(
             "MAS_OBSERVER_URL",

@@ -34,6 +34,7 @@ env:
   MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
   MAS_OBSERVER_REPOSITORY: financial/mas-observer
   MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
+  MAS_UI_REPOSITORY: financial/mas-ui
 
 jobs:
   deploy:
@@ -89,6 +90,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.mas_observer
           -target=aws_ecr_repository.mas_analyzer
           -target=aws_ecr_lifecycle_policy.mas_analyzer
+          -target=aws_ecr_repository.mas_ui
+          -target=aws_ecr_lifecycle_policy.mas_ui
           -target=aws_ecr_repository.ansible_codebuild
           -target=aws_ecr_lifecycle_policy.ansible_codebuild
           $TF_MOVED_RESOURCE_TARGETS
@@ -113,7 +116,7 @@ jobs:
           docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
           docker push "${BASE_IMAGE_URI}:latest"
 
-          for agent in orchestrator observer analyzer; do
+          for agent in orchestrator observer analyzer ui; do
             repository_var="MAS_${agent^^}_REPOSITORY"
             image_uri="${REGISTRY}/${!repository_var}"
 
