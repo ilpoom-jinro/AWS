@@ -1,4 +1,4 @@
-- name: Verify Argo CD can deploy a demo app to the Service EKS cluster
+- name: Bootstrap service applications through Argo CD
   hosts: localhost
   gather_facts: false
 
@@ -24,7 +24,7 @@
     - name: Ensure service application namespace exists
       ansible.builtin.shell: >
           kubectl --context {{ service_kube_context }}
-          create namespace {{ demo_app_namespace }}
+          create namespace {{ service_app_namespace }}
           --dry-run=client -o yaml
           | kubectl --context {{ service_kube_context }} apply -f -
       changed_when: false
@@ -179,65 +179,69 @@
         msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during demo bootstrap. Check the port-forward log above."
       when: internal_git_demo_api_probe.failed | default(false)
 
-    - name: Push demo app manifests to internal Git
+    - name: Push service app manifests to internal Git
       ansible.builtin.shell: |
         set -e
-        rm -rf /tmp/internal-gitops-demo
-        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git" /tmp/internal-gitops-demo
-        cd /tmp/internal-gitops-demo
+        rm -rf /tmp/internal-gitops-service-apps
+        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git" /tmp/internal-gitops-service-apps
+        cd /tmp/internal-gitops-service-apps
         git config user.name "GitOps Bootstrap"
         git config user.email "gitops-bootstrap@internal.ops.local"
-        mkdir -p "{{ demo_app_path }}"
-        cat > "{{ demo_app_path }}/deployment.yaml" <<EOF
+
+        {% for app in service_apps %}
+        mkdir -p "{{ app.path }}"
+        cat > "{{ app.path }}/deployment.yaml" <<EOF
         apiVersion: apps/v1
         kind: Deployment
         metadata:
-          name: {{ demo_app_name }}
-          namespace: {{ demo_app_namespace }}
+          name: {{ app.name }}
+          namespace: {{ service_app_namespace }}
           labels:
-            app.kubernetes.io/name: {{ demo_app_name }}
+            app.kubernetes.io/name: {{ app.name }}
         spec:
           replicas: 1
           selector:
             matchLabels:
-              app.kubernetes.io/name: {{ demo_app_name }}
+              app.kubernetes.io/name: {{ app.name }}
           template:
             metadata:
               labels:
-                app.kubernetes.io/name: {{ demo_app_name }}
+                app.kubernetes.io/name: {{ app.name }}
             spec:
               containers:
-                - name: redis
-                  image: {{ demo_app_image }}
+                - name: {{ app.container_name }}
+                  image: {{ app.image }}
                   imagePullPolicy: IfNotPresent
                   ports:
-                    - name: redis
-                      containerPort: 6379
+                    - name: http
+                      containerPort: {{ app.container_port }}
         EOF
-        cat > "{{ demo_app_path }}/service.yaml" <<EOF
+        cat > "{{ app.path }}/service.yaml" <<EOF
         apiVersion: v1
         kind: Service
         metadata:
-          name: {{ demo_app_name }}
-          namespace: {{ demo_app_namespace }}
+          name: {{ app.name }}
+          namespace: {{ service_app_namespace }}
           labels:
-            app.kubernetes.io/name: {{ demo_app_name }}
+            app.kubernetes.io/name: {{ app.name }}
         spec:
           type: ClusterIP
           selector:
-            app.kubernetes.io/name: {{ demo_app_name }}
+            app.kubernetes.io/name: {{ app.name }}
           ports:
-            - name: redis
-              port: 6379
-              targetPort: redis
+            - name: http
+              port: {{ app.service_port }}
+              targetPort: http
         EOF
-        git add "{{ demo_app_path }}/deployment.yaml" "{{ demo_app_path }}/service.yaml"
+        git add "{{ app.path }}/deployment.yaml" "{{ app.path }}/service.yaml"
+        {% endfor %}
+
         git diff --cached --quiet && exit 0
-        git commit -m "Add demo service app"
+        git commit -m "Deploy service frontend and backend apps"
         git push origin main
       no_log: true
 
-    - name: Create Argo CD Application for the demo app
+    - name: Create Argo CD Applications for service apps
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present
@@ -245,44 +249,47 @@
           apiVersion: argoproj.io/v1alpha1
           kind: Application
           metadata:
-            name: "{{ demo_argocd_application_name }}"
+            name: "{{ item.argocd_application_name }}"
             namespace: "{{ argocd_namespace }}"
           spec:
             project: default
             source:
               repoURL: "{{ gitops_repo_url }}"
               targetRevision: main
-              path: "{{ demo_app_path }}"
+              path: "{{ item.path }}"
             destination:
               name: "{{ service_eks_cluster_name }}"
-              namespace: "{{ demo_app_namespace }}"
+              namespace: "{{ service_app_namespace }}"
             syncPolicy:
               automated:
                 prune: true
                 selfHeal: true
               syncOptions:
                 - CreateNamespace=true
+      loop: "{{ service_apps }}"
 
-    - name: Wait for demo app deployment to be created in the Service cluster
+    - name: Wait for service app deployments to be created in the Service cluster
       ansible.builtin.command:
         cmd: >
           kubectl --context {{ service_kube_context }}
-          -n {{ demo_app_namespace }}
-          get deployment/{{ demo_app_name }}
-      register: demo_app_deployment_probe
+          -n {{ service_app_namespace }}
+          get deployment/{{ item.name }}
+      register: service_app_deployment_probe
       retries: 60
       delay: 5
-      until: demo_app_deployment_probe.rc == 0
+      until: service_app_deployment_probe.rc == 0
       changed_when: false
+      loop: "{{ service_apps }}"
 
-    - name: Wait for demo app deployment in the Service cluster
+    - name: Wait for service app deployments in the Service cluster
       ansible.builtin.command:
         cmd: >
           kubectl --context {{ service_kube_context }}
-          -n {{ demo_app_namespace }}
-          rollout status deployment/{{ demo_app_name }}
+          -n {{ service_app_namespace }}
+          rollout status deployment/{{ item.name }}
           --timeout={{ rollout_timeout }}
       changed_when: false
+      loop: "{{ service_apps }}"
 
     - name: Stop internal Git demo port-forward
       ansible.builtin.shell: |

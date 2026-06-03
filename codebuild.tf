@@ -5,7 +5,8 @@ locals {
   argocd_image_repository            = "${local.ecr_registry}/${var.argocd_image_repository_name}"
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
   prometheus_image_repository        = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
-  mas_runtime_image_repository       = "${local.ecr_registry}/${var.mas_runtime_image_repository_name}"
+  app_frontend_image_repository      = "${local.ecr_registry}/${var.app_frontend_image_repository_name}"
+  app_backend_image_repository       = "${local.ecr_registry}/${var.app_backend_image_repository_name}"
   mas_base_image_repository          = "${local.ecr_registry}/${var.mas_base_image_repository_name}"
   mas_orchestrator_image_repository  = "${local.ecr_registry}/${var.mas_orchestrator_image_repository_name}"
   mas_observer_image_repository      = "${local.ecr_registry}/${var.mas_observer_image_repository_name}"
@@ -226,8 +227,13 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     }
 
     environment_variable {
-      name  = "MAS_RUNTIME_IMAGE"
-      value = "${local.mas_runtime_image_repository}:${var.mas_runtime_image_tag}"
+      name  = "APP_FRONTEND_IMAGE"
+      value = "${local.app_frontend_image_repository}:${var.app_frontend_image_tag}"
+    }
+
+    environment_variable {
+      name  = "APP_BACKEND_IMAGE"
+      value = "${local.app_backend_image_repository}:${var.app_backend_image_tag}"
     }
 
     environment_variable {

@@ -1,13 +1,20 @@
 name: Deploy MAS Agents
 
 on:
+  push:
+    branches:
+      - main
+      - feature/MAS
+    paths:
+      - "mas/**"
+      - "ansible/group_vars/all.yml"
+      - "ansible/playbooks/gitops-mas.yml"
+      - "ansible/templates/mas-runtime.yml.j2"
+      - "buildspec-mas-gitops-sync.yml"
+      - "buildspec-mas-analyze.yml"
+      - ".github/workflows/mas-deploy.yml"
+      - ".github/workflows/mas-analyze.yml"
   workflow_dispatch:
-    inputs:
-      run_bootstrap:
-        description: "Run the Ansible bootstrap after building images and applying MAS infrastructure"
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   id-token: write
@@ -18,33 +25,20 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TF_VERSION: "1.11.0"
-  TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
-  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
-  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
-  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
-  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
-  TF_VAR_dev_mode: "true"
-  TF_MOVED_RESOURCE_TARGETS: >-
-    -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
-    -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
-  ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
   MAS_BASE_REPOSITORY: financial/mas-base
-  MAS_ORCHESTRATOR_REPOSITORY: financial/mas-orchestrator
-  MAS_OBSERVER_REPOSITORY: financial/mas-observer
-  MAS_ANALYZER_REPOSITORY: financial/mas-analyzer
-  MAS_UI_REPOSITORY: financial/mas-ui
 
 jobs:
   deploy:
-    name: Build, Apply, and Deploy MAS
+    name: Build and Deploy MAS
     runs-on: ubuntu-latest
     environment: production
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,49 +46,8 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Init
-        run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-
-      - name: Terraform Validate
-        run: terraform validate -no-color
-
       - name: Compile MAS Python sources
-        run: python -m compileall mas/app
-
-      - name: Apply MAS ECR repositories
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=aws_ecr_repository.mas_runtime
-          -target=aws_ecr_lifecycle_policy.mas_runtime
-          -target=aws_ecr_repository.mas_base
-          -target=aws_ecr_lifecycle_policy.mas_base
-          -target=aws_ecr_repository.mas_orchestrator
-          -target=aws_ecr_lifecycle_policy.mas_orchestrator
-          -target=aws_ecr_repository.mas_observer
-          -target=aws_ecr_lifecycle_policy.mas_observer
-          -target=aws_ecr_repository.mas_analyzer
-          -target=aws_ecr_lifecycle_policy.mas_analyzer
-          -target=aws_ecr_repository.mas_ui
-          -target=aws_ecr_lifecycle_policy.mas_ui
-          -target=aws_ecr_repository.ansible_codebuild
-          -target=aws_ecr_lifecycle_policy.ansible_codebuild
-          $TF_MOVED_RESOURCE_TARGETS
+        run: python -m compileall mas/shared mas/pods
 
       - name: Login to Amazon ECR
         id: ecr
@@ -105,70 +58,136 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          ensure_ecr_repository() {
+            local repository="$1"
+
+            if aws ecr describe-repositories --repository-names "${repository}" >/dev/null 2>&1; then
+              return 0
+            fi
+
+            aws ecr create-repository \
+              --repository-name "${repository}" \
+              --image-scanning-configuration scanOnPush=true \
+              --image-tag-mutability MUTABLE >/dev/null
+          }
+
+          read_agent_repository() {
+            local agent_yml="$1"
+            awk -F: '/^image_repository:/ { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }' "${agent_yml}"
+          }
+
+          ensure_ecr_repository "${MAS_BASE_REPOSITORY}"
           BASE_IMAGE_URI="${REGISTRY}/${MAS_BASE_REPOSITORY}"
+          image_overrides_file="mas-image-overrides.json"
+          printf '{' > "${image_overrides_file}"
+          image_override_count=0
 
-          docker build \
-            -f mas/base/Dockerfile \
-            -t "${BASE_IMAGE_URI}:${IMAGE_TAG}" \
-            -t "${BASE_IMAGE_URI}:latest" \
-            mas
+          changed_files="$(mktemp)"
 
-          docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${BASE_IMAGE_URI}:latest"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            build_all=true
+            git ls-files mas > "${changed_files}"
+          else
+            before="${{ github.event.before }}"
 
-          for agent in orchestrator observer analyzer ui; do
-            repository_var="MAS_${agent^^}_REPOSITORY"
-            image_uri="${REGISTRY}/${!repository_var}"
+            if [ -z "${before}" ] || [ "${before}" = "0000000000000000000000000000000000000000" ]; then
+              before="$(git rev-list --max-parents=0 HEAD)"
+            fi
+
+            git diff --name-only "${before}" "${GITHUB_SHA}" > "${changed_files}"
+
+            if grep -qE '^(mas/base/|mas/shared/|mas/requirements.txt|\.github/workflows/mas-deploy.yml)' "${changed_files}"; then
+              build_all=true
+            else
+              build_all=false
+            fi
+          fi
+
+          if [ "${build_all}" = "true" ]; then
+            echo "Building MAS base image because this run affects shared/base code or was manually triggered."
+            docker build \
+              -f mas/base/Dockerfile \
+              -t "${BASE_IMAGE_URI}:${IMAGE_TAG}" \
+              -t "${BASE_IMAGE_URI}:latest" \
+              mas
+
+            docker push "${BASE_IMAGE_URI}:${IMAGE_TAG}"
+            docker push "${BASE_IMAGE_URI}:latest"
+          else
+            echo "Skipping MAS base image build; no shared/base changes detected."
+          fi
+
+          for agent_dir in mas/pods/*; do
+            [ -d "${agent_dir}" ] || continue
+            [ -f "${agent_dir}/Dockerfile" ] || continue
+            [ -f "${agent_dir}/agent.yml" ] || continue
+
+            agent="$(basename "${agent_dir}")"
+
+            if [ "${build_all}" != "true" ] && ! grep -qE "^mas/pods/${agent}/" "${changed_files}"; then
+              echo "Skipping unchanged MAS pod: ${agent}"
+              continue
+            fi
+
+            repository="$(read_agent_repository "${agent_dir}/agent.yml")"
+
+            if [ -z "${repository}" ]; then
+              repository="financial/mas-${agent}"
+            fi
+
+            ensure_ecr_repository "${repository}"
+            image_uri="${REGISTRY}/${repository}"
+            base_image="${BASE_IMAGE_URI}:latest"
+
+            if [ "${build_all}" = "true" ]; then
+              base_image="${BASE_IMAGE_URI}:${IMAGE_TAG}"
+            fi
 
             docker build \
-              --build-arg "MAS_BASE_IMAGE=${BASE_IMAGE_URI}:${IMAGE_TAG}" \
-              -f "mas/pods/${agent}/Dockerfile" \
+              --build-arg "MAS_BASE_IMAGE=${base_image}" \
+              -f "${agent_dir}/Dockerfile" \
               -t "${image_uri}:${IMAGE_TAG}" \
               -t "${image_uri}:latest" \
               mas
 
             docker push "${image_uri}:${IMAGE_TAG}"
             docker push "${image_uri}:latest"
+
+            if [ "${image_override_count}" -gt 0 ]; then
+              printf ',' >> "${image_overrides_file}"
+            fi
+            printf '"%s":"%s"' "${repository}" "${image_uri}:${IMAGE_TAG}" >> "${image_overrides_file}"
+            image_override_count=$((image_override_count + 1))
           done
 
-      - name: Build and push Ansible CodeBuild image
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          IMAGE_URI="${REGISTRY}/${ANSIBLE_CODEBUILD_REPOSITORY}"
+          printf '}' >> "${image_overrides_file}"
+          echo "Built MAS image overrides:"
+          cat "${image_overrides_file}"
 
-          docker build \
-            -f tools/ansible-codebuild/Dockerfile \
-            -t "${IMAGE_URI}:${IMAGE_TAG}" \
-            -t "${IMAGE_URI}:latest" \
-            .
-
-          docker push "${IMAGE_URI}:${IMAGE_TAG}"
-          docker push "${IMAGE_URI}:latest"
-
-      - name: Apply MAS infrastructure and CodeBuild runtime config
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=module.vpc2.aws_vpc_endpoint.bedrock
-          -target=module.vpc2.aws_vpc_endpoint.bedrock_runtime
-          -target=module.vpc2.aws_iam_role.mas_analyzer
-          -target=module.vpc2.aws_iam_role_policy.mas_analyzer
-          -target=module.vpc2.aws_eks_pod_identity_association.mas_analyzer
-          -target=aws_codebuild_project.ansible_bootstrap
-          -target=aws_codebuild_project.mas_gitops_sync
-          -target=aws_codebuild_project.mas_analyze
-          $TF_MOVED_RESOURCE_TARGETS
-
-      - name: Run platform and MAS GitOps CodeBuild for initial deployment
-        if: github.event_name == 'push' || inputs.run_bootstrap == true
+      - name: Sync MAS GitOps manifests
         shell: bash
         run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          overrides = json.loads(Path("mas-image-overrides.json").read_text())
+          env_overrides = [
+              {
+                  "name": "MAS_IMAGE_OVERRIDES",
+                  "value": json.dumps(overrides, separators=(",", ":")),
+                  "type": "PLAINTEXT",
+              }
+          ]
+          Path("mas-codebuild-env.json").write_text(json.dumps(env_overrides), encoding="utf-8")
+          PY
+
           run_codebuild_and_wait() {
             local project_name="$1"
+            shift
             local build_id
 
-            build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
+            build_id="$(aws codebuild start-build --project-name "${project_name}" "$@" --query 'build.id' --output text)"
             echo "Started CodeBuild (${project_name}): ${build_id}"
 
             print_build_diagnostics() {
@@ -216,5 +235,5 @@ jobs:
             done
           }
 
-          run_codebuild_and_wait financial-ansible-bootstrap
-          run_codebuild_and_wait financial-mas-gitops-sync
+          run_codebuild_and_wait financial-mas-gitops-sync \
+            --environment-variables-override file://mas-codebuild-env.json

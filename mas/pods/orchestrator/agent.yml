@@ -1,5 +1,6 @@
 name: mas-orchestrator
 role: orchestrator
+image_repository: financial/mas-orchestrator
 image: "{{ mas_orchestrator_image }}"
 service_account_name: mas-orchestrator
 service_name: mas-orchestrator

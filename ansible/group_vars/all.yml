@@ -29,7 +29,7 @@ mas_gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops
 mas_app_path: apps/mas
 mas_service_name: mas-runtime
 mas_service_account_name: mas-runtime
-mas_runtime_image: "{{ lookup('env', 'MAS_RUNTIME_IMAGE') | default('financial/mas-runtime:latest', true) }}"
+mas_image_overrides: "{{ lookup('env', 'MAS_IMAGE_OVERRIDES') | default('{}', true) | from_json }}"
 mas_orchestrator_image: "{{ lookup('env', 'MAS_ORCHESTRATOR_IMAGE') | default('financial/mas-orchestrator:latest', true) }}"
 mas_observer_image: "{{ lookup('env', 'MAS_OBSERVER_IMAGE') | default('financial/mas-observer:latest', true) }}"
 mas_analyzer_image: "{{ lookup('env', 'MAS_ANALYZER_IMAGE') | default('financial/mas-analyzer:latest', true) }}"
@@ -84,8 +84,19 @@ internal_git_repo: platform
 gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
 gitops_repo_name: internal-gitops
 
-demo_app_name: demo-redis
-demo_app_namespace: service-apps
-demo_app_path: apps/demo
-demo_app_image: "{{ argocd_redis_image_repository }}:{{ argocd_redis_image_tag }}"
-demo_argocd_application_name: demo-service-app
+service_app_namespace: service-apps
+service_apps:
+  - name: frontend
+    path: apps/frontend
+    image: "{{ lookup('env', 'APP_FRONTEND_IMAGE') }}"
+    container_name: frontend
+    container_port: 80
+    service_port: 80
+    argocd_application_name: frontend-service-app
+  - name: backend
+    path: apps/backend
+    image: "{{ lookup('env', 'APP_BACKEND_IMAGE') }}"
+    container_name: backend
+    container_port: 8080
+    service_port: 8080
+    argocd_application_name: backend-service-app

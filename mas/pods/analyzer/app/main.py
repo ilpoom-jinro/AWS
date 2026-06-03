@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from app.agents.analyzer import AnalyzerAgent
+from app.agent import AnalyzerAgent
 from app.config import load_settings
 from app.schemas import AnalyzeSignalsRequest
 from app.tools.bedrock import BedrockClient, BedrockConfigError

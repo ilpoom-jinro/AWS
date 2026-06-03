@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.agents.observer import ObserverAgent
+from app.agent import ObserverAgent
 from app.config import load_settings
 from app.schemas import ObserveRequest
 from app.tools.kubernetes import KubernetesClient

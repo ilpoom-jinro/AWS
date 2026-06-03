@@ -26,6 +26,36 @@
         mas_agents: "{{ (mas_agents | default([])) + [lookup('ansible.builtin.template', item) | from_yaml] }}"
       loop: "{{ mas_agent_definition_files }}"
 
+    - name: Prepare MAS image override list
+      ansible.builtin.set_fact:
+        mas_agents_with_image_overrides: []
+      when: mas_image_overrides | length > 0
+
+    - name: Apply MAS image overrides
+      ansible.builtin.set_fact:
+        mas_agents_with_image_overrides: >-
+          {{
+            mas_agents_with_image_overrides
+            + [
+              (
+                item | combine({
+                  'image': mas_image_overrides[item.image_repository]
+                })
+                if item.image_repository is defined and item.image_repository in mas_image_overrides
+                else item
+              )
+            ]
+          }}
+      loop: "{{ mas_agents }}"
+      when:
+        - mas_image_overrides | length > 0
+
+    - name: Use MAS image overrides
+      ansible.builtin.set_fact:
+        mas_agents: "{{ mas_agents_with_image_overrides }}"
+      when:
+        - mas_image_overrides | length > 0
+
   tasks:
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |

@@ -1,5 +1,6 @@
 name: mas-ui
 role: ui
+image_repository: financial/mas-ui
 image: "{{ mas_ui_image }}"
 service_account_name: mas-ui
 service_name: mas-ui

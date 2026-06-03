@@ -213,22 +213,6 @@ jobs:
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering $TF_MOVED_RESOURCE_TARGETS
 
-      - name: Apply MAS image repositories
-        if: inputs.action == 'apply'
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=aws_ecr_repository.mas_base
-          -target=aws_ecr_lifecycle_policy.mas_base
-          -target=aws_ecr_repository.mas_orchestrator
-          -target=aws_ecr_lifecycle_policy.mas_orchestrator
-          -target=aws_ecr_repository.mas_observer
-          -target=aws_ecr_lifecycle_policy.mas_observer
-          -target=aws_ecr_repository.mas_analyzer
-          -target=aws_ecr_lifecycle_policy.mas_analyzer
-          -target=aws_ecr_repository.mas_ui
-          -target=aws_ecr_lifecycle_policy.mas_ui
-          $TF_MOVED_RESOURCE_TARGETS
-
       - name: Apply CodeBuild permissions, security group, and project
         if: inputs.action == 'apply'
         run: >
@@ -276,7 +260,7 @@ jobs:
 
           echo "Final terraform plan has no changes."
 
-      - name: Run platform and MAS GitOps CodeBuild after apply
+      - name: Run platform CodeBuild after apply
         if: inputs.action == 'apply'
         shell: bash
         run: |
@@ -333,7 +317,6 @@ jobs:
           }
 
           run_codebuild_and_wait financial-ansible-bootstrap
-          run_codebuild_and_wait financial-mas-gitops-sync
 
   codebuild:
     name: Run Ansible CodeBuild

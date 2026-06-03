@@ -55,10 +55,16 @@ variable "prometheus_image_repository_name" {
   default     = "financial/prometheus"
 }
 
-variable "mas_runtime_image_repository_name" {
-  description = "ECR repository name for the MAS runtime image"
+variable "app_frontend_image_repository_name" {
+  description = "Existing ECR repository name for the frontend application image"
   type        = string
-  default     = "financial/mas-runtime"
+  default     = "financial/demo-app-frontend"
+}
+
+variable "app_backend_image_repository_name" {
+  description = "Existing ECR repository name for the backend application image"
+  type        = string
+  default     = "financial/demo-app-backend"
 }
 
 variable "mas_base_image_repository_name" {
@@ -109,8 +115,14 @@ variable "prometheus_image_tag" {
   default     = "v3.7.3"
 }
 
-variable "mas_runtime_image_tag" {
-  description = "MAS runtime image tag used by the Kubernetes deployment"
+variable "app_frontend_image_tag" {
+  description = "Frontend application image tag used by the initial GitOps deployment"
+  type        = string
+  default     = "latest"
+}
+
+variable "app_backend_image_tag" {
+  description = "Backend application image tag used by the initial GitOps deployment"
   type        = string
   default     = "latest"
 }

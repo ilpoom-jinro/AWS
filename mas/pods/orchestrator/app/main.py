@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException
 
-from app.agents.orchestrator import OrchestratorAgent
+from app.agent import OrchestratorAgent
 from app.config import load_settings
 from app.schemas import AnalyzeRequest
 

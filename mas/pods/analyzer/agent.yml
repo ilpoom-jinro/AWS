@@ -1,5 +1,6 @@
 name: mas-analyzer-agent
 role: analyzer
+image_repository: financial/mas-analyzer
 image: "{{ mas_analyzer_image }}"
 service_account_name: mas-analyzer-agent
 service_name: mas-analyzer-agent
