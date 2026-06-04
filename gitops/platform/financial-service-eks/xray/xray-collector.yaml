@@ -58,7 +58,8 @@ spec:
       serviceAccountName: otel-collector
       containers:
         - name: otel-collector
-          image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/monitoring/xray-collector:latest
+          image: xray-collector-image:latest
+          imagePullPolicy: Always
           args:
             - --config=/etc/otel/collector.yaml
           ports:
