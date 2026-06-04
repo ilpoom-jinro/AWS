@@ -57,7 +57,7 @@ financial/system/aws-load-balancer-controller
 
 ```text
 원본: public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0
-대상: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/system/aws-load-balancer-controller:v3.3.0
+대상: REPLACE_WITH_ECR_REGISTRY/financial/system/aws-load-balancer-controller:v3.3.0
 ```
 
 ## 3. Controller IAM Role
@@ -86,16 +86,18 @@ IAM Policy 기반의 Role을 생성해 주세요.
 
 서비스 VPC 전체 CIDR보다 서비스 EKS 프라이빗 서브넷 CIDR만 허용해 주세요.
 
-## 작업 완료 후 전달해 주세요
+## 작업 완료 후 확인해 주세요
 
-| 상태 | 전달받을 값 | 예시 |
+Ops VPC ID와 NLB SG ID는 GitOps bootstrap이 AWS API에서 자동 조회합니다.
+팀원이 값을 복사해서 전달할 필요는 없습니다.
+
+| 상태 | 확인할 항목 | 비고 |
 |---|---|---|
-| [ ] | Ops VPC ID | `vpc-xxxxxxxx` |
 | [ ] | ELB API Endpoint 생성 완료 여부 | `Available` |
-| [ ] | Controller ECR 이미지 URI | `218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/system/aws-load-balancer-controller:v3.3.0` |
+| [ ] | Controller ECR 이미지 미러링 완료 여부 | `REPLACE_WITH_ECR_REGISTRY/financial/system/aws-load-balancer-controller:v3.3.0` |
 | [ ] | Controller Pod Identity Association 완료 여부 | `완료` |
-| [ ] | Loki NLB SG ID | `sg-xxxxxxxx` |
-| [ ] | Thanos Receive NLB SG ID | `sg-yyyyyyyy` |
+| [ ] | Loki NLB SG 생성 완료 여부 | GitOps bootstrap이 ID 자동 조회 |
+| [ ] | Thanos Receive NLB SG 생성 완료 여부 | GitOps bootstrap이 ID 자동 조회 |
 
 ## 이후 별도로 필요한 값
 
