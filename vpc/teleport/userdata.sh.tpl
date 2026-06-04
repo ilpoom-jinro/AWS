@@ -97,8 +97,29 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-# ── 7. Teleport 유저 생성 ───────────────────────────────────────────────────
+# ── 7. kube-access role 생성 ───────────────────────────────────────────────
+tctl create -f << 'ROLEEOF' 2>&1 || echo "kube-access role 이미 존재"
+kind: role
+version: v7
+metadata:
+  name: kube-access
+spec:
+  allow:
+    kubernetes_groups:
+      - system:masters
+    kubernetes_labels:
+      '*': '*'
+    kubernetes_resources:
+      - kind: '*'
+        namespace: '*'
+        name: '*'
+        verbs:
+          - '*'
+ROLEEOF
+echo "kube-access role 설정 완료"
+
+# ── 8. Teleport 유저 생성 ───────────────────────────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin --roles=editor,access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재"
+tctl users add bgshin --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재"
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"

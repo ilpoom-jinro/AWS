@@ -24,7 +24,7 @@ variable "vpc2_cidr" {
 variable "teleport_ami_id" {
   description = "Packer로 빌드한 Teleport + K3s AMI ID"
   type        = string
-  default     = "ami-06160d19a9cb4d497"
+  default     = "ami-09a54acd4b2842690"
 }
 
 variable "eks_endpoint" {
