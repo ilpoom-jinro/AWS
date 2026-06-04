@@ -34,7 +34,7 @@ resource "aws_accessanalyzer_analyzer" "external_access" {
 # =============================================
 # 2. 미사용 접근 분석기 (유료)
 #
-# unused_access_age = 90: 90일간 미사용된 권한을 잠재적 위험으로 분류
+# unused_access_age = 90: 90일간 미사용된 권한을 잠재적 위험으로 분류 -> 우리는 7일로 하자
 # 금융권 최소 권한 원칙(Least Privilege) 준수 점검에 활용
 # =============================================
 resource "aws_accessanalyzer_analyzer" "unused_access" {
@@ -43,7 +43,7 @@ resource "aws_accessanalyzer_analyzer" "unused_access" {
 
   configuration {
     unused_access {
-      unused_access_age = 90
+      unused_access_age = 7
     }
   }
 
