@@ -78,6 +78,11 @@ output "aws_load_balancer_controller_image_repository_url" {
   value       = aws_ecr_repository.aws_load_balancer_controller.repository_url
 }
 
+output "observability_indexer_image_repository_url" {
+  description = "ECR repository URL for the custom Observability Indexer image"
+  value       = aws_ecr_repository.observability_indexer.repository_url
+}
+
 # =============================================
 # Output: rds.tf 작성 시 참조
 # 사용법:
