@@ -9,6 +9,7 @@ on:
       - "ansible/**"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
+      - "kyverno/**"
       - ".github/workflows/ecr-images.yml"
   workflow_dispatch:
     inputs:

@@ -1,0 +1,58 @@
+# =============================================================================
+# ApplicationSet: kyverno-install
+# 목적: ArgoCD 에 등록된 모든 클러스터에 Kyverno 를 자동 배포합니다.
+#
+# 소스: 내부 Gitea (buildspec-gitops-bootstrap.yml 에서 helm template 으로 렌더링 후 push)
+#   경로: kyverno/install/kyverno.yaml
+#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+#
+# 새 클러스터 자동 적용:
+#   argocd cluster add 로 클러스터를 등록하면 ApplicationSet 이 즉시
+#   새 Application 을 생성하여 Kyverno 를 배포합니다.
+#
+# 초기 적용:
+#   buildspec-gitops-bootstrap.yml 에서 자동 실행됩니다. (수동 apply 불필요)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kyverno-install
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+
+  generators:
+    # ArgoCD 에 등록된 모든 클러스터 대상 (in-cluster 포함)
+    # 새 클러스터를 ArgoCD 에 등록하면 자동으로 Kyverno 가 배포됩니다.
+    - clusters: {}
+
+  template:
+    metadata:
+      # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
+      name: "kyverno-install-{{.name}}"
+    spec:
+      project: default
+
+      source:
+        # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
+        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+        targetRevision: main
+        # helm template --include-crds 로 렌더링된 Kyverno 전체 매니페스트
+        path: kyverno/install
+
+      destination:
+        # {{.server}} → 클러스터 API 서버 URL (ArgoCD 클러스터 시크릿에서 주입)
+        server: "{{.server}}"
+        namespace: kyverno
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true   # kyverno 네임스페이스 자동 생성
+          - ServerSideApply=true
+          # CRD 설치 후 나머지 리소스 적용 시 타이밍 문제를 방지
+          - Replace=false
