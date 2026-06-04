@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: observability-indexer
+  namespace: observability
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: observability-indexer
+        spec:
+          serviceAccountName: observability-indexer
+          restartPolicy: OnFailure
+          nodeSelector:
+            role: monitoring
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: monitoring
+              effect: NoSchedule
+          containers:
+            - name: observability-indexer
+              image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/monitoring/observability-indexer:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: AWS_REGION
+                  value: ap-northeast-2
+                - name: LOKI_URL
+                  value: http://observability-loki.observability.svc.cluster.local:3100
+                - name: THANOS_QUERY_URL
+                  value: http://observability-thanos-query.observability.svc.cluster.local:9090
+                - name: LOOKBACK_MINUTES
+                  value: "5"
+                - name: LOKI_LIMIT
+                  value: "100"
+                - name: XRAY_ENABLED
+                  value: "true"
+                - name: XRAY_MIN_DURATION_SECONDS
+                  value: "1.0"
+                # TODO: Replace with the Aurora PostgreSQL writer endpoint after RDS is created.
+                # While this placeholder is present, the Indexer runs in dry-run mode.
+                - name: RDS_HOST
+                  value: rds-endpoint.example.ap-northeast-2.rds.amazonaws.com
+                - name: RDS_PORT
+                  value: "5432"
+                - name: RDS_DB
+                  value: observability
+                - name: RDS_SSLMODE
+                  value: require
+                - name: RDS_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: observability-indexer-db
+                      key: username
+                - name: RDS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: observability-indexer-db
+                      key: password
