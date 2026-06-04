@@ -42,9 +42,12 @@ resource "aws_iam_role" "github_actions" {
   }
 }
 
-resource "aws_iam_role_policy" "github_actions_terraform" {
-  name = "ilpumjinro-terraform-execution-policy"
-  role = aws_iam_role.github_actions.id
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 1: IAM / Terraform State / PassRole / ServiceLinkedRole
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_iam" {
+  name        = "ilpumjinro-github-actions-iam-policy"
+  description = "Terraform state access, IAM management, PassRole, and service-linked role creation for GitHub Actions"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -143,6 +146,56 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
+        Sid    = "PassEKSRoles"
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = [
+              "eks.amazonaws.com",
+              "ec2.amazonaws.com",
+              "pods.eks.amazonaws.com",
+              "codebuild.amazonaws.com",
+              "config.amazonaws.com",
+              "cloudtrail.amazonaws.com"
+            ]
+          }
+        }
+      },
+      {
+        # Access Analyzer 최초 생성 시 AWS가 자동으로 Service Linked Role을 만듦
+        # AWSServiceRoleForAccessAnalyzer 생성 권한이 없으면 CreateAnalyzer 403 발생
+        Sid      = "CreateServiceLinkedRoles"
+        Effect   = "Allow"
+        Action   = ["iam:CreateServiceLinkedRole"]
+        Resource = "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "access-analyzer.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-iam-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 2: EC2 / VPC / EKS / ECR / CodeBuild
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_infra" {
+  name        = "ilpumjinro-github-actions-infra-policy"
+  description = "EC2/VPC, EKS, ECR, and CodeBuild management for GitHub Actions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
         Sid    = "EC2VPCManagement"
         Effect = "Allow"
         Action = [
@@ -228,31 +281,6 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
-        Sid    = "ECRManagement"
-        Effect = "Allow"
-        Action = [
-          "ecr:CreateRepository",
-          "ecr:DeleteRepository",
-          "ecr:DescribeRepositories",
-          "ecr:PutLifecyclePolicy",
-          "ecr:GetLifecyclePolicy",
-          "ecr:DeleteLifecyclePolicy",
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:InitiateLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:CompleteLayerUpload",
-          "ecr:PutImage",
-          "ecr:BatchGetImage",
-          "ecr:DescribeImages",
-          "ecr:StartImageScan",
-          "ecr:TagResource",
-          "ecr:UntagResource",
-          "ecr:ListTagsForResource"
-        ]
-        Resource = "*"
-      },
-      {
         Sid    = "EKSManagement"
         Effect = "Allow"
         Action = [
@@ -294,6 +322,31 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
+        Sid    = "ECRManagement"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DeleteRepository",
+          "ecr:DescribeRepositories",
+          "ecr:PutLifecyclePolicy",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:StartImageScan",
+          "ecr:TagResource",
+          "ecr:UntagResource",
+          "ecr:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "CodeBuildManagement"
         Effect = "Allow"
         Action = [
@@ -306,7 +359,26 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "codebuild:ListBuildsForProject"
         ]
         Resource = "*"
-      },
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-infra-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 3: CloudWatch / CloudTrail / SNS / EventBridge / S3 / KMS / Config / AccessAnalyzer
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_security" {
+  name        = "ilpumjinro-github-actions-security-policy"
+  description = "Observability, security, and compliance service management for GitHub Actions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
         Sid    = "CloudWatchLogsManagement"
         Effect = "Allow"
@@ -497,42 +569,32 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "access-analyzer:ListTagsForResource"
         ]
         Resource = "*"
-      },
-      {
-        # Access Analyzer 최초 생성 시 AWS가 자동으로 Service Linked Role을 만듦
-        # AWSServiceRoleForAccessAnalyzer 생성 권한이 없으면 CreateAnalyzer 403 발생
-        Sid      = "CreateServiceLinkedRoles"
-        Effect   = "Allow"
-        Action   = ["iam:CreateServiceLinkedRole"]
-        Resource = "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer"
-        Condition = {
-          StringEquals = {
-            "iam:AWSServiceName" = "access-analyzer.amazonaws.com"
-          }
-        }
-      },
-      {
-        Sid    = "PassEKSRoles"
-        Effect = "Allow"
-        Action = [
-          "iam:PassRole"
-        ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService" = [
-              "eks.amazonaws.com",
-              "ec2.amazonaws.com",
-              "pods.eks.amazonaws.com",
-              "codebuild.amazonaws.com",
-              "config.amazonaws.com",
-              "cloudtrail.amazonaws.com"
-            ]
-          }
-        }
       }
     ]
   })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-security-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Role attachments — 3개 관리형 정책을 prod Role에 연결
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_role_policy_attachment" "github_actions_iam" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_iam.arn
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_infra" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_infra.arn
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_security" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_security.arn
 }
 
 output "github_actions_role_arn" {
