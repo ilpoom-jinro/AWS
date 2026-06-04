@@ -33,12 +33,23 @@ resource "aws_cloudwatch_log_group" "cloudtrail" {
   }
 }
 
+
 # =============================================
-# IAM Role - CloudTrail → CloudWatch Logs 전달용
+# [수동 설정 필요 - 1회]
+# 기존 Trail(ilpumjinro-trail)에 CloudWatch Logs 연동 추가
 #
-# CloudTrail이 CloudWatch Log Group에 로그를 쓰려면
-# cloudtrail.amazonaws.com이 Assume 가능한 Role이 필요
+# 이유: 기존 Trail이 HasCustomEventSelectors=true 상태로 Terraform 외부에서
+#       관리되고 있어, aws_cloudtrail 리소스로 import 시 event selector 충돌 발생.
+#       Trail 자체는 Terraform으로 관리하지 않고 CW Logs 연동만 수동으로 설정.
+#
+# 콘솔 경로:
+#   CloudTrail → Trails → ilpumjinro-trail → Edit
+#   → CloudWatch Logs: Enabled
+#   → Log group: /aws/cloudtrail/ilpumjinro-trail  (아래 리소스가 생성)
+#   → IAM Role: financial-cloudtrail-cloudwatch-role  (아래 리소스가 생성)
 # =============================================
+
+# IAM Role - CloudTrail → CloudWatch Logs 전달용
 resource "aws_iam_role" "cloudtrail_cloudwatch" {
   name        = "financial-cloudtrail-cloudwatch-role"
   description = "CloudTrail to CloudWatch Logs delivery role for root activity monitoring"
@@ -82,42 +93,6 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
       Resource = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
     }]
   })
-}
-
-# =============================================
-# CloudTrail Trail - 기존 Trail import 후 관리
-#
-# 기존 Trail (AWS에 이미 존재):
-#   name: ilpumjinro-trail
-#   ARN: arn:aws:cloudtrail:ap-northeast-2:218549830271:trail/ilpumjinro-trail
-#
-# 최초 적용 전 반드시 import 필요:
-#   terraform import module.security.aws_cloudtrail.main \
-#     arn:aws:cloudtrail:ap-northeast-2:218549830271:trail/ilpumjinro-trail
-#
-# 이 블록이 추가하는 유일한 변경: CloudWatch Logs 통합
-#   - cloud_watch_logs_group_arn, cloud_watch_logs_role_arn
-#   - 나머지 속성은 기존 Trail 설정과 동일하게 유지
-# =============================================
-resource "aws_cloudtrail" "main" {
-  name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked"
-  kms_key_id                    = "arn:aws:kms:ap-northeast-2:218549830271:key/52c5e912-c5f9-40fa-a72a-774e05377a4c"
-  include_global_service_events = true
-  is_multi_region_trail         = true
-  enable_log_file_validation    = true
-
-  # 기존 Trail에 없던 CloudWatch Logs 통합 추가 (Metric Filter 동작에 필수)
-  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
-  cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_cloudwatch.arn
-
-  tags = {
-    Project     = "ilpumjinro"
-    ManagedBy   = "terraform"
-    Owner       = "security"
-    Service     = "CloudTrail"
-    Environment = "all"
-  }
 }
 
 # =============================================
