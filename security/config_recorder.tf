@@ -147,7 +147,7 @@ resource "aws_config_configuration_recorder" "main" {
 
   recording_group {
     all_supported                 = false # 전체 리소스 기록 비활성화 (비용 최소화)
-    include_global_resource_types = true  # IAM은 글로벌 리소스이므로 반드시 true
+    include_global_resource_types = false # all_supported = false일 때 true 불가, IAM은 resource_types에 명시
 
     resource_types = [
       "AWS::IAM::User",   # IAM 사용자
