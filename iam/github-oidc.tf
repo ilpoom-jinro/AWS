@@ -485,6 +485,20 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
+        Sid    = "AccessAnalyzerManagement"
+        Effect = "Allow"
+        Action = [
+          "access-analyzer:CreateAnalyzer",
+          "access-analyzer:DeleteAnalyzer",
+          "access-analyzer:GetAnalyzer",
+          "access-analyzer:ListAnalyzers",
+          "access-analyzer:TagResource",
+          "access-analyzer:UntagResource",
+          "access-analyzer:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "PassEKSRoles"
         Effect = "Allow"
         Action = [
