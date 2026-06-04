@@ -32,7 +32,7 @@ istio_rollout_timeout: 300s
 addon_helm_timeout: 15m
 rollout_timeout: 600s
 service_ambient_namespaces:
-  - service-apps
+  - stock-demo
 ops_ambient_namespaces:
   - agents
 
@@ -55,8 +55,8 @@ gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/pla
 gitops_repo_name: internal-gitops
 
 demo_app_name: demo-app
-demo_app_namespace: service-apps
-demo_app_path: apps/demo-app
+demo_app_namespace: stock-demo
+demo_app_path: financial-service-eks
 demo_backend_name: backend
 demo_frontend_name: frontend
 demo_db_name: postgres
@@ -66,4 +66,4 @@ demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
 demo_db_name_value: stockdemo
 demo_db_user: stockuser
 demo_db_password: stockpass
-demo_argocd_application_name: demo-app
+demo_argocd_application_name: service-demo-app
