@@ -3,6 +3,14 @@
   gather_facts: false
 
   pre_tasks:
+    - name: Stop because legacy demo-app GitOps bootstrap is disabled
+      ansible.builtin.fail:
+        msg: >
+          gitops-demo-app.yml is disabled. The demo app is now deployed from
+          gitops/platform/financial-service-eks through the service-demo-app
+          Argo CD Application.
+      when: not (allow_legacy_demo_app_bootstrap | default(false) | bool)
+
     - name: Update kubeconfig for the Ops EKS cluster
       ansible.builtin.command:
         cmd: >
