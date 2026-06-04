@@ -9,8 +9,7 @@ spec:
     repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
     targetRevision: main
     path: financial-service-eks
-    directory:
-      recurse: true
+    kustomize: {}
   destination:
     name: financial-service-eks
     namespace: stock-demo
