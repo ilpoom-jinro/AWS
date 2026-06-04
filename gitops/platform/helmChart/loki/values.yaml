@@ -15,9 +15,10 @@ loki:
     type: filesystem
   image:
     # Mirrored Loki image in the private ECR registry.
-    registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+    registry: REPLACE_WITH_ECR_REGISTRY
     repository: financial/monitoring/loki
     tag: latest
+    pullPolicy: Always
 
 singleBinary:
   replicas: 1
