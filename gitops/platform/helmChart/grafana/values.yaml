@@ -35,12 +35,12 @@ datasources:
       - name: Thanos
         type: prometheus
         access: proxy
-        url: http://thanos-query.observability.svc.cluster.local:9090
+        url: http://observability-thanos-query.observability.svc.cluster.local:9090
         isDefault: true
       - name: Loki
         type: loki
         access: proxy
-        url: http://loki.observability.svc.cluster.local:3100
+        url: http://observability-loki.observability.svc.cluster.local:3100
       - name: CloudWatch
         type: cloudwatch
         access: proxy
