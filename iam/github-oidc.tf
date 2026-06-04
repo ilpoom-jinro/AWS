@@ -308,13 +308,92 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
-        Sid    = "CloudWatchLogsRead"
+        Sid    = "CloudWatchLogsManagement"
         Effect = "Allow"
         Action = [
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
-          "logs:FilterLogEvents"
+          "logs:FilterLogEvents",
+          "logs:CreateLogGroup",
+          "logs:DeleteLogGroup",
+          "logs:PutRetentionPolicy",
+          "logs:ListTagsLogGroup",
+          "logs:TagLogGroup",
+          "logs:UntagLogGroup",
+          "logs:ListTagsForResource",
+          "logs:TagResource",
+          "logs:UntagResource",
+          "logs:PutMetricFilter",
+          "logs:DeleteMetricFilter",
+          "logs:DescribeMetricFilters"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudTrailManagement"
+        Effect = "Allow"
+        Action = [
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetTrail",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:GetEventSelectors",
+          "cloudtrail:UpdateTrail",
+          "cloudtrail:AddTags",
+          "cloudtrail:RemoveTags",
+          "cloudtrail:ListTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SNSManagement"
+        Effect = "Allow"
+        Action = [
+          "sns:CreateTopic",
+          "sns:DeleteTopic",
+          "sns:GetTopicAttributes",
+          "sns:SetTopicAttributes",
+          "sns:ListTopics",
+          "sns:TagResource",
+          "sns:UntagResource",
+          "sns:ListTagsForResource",
+          "sns:GetSubscriptionAttributes",
+          "sns:SetSubscriptionAttributes"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EventBridgeManagement"
+        Effect = "Allow"
+        Action = [
+          "events:PutRule",
+          "events:DeleteRule",
+          "events:DescribeRule",
+          "events:EnableRule",
+          "events:DisableRule",
+          "events:PutTargets",
+          "events:RemoveTargets",
+          "events:ListTargetsByRule",
+          "events:ListRules",
+          "events:TagResource",
+          "events:UntagResource",
+          "events:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchAlarmsManagement"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DeleteAlarms",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DescribeAlarmsForMetric",
+          "cloudwatch:EnableAlarmActions",
+          "cloudwatch:DisableAlarmActions",
+          "cloudwatch:ListTagsForResource",
+          "cloudwatch:TagResource",
+          "cloudwatch:UntagResource"
         ]
         Resource = "*"
       },
@@ -418,7 +497,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
               "ec2.amazonaws.com",
               "pods.eks.amazonaws.com",
               "codebuild.amazonaws.com",
-              "config.amazonaws.com"
+              "config.amazonaws.com",
+              "cloudtrail.amazonaws.com"
             ]
           }
         }
