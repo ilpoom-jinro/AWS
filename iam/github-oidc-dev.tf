@@ -28,10 +28,11 @@ resource "aws_iam_role" "github_actions_dev" {
   }
 }
 
-resource "aws_iam_role_policy" "github_actions_dev_terraform" {
-  name   = "ilpumjinro-terraform-dev-execution-policy"
-  role   = aws_iam_role.github_actions_dev.id
-  policy = aws_iam_role_policy.github_actions_terraform.policy
+# dev role은 AdministratorAccess 사용 (인라인 정책 10240자 제한 초과 문제 해결)
+# prod role(github_actions_terraform)은 최소 권한 인라인 정책 유지
+resource "aws_iam_role_policy_attachment" "github_actions_dev_admin" {
+  role       = aws_iam_role.github_actions_dev.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
 output "github_actions_dev_role_arn" {
