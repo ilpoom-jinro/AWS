@@ -19,9 +19,10 @@ serviceAccount:
 
 image:
   # Mirrored Grafana image in the private ECR registry.
-  registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+  registry: REPLACE_WITH_ECR_REGISTRY
   repository: financial/monitoring/grafana
   tag: latest
+  pullPolicy: Always
 
 # Disable the optional Helm test pod so the offline cluster does not need the
 # public docker.io/bats/bats image.
