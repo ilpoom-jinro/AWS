@@ -1,7 +1,8 @@
 image:
   # The Alertmanager chart expects the full ECR path in repository.
-  repository: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/monitoring/alertmanager
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/alertmanager
   tag: latest
+  pullPolicy: Always
 
 nodeSelector:
   role: monitoring
