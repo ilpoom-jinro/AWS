@@ -1,3 +1,4 @@
 # component	dockerfile	build_context	ecr_repository	target_tag
 # Example:
 # grafana-custom	monitoring/custom/grafana/Dockerfile	monitoring/custom/grafana	financial/monitoring/grafana-custom	latest
+observability-indexer	monitoring/observability-indexer/Dockerfile	monitoring/observability-indexer	financial/monitoring/observability-indexer	latest
