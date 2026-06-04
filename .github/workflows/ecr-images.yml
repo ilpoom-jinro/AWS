@@ -65,6 +65,7 @@ env:
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/system/aws-load-balancer-controller
+  OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
 
 jobs:
   images:
@@ -161,6 +162,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.istio_ztunnel
           -target=aws_ecr_repository.aws_load_balancer_controller
           -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller
+          -target=aws_ecr_repository.observability_indexer
+          -target=aws_ecr_lifecycle_policy.observability_indexer
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -182,6 +185,7 @@ jobs:
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/ztunnel"
           aws ecr describe-repositories --repository-names "${AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${OBSERVABILITY_INDEXER_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
