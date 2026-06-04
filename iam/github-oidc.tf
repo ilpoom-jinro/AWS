@@ -42,9 +42,12 @@ resource "aws_iam_role" "github_actions" {
   }
 }
 
-resource "aws_iam_role_policy" "github_actions_terraform" {
-  name = "ilpumjinro-terraform-execution-policy"
-  role = aws_iam_role.github_actions.id
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 1: IAM / Terraform State / PassRole / ServiceLinkedRole
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_iam" {
+  name        = "ilpumjinro-github-actions-iam-policy"
+  description = "Terraform state access, IAM management, PassRole, and service-linked role creation for GitHub Actions"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -93,6 +96,9 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "iam:ListPolicies",
           "iam:ListPolicyVersions",
           "iam:ListEntitiesForPolicy",
+          "iam:TagPolicy",
+          "iam:UntagPolicy",
+          "iam:ListPolicyTags",
           "iam:PutUserPolicy",
           "iam:DeleteUserPolicy",
           "iam:GetUserPolicy",
@@ -139,6 +145,56 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         ]
         Resource = "*"
       },
+      {
+        Sid      = "PassEKSRoles"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = [
+              "eks.amazonaws.com",
+              "ec2.amazonaws.com",
+              "pods.eks.amazonaws.com",
+              "codebuild.amazonaws.com",
+              "config.amazonaws.com",
+              "cloudtrail.amazonaws.com"
+            ]
+          }
+        }
+      },
+      {
+        # Access Analyzer 최초 생성 시 AWS가 자동으로 Service Linked Role을 만듦
+        # AWSServiceRoleForAccessAnalyzer 생성 권한이 없으면 CreateAnalyzer 403 발생
+        Sid      = "CreateServiceLinkedRoles"
+        Effect   = "Allow"
+        Action   = ["iam:CreateServiceLinkedRole"]
+        Resource = "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "access-analyzer.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-iam-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 2: EC2 / VPC / EKS / ECR / CodeBuild
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_infra" {
+  name        = "ilpumjinro-github-actions-infra-policy"
+  description = "EC2/VPC, EKS, ECR, and CodeBuild management for GitHub Actions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
         Sid    = "EC2VPCManagement"
         Effect = "Allow"
@@ -225,31 +281,6 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
-        Sid    = "ECRManagement"
-        Effect = "Allow"
-        Action = [
-          "ecr:CreateRepository",
-          "ecr:DeleteRepository",
-          "ecr:DescribeRepositories",
-          "ecr:PutLifecyclePolicy",
-          "ecr:GetLifecyclePolicy",
-          "ecr:DeleteLifecyclePolicy",
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:InitiateLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:CompleteLayerUpload",
-          "ecr:PutImage",
-          "ecr:BatchGetImage",
-          "ecr:DescribeImages",
-          "ecr:StartImageScan",
-          "ecr:TagResource",
-          "ecr:UntagResource",
-          "ecr:ListTagsForResource"
-        ]
-        Resource = "*"
-      },
-      {
         Sid    = "EKSManagement"
         Effect = "Allow"
         Action = [
@@ -291,6 +322,31 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
         Resource = "*"
       },
       {
+        Sid    = "ECRManagement"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DeleteRepository",
+          "ecr:DescribeRepositories",
+          "ecr:PutLifecyclePolicy",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage",
+          "ecr:DescribeImages",
+          "ecr:StartImageScan",
+          "ecr:TagResource",
+          "ecr:UntagResource",
+          "ecr:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "CodeBuildManagement"
         Effect = "Allow"
         Action = [
@@ -303,38 +359,242 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "codebuild:ListBuildsForProject"
         ]
         Resource = "*"
-      },
+      }
+    ]
+  })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-infra-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Policy 3: CloudWatch / CloudTrail / SNS / EventBridge / S3 / KMS / Config / AccessAnalyzer
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_policy" "github_actions_security" {
+  name        = "ilpumjinro-github-actions-security-policy"
+  description = "Observability, security, and compliance service management for GitHub Actions"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       {
-        Sid    = "CloudWatchLogsRead"
+        Sid    = "CloudWatchLogsManagement"
         Effect = "Allow"
         Action = [
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
-          "logs:FilterLogEvents"
+          "logs:FilterLogEvents",
+          "logs:CreateLogGroup",
+          "logs:DeleteLogGroup",
+          "logs:PutRetentionPolicy",
+          "logs:ListTagsLogGroup",
+          "logs:TagLogGroup",
+          "logs:UntagLogGroup",
+          "logs:ListTagsForResource",
+          "logs:TagResource",
+          "logs:UntagResource",
+          "logs:PutMetricFilter",
+          "logs:DeleteMetricFilter",
+          "logs:DescribeMetricFilters"
         ]
         Resource = "*"
       },
       {
-        Sid    = "PassEKSRoles"
+        Sid    = "CloudTrailManagement"
         Effect = "Allow"
         Action = [
-          "iam:PassRole"
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetTrail",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:GetEventSelectors",
+          "cloudtrail:PutEventSelectors",
+          "cloudtrail:UpdateTrail",
+          "cloudtrail:AddTags",
+          "cloudtrail:RemoveTags",
+          "cloudtrail:ListTags"
         ]
         Resource = "*"
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService" = [
-              "eks.amazonaws.com",
-              "ec2.amazonaws.com",
-              "pods.eks.amazonaws.com",
-              "codebuild.amazonaws.com"
-            ]
-          }
-        }
+      },
+      {
+        Sid    = "SNSManagement"
+        Effect = "Allow"
+        Action = [
+          "sns:CreateTopic",
+          "sns:DeleteTopic",
+          "sns:GetTopicAttributes",
+          "sns:SetTopicAttributes",
+          "sns:ListTopics",
+          "sns:TagResource",
+          "sns:UntagResource",
+          "sns:ListTagsForResource",
+          "sns:GetSubscriptionAttributes",
+          "sns:SetSubscriptionAttributes"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EventBridgeManagement"
+        Effect = "Allow"
+        Action = [
+          "events:PutRule",
+          "events:DeleteRule",
+          "events:DescribeRule",
+          "events:EnableRule",
+          "events:DisableRule",
+          "events:PutTargets",
+          "events:RemoveTargets",
+          "events:ListTargetsByRule",
+          "events:ListRules",
+          "events:TagResource",
+          "events:UntagResource",
+          "events:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchAlarmsManagement"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DeleteAlarms",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DescribeAlarmsForMetric",
+          "cloudwatch:EnableAlarmActions",
+          "cloudwatch:DisableAlarmActions",
+          "cloudwatch:ListTagsForResource",
+          "cloudwatch:TagResource",
+          "cloudwatch:UntagResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "S3BucketManagement"
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:DeleteBucket",
+          "s3:GetBucketAcl",
+          "s3:GetBucketPolicy",
+          "s3:PutBucketPolicy",
+          "s3:DeleteBucketPolicy",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketLogging",
+          "s3:GetBucketLocation",
+          "s3:GetBucketTagging",
+          "s3:PutBucketTagging",
+          "s3:ListBucket",
+          "s3:GetBucketCORS",
+          "s3:GetBucketWebsite",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetBucketRequestPayment",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketObjectLockConfiguration",
+          "s3:GetBucketOwnershipControls",
+          "s3:GetReplicationConfiguration",
+          "s3:GetBucketNotification",
+          "s3:GetAnalyticsConfiguration",
+          "s3:GetMetricsConfiguration",
+          "s3:GetInventoryConfiguration",
+          "s3:GetIntelligentTieringConfiguration"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "KMSManagement"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKey",
+          "kms:DisableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:UpdateKeyDescription"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ConfigManagement"
+        Effect = "Allow"
+        Action = [
+          "config:PutConfigurationRecorder",
+          "config:DeleteConfigurationRecorder",
+          "config:DescribeConfigurationRecorders",
+          "config:DescribeConfigurationRecorderStatus",
+          "config:StartConfigurationRecorder",
+          "config:StopConfigurationRecorder",
+          "config:PutDeliveryChannel",
+          "config:DeleteDeliveryChannel",
+          "config:DescribeDeliveryChannels",
+          "config:DescribeDeliveryChannelStatus",
+          "config:PutConfigRule",
+          "config:DeleteConfigRule",
+          "config:DescribeConfigRules",
+          "config:DescribeConfigRuleEvaluationStatus",
+          "config:TagResource",
+          "config:UntagResource",
+          "config:ListTagsForResource"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AccessAnalyzerManagement"
+        Effect = "Allow"
+        Action = [
+          "access-analyzer:CreateAnalyzer",
+          "access-analyzer:DeleteAnalyzer",
+          "access-analyzer:GetAnalyzer",
+          "access-analyzer:ListAnalyzers",
+          "access-analyzer:TagResource",
+          "access-analyzer:UntagResource",
+          "access-analyzer:ListTagsForResource"
+        ]
+        Resource = "*"
       }
     ]
   })
+
+  tags = {
+    Name      = "ilpumjinro-github-actions-security-policy"
+    ManagedBy = "terraform"
+  }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# Role attachments — 3개 관리형 정책을 prod Role에 연결
+# ────────────────────────────────────────────────────────────────────────────
+resource "aws_iam_role_policy_attachment" "github_actions_iam" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_iam.arn
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_infra" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_infra.arn
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_security" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = aws_iam_policy.github_actions_security.arn
 }
 
 output "github_actions_role_arn" {
