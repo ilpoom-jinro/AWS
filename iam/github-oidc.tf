@@ -501,9 +501,9 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
       {
         # Access Analyzer 최초 생성 시 AWS가 자동으로 Service Linked Role을 만듦
         # AWSServiceRoleForAccessAnalyzer 생성 권한이 없으면 CreateAnalyzer 403 발생
-        Sid    = "CreateServiceLinkedRoles"
-        Effect = "Allow"
-        Action = ["iam:CreateServiceLinkedRole"]
+        Sid      = "CreateServiceLinkedRoles"
+        Effect   = "Allow"
+        Action   = ["iam:CreateServiceLinkedRole"]
         Resource = "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer"
         Condition = {
           StringEquals = {
