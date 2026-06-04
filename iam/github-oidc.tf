@@ -335,7 +335,42 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "s3:GetBucketLocation",
           "s3:GetBucketTagging",
           "s3:PutBucketTagging",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetBucketCORS",
+          "s3:GetBucketWebsite",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetBucketRequestPayment",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetBucketObjectLockConfiguration",
+          "s3:GetBucketOwnershipControls"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "KMSManagement"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKey",
+          "kms:DisableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:UpdateKeyDescription"
         ]
         Resource = "*"
       },
@@ -376,7 +411,8 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
               "eks.amazonaws.com",
               "ec2.amazonaws.com",
               "pods.eks.amazonaws.com",
-              "codebuild.amazonaws.com"
+              "codebuild.amazonaws.com",
+              "config.amazonaws.com"
             ]
           }
         }
