@@ -22,7 +22,7 @@
 # =============================================
 resource "aws_cloudwatch_log_group" "cloudtrail" {
   name              = "/aws/cloudtrail/ilpumjinro-trail"
-  retention_in_days = 90
+  retention_in_days = 3
 
   tags = {
     Project     = "ilpumjinro"
@@ -156,13 +156,24 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
     Version = "2012-10-17"
     Statement = [
       {
-        # 계정 root가 SNS 전체 권한 보유 (락아웃 방지)
+        # 계정 root가 SNS Topic 관리 권한 보유 (락아웃 방지)
+        # SNS:* 불가 - Topic 정책에는 topic-level 액션만 허용됨
         Sid    = "AllowAccountOwner"
         Effect = "Allow"
         Principal = {
           AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
         }
-        Action   = "SNS:*"
+        Action = [
+          "SNS:GetTopicAttributes",
+          "SNS:SetTopicAttributes",
+          "SNS:AddPermission",
+          "SNS:RemovePermission",
+          "SNS:DeleteTopic",
+          "SNS:Subscribe",
+          "SNS:ListSubscriptionsByTopic",
+          "SNS:Publish",
+          "SNS:Receive"
+        ]
         Resource = aws_sns_topic.root_activity_alert.arn
       },
       {

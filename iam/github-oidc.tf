@@ -338,6 +338,7 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "cloudtrail:GetTrail",
           "cloudtrail:GetTrailStatus",
           "cloudtrail:GetEventSelectors",
+          "cloudtrail:PutEventSelectors",
           "cloudtrail:UpdateTrail",
           "cloudtrail:AddTags",
           "cloudtrail:RemoveTags",
