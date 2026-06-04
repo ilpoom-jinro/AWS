@@ -93,6 +93,9 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "iam:ListPolicies",
           "iam:ListPolicyVersions",
           "iam:ListEntitiesForPolicy",
+          "iam:TagPolicy",
+          "iam:UntagPolicy",
+          "iam:ListPolicyTags",
           "iam:PutUserPolicy",
           "iam:DeleteUserPolicy",
           "iam:GetUserPolicy",
@@ -312,6 +315,51 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "logs:DescribeLogStreams",
           "logs:GetLogEvents",
           "logs:FilterLogEvents"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "S3BucketManagement"
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:DeleteBucket",
+          "s3:GetBucketAcl",
+          "s3:GetBucketPolicy",
+          "s3:PutBucketPolicy",
+          "s3:DeleteBucketPolicy",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketLogging",
+          "s3:GetBucketLocation",
+          "s3:GetBucketTagging",
+          "s3:PutBucketTagging",
+          "s3:ListBucket"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ConfigManagement"
+        Effect = "Allow"
+        Action = [
+          "config:PutConfigurationRecorder",
+          "config:DeleteConfigurationRecorder",
+          "config:DescribeConfigurationRecorders",
+          "config:DescribeConfigurationRecorderStatus",
+          "config:StartConfigurationRecorder",
+          "config:StopConfigurationRecorder",
+          "config:PutDeliveryChannel",
+          "config:DeleteDeliveryChannel",
+          "config:DescribeDeliveryChannels",
+          "config:DescribeDeliveryChannelStatus",
+          "config:PutConfigRule",
+          "config:DeleteConfigRule",
+          "config:DescribeConfigRules",
+          "config:DescribeConfigRuleEvaluationStatus",
+          "config:TagResource",
+          "config:UntagResource",
+          "config:ListTagsForResource"
         ]
         Resource = "*"
       },

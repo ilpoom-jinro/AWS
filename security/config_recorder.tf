@@ -84,7 +84,7 @@ resource "aws_s3_bucket_policy" "config_snapshot" {
 # =============================================
 resource "aws_iam_role" "config_recorder" {
   name        = "financial-config-recorder-role"
-  description = "AWS Config 레코더 전용 Role (IAM 리소스 감사)"
+  description = "AWS Config recorder role for IAM resource auditing"
 
   # config.amazonaws.com 서비스만 이 Role을 Assume 가능
   assume_role_policy = jsonencode({
