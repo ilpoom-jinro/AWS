@@ -36,6 +36,15 @@
       register: ops_vpc_id
       changed_when: false
 
+    - name: Read the AWS account ID for the private ECR registry
+      ansible.builtin.command:
+        cmd: >
+          aws sts get-caller-identity
+          --query Account
+          --output text
+      register: aws_account_id
+      changed_when: false
+
     - name: Read the Loki internal NLB security group ID
       ansible.builtin.command:
         cmd: >
@@ -108,18 +117,15 @@
         from pathlib import Path
 
         replacements = {
+            "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
         }
 
-        files = [
-            Path("helmChart/aws-load-balancer-controller/values.yaml"),
-            Path("helmChart/loki/values.yaml"),
-            Path("helmChart/thanos/values.yaml"),
-        ]
-
-        for path in files:
+        for path in Path(".").rglob("*"):
+            if path.suffix not in [".yaml", ".yml", ".md"]:
+                continue
             content = path.read_text()
             for placeholder, value in replacements.items():
                 content = content.replace(placeholder, value)
@@ -137,6 +143,8 @@
         git push origin main
       no_log: true
       environment:
+        AWS_ACCOUNT_ID: "{{ aws_account_id.stdout }}"
+        AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
