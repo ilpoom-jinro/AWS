@@ -343,7 +343,13 @@ resource "aws_iam_role_policy" "github_actions_terraform" {
           "s3:GetLifecycleConfiguration",
           "s3:GetEncryptionConfiguration",
           "s3:GetBucketObjectLockConfiguration",
-          "s3:GetBucketOwnershipControls"
+          "s3:GetBucketOwnershipControls",
+          "s3:GetReplicationConfiguration",
+          "s3:GetBucketNotification",
+          "s3:GetAnalyticsConfiguration",
+          "s3:GetMetricsConfiguration",
+          "s3:GetInventoryConfiguration",
+          "s3:GetIntelligentTieringConfiguration"
         ]
         Resource = "*"
       },
