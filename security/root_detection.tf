@@ -33,22 +33,6 @@ resource "aws_cloudwatch_log_group" "cloudtrail" {
   }
 }
 
-
-# =============================================
-# [수동 설정 필요 - 1회]
-# 기존 Trail(ilpumjinro-trail)에 CloudWatch Logs 연동 추가
-#
-# 이유: 기존 Trail이 HasCustomEventSelectors=true 상태로 Terraform 외부에서
-#       관리되고 있어, aws_cloudtrail 리소스로 import 시 event selector 충돌 발생.
-#       Trail 자체는 Terraform으로 관리하지 않고 CW Logs 연동만 수동으로 설정.
-#
-# 콘솔 경로:
-#   CloudTrail → Trails → ilpumjinro-trail → Edit
-#   → CloudWatch Logs: Enabled
-#   → Log group: /aws/cloudtrail/ilpumjinro-trail  (아래 리소스가 생성)
-#   → IAM Role: financial-cloudtrail-cloudwatch-role  (아래 리소스가 생성)
-# =============================================
-
 # IAM Role - CloudTrail → CloudWatch Logs 전달용
 resource "aws_iam_role" "cloudtrail_cloudwatch" {
   name        = "financial-cloudtrail-cloudwatch-role"
@@ -93,6 +77,42 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
       Resource = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
     }]
   })
+}
+
+# =============================================
+# CloudTrail Trail - 기존 Trail Terraform 관리
+#
+# 최초 1회 import 필요:
+#   terraform import module.security.aws_cloudtrail.main \
+#     arn:aws:cloudtrail:ap-northeast-2:218549830271:trail/ilpumjinro-trail
+#
+# lifecycle ignore_changes 이유:
+#   기존 Trail에 HasCustomEventSelectors=true 설정 존재.
+#   Terraform이 event selector를 빈 값으로 덮어쓰면
+#   InvalidEventSelectorsException 발생 → 변경 무시로 해결.
+# =============================================
+resource "aws_cloudtrail" "main" {
+  name                          = "ilpumjinro-trail"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked"
+  kms_key_id                    = "arn:aws:kms:ap-northeast-2:218549830271:key/52c5e912-c5f9-40fa-a72a-774e05377a4c"
+  include_global_service_events = true
+  is_multi_region_trail         = true
+  enable_log_file_validation    = true
+
+  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
+  cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_cloudwatch.arn
+
+  lifecycle {
+    ignore_changes = [event_selector, advanced_event_selector]
+  }
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "CloudTrail"
+    Environment = "all"
+  }
 }
 
 # =============================================
