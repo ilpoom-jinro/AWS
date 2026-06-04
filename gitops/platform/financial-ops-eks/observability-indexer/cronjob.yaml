@@ -27,8 +27,8 @@ spec:
               effect: NoSchedule
           containers:
             - name: observability-indexer
-              image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/monitoring/observability-indexer:latest
-              imagePullPolicy: IfNotPresent
+              image: observability-indexer-image:latest
+              imagePullPolicy: Always
               env:
                 - name: AWS_REGION
                   value: ap-northeast-2
