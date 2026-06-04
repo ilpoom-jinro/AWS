@@ -153,9 +153,9 @@
 
         for attempt in $(seq 1 90); do
           loki_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc loki -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            get svc observability-loki -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
           thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            get svc observability-thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
 
           if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ]; then
             printf '%s|%s\n' "${loki_dns}" "${thanos_dns}"
