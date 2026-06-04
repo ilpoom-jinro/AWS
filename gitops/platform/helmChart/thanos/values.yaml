@@ -5,9 +5,10 @@ global:
 
 image:
   # Mirrored Thanos image in the private ECR registry.
-  registry: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
+  registry: REPLACE_WITH_ECR_REGISTRY
   repository: financial/monitoring/thanos
-  tag: v0.41.0
+  tag: latest
+  pullPolicy: Always
 
 query:
   enabled: true
