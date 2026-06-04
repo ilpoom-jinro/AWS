@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: stock-web
-          image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/demo-app-frontend:20260529-c460483
-          imagePullPolicy: IfNotPresent
+          image: stock-web-image:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 80
