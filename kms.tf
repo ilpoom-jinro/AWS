@@ -144,6 +144,9 @@ resource "aws_kms_key" "key_rds_ops" {
     ]
   })
 
+  # module.iam이 먼저 완료돼야 Role ARN이 유효해짐 (병렬 실행 방지)
+  depends_on = [module.iam]
+
   tags = {
     Project     = "ilpumjinro"
     ManagedBy   = "terraform"
@@ -271,6 +274,9 @@ resource "aws_kms_key" "key_rds_globalservice" {
       }
     ]
   })
+
+  # module.iam이 먼저 완료돼야 Role ARN이 유효해짐 (병렬 실행 방지)
+  depends_on = [module.iam]
 
   tags = {
     Project     = "ilpumjinro"
