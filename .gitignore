@@ -47,3 +47,10 @@ mfa-auth.sh
 session-manager-plugin.deb
 packer/manifest.json
 packer/*.pkrvars.hcl
+
+# macOS Finder metadata
+.DS_Store
+
+# Python cache files
+__pycache__/
+*.pyc
