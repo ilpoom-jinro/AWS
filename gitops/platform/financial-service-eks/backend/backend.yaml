@@ -26,8 +26,8 @@ spec:
     spec:
       containers:
         - name: stock-api
-          image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/demo-app-backend:20260529-6ee93fd
-          imagePullPolicy: IfNotPresent
+          image: stock-api-image:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8000
