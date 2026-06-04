@@ -22,7 +22,7 @@ data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "kms_admin" {
   name        = "financial-kms-admin-role"
-  description = "KMS 키 일반 관리 전용 Role (보안팀 전용)"
+  description = "KMS key management role for security team (admin operations only)"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -119,7 +119,7 @@ resource "aws_iam_role_policy_attachment" "kms_admin" {
 # =============================================
 resource "aws_iam_role" "kms_breakglass" {
   name        = "financial-kms-breakglass-role"
-  description = "KMS 키 삭제·비활성화 전용 긴급 Role (MFA 필수)"
+  description = "KMS key break-glass role for deletion and disable (MFA required)"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
