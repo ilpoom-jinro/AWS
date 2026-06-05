@@ -65,3 +65,23 @@ output "eks_node_group_name" {
 output "eks_node_role_arn" {
   value = aws_iam_role.eks_node.arn
 }
+
+output "rds_endpoint" {
+  description = "financial-service RDS 엔드포인트"
+  value       = aws_db_instance.service.endpoint
+}
+
+output "rds_port" {
+  description = "financial-service RDS 포트"
+  value       = aws_db_instance.service.port
+}
+
+output "rds_db_name" {
+  description = "financial-service RDS DB 이름"
+  value       = aws_db_instance.service.db_name
+}
+
+output "rds_secret_arn" {
+  description = "financial-service RDS 비밀번호 Secrets Manager ARN"
+  value       = aws_secretsmanager_secret.rds_password.arn
+}
