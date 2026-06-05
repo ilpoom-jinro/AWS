@@ -14,6 +14,63 @@ phases:
           exit 1
         }
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks
+      - |
+        set -euo pipefail
+
+        # ── 내부 Gitea 포트 포워딩 (13002 — bootstrap 플레이북이 쓰는 13000/13001 과 충돌 방지) ──
+        kubectl --context financial-ops-eks \
+          -n git port-forward svc/internal-git-http 13002:3000 \
+          >/tmp/kyverno-git-pf.log 2>&1 &
+        KYVERNO_GIT_PF_PID=$!
+        trap 'kill "${KYVERNO_GIT_PF_PID}" >/dev/null 2>&1 || true' EXIT
+
+        for i in $(seq 1 30); do
+          if curl -fsS http://127.0.0.1:13002/api/v1/version >/dev/null 2>&1; then
+            break
+          fi
+          if [ "${i}" -eq 30 ]; then
+            echo "Gitea port-forward timed out."
+            cat /tmp/kyverno-git-pf.log || true
+            exit 1
+          fi
+          sleep 2
+        done
+
+        # ── Kyverno 설치 매니페스트 렌더링 (이미지 내 차트 사용 — 외부 네트워크 불필요) ──
+        helm template kyverno /opt/helm-charts/kyverno \
+          --namespace kyverno \
+          --include-crds \
+          -f /workspace/kyverno/helm/values.yaml \
+          > /tmp/kyverno-install.yaml
+
+        # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
+        rm -rf /tmp/kyverno-gitops
+        git clone \
+          "http://${INTERNAL_GIT_ADMIN_USERNAME}:${INTERNAL_GIT_ADMIN_PASSWORD}@127.0.0.1:13002/gitops/platform.git" \
+          /tmp/kyverno-gitops
+        cd /tmp/kyverno-gitops
+
+        git config user.name "Kyverno Bootstrap Bot"
+        git config user.email "kyverno-bootstrap@internal.ops.local"
+
+        mkdir -p kyverno/install kyverno/policies
+        cp /tmp/kyverno-install.yaml kyverno/install/kyverno.yaml
+        cp /workspace/kyverno/policies/block-host-network.yaml kyverno/policies/
+
+        git add kyverno/
+        if git diff --cached --quiet; then
+          echo "Kyverno files already up to date in Gitea."
+        else
+          git commit -m "bootstrap: Kyverno install manifests and policies"
+          git push origin main
+        fi
+
+        # ── ArgoCD ApplicationSet 적용 ──
+        kubectl --context financial-ops-eks apply \
+          -f /workspace/kyverno/applicationsets/kyverno-install-appset.yaml \
+          -f /workspace/kyverno/applicationsets/kyverno-policies-appset.yaml
+
+        kill "${KYVERNO_GIT_PF_PID}" >/dev/null 2>&1 || true
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
       - kubectl --context financial-service-eks get deploy,svc,pods -n stock-demo -o wide || true

@@ -4,6 +4,7 @@ ARG KUBECTL_VERSION=v1.35.0
 ARG HELM_VERSION=v3.17.3
 ARG ARGOCD_CHART_VERSION=""
 ARG ISTIO_CHART_VERSION="1.30.0"
+ARG KYVERNO_CHART_VERSION=""
 
 RUN dnf install -y \
       ca-certificates \
@@ -46,6 +47,7 @@ RUN curl -fsSLo /tmp/helm.tar.gz \
 RUN mkdir -p /opt/helm-charts \
     && helm repo add argo https://argoproj.github.io/argo-helm \
     && helm repo add istio https://istio-release.storage.googleapis.com/charts \
+    && helm repo add kyverno https://kyverno.github.io/kyverno/ \
     && helm repo update \
     && if [ -n "${ARGOCD_CHART_VERSION}" ]; then \
          helm pull argo/argo-cd --version "${ARGOCD_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
@@ -56,11 +58,17 @@ RUN mkdir -p /opt/helm-charts \
     && helm pull istio/istiod --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && helm pull istio/cni --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && helm pull istio/ztunnel --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
+    && if [ -n "${KYVERNO_CHART_VERSION}" ]; then \
+         helm pull kyverno/kyverno --version "${KYVERNO_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
+       else \
+         helm pull kyverno/kyverno --untar --untardir /opt/helm-charts; \
+       fi \
     && test -f /opt/helm-charts/argo-cd/Chart.yaml \
     && test -f /opt/helm-charts/base/Chart.yaml \
     && test -f /opt/helm-charts/istiod/Chart.yaml \
     && test -f /opt/helm-charts/cni/Chart.yaml \
-    && test -f /opt/helm-charts/ztunnel/Chart.yaml
+    && test -f /opt/helm-charts/ztunnel/Chart.yaml \
+    && test -f /opt/helm-charts/kyverno/Chart.yaml
 
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml
@@ -74,5 +82,6 @@ RUN aws --version \
 COPY ansible /workspace/ansible
 COPY gitops /workspace/gitops
 COPY buildspec-ansible.yml /workspace/buildspec-ansible.yml
+COPY kyverno /workspace/kyverno
 
 WORKDIR /workspace

@@ -3,6 +3,10 @@ module "iam" {
   dev_mode = var.dev_mode
 }
 
+module "security" {
+  source = "./security"
+}
+
 module "vpc1" {
   source = "./vpc/globalservice"
 }

@@ -201,6 +201,113 @@ jobs:
         if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
 
+      - name: Delete load balancers outside Terraform state
+        if: inputs.action == 'destroy'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          vpc_resources=(
+            module.vpc1.aws_vpc.this
+            module.vpc2.aws_vpc.this
+            module.vpc3.aws_vpc.this
+            module.vpc4.aws_vpc.this
+          )
+
+          vpc_ids=()
+          for resource in "${vpc_resources[@]}"; do
+            if ! terraform state list | grep -Fxq "${resource}"; then
+              echo "State does not contain ${resource}; skipping."
+              continue
+            fi
+
+            vpc_id="$(terraform state show -no-color "${resource}" | awk -F' = ' '$1 == "id" {print $2; exit}')"
+            if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "null" ]; then
+              echo "Could not resolve VPC ID for ${resource}; skipping."
+              continue
+            fi
+
+            if ! aws ec2 describe-vpcs --vpc-ids "${vpc_id}" >/dev/null 2>&1; then
+              echo "VPC ${vpc_id} no longer exists; skipping."
+              continue
+            fi
+
+            vpc_ids+=("${vpc_id}")
+          done
+
+          if [ "${#vpc_ids[@]}" -eq 0 ]; then
+            echo "No managed VPCs found for load balancer cleanup."
+            exit 0
+          fi
+
+          for vpc_id in "${vpc_ids[@]}"; do
+            echo "Cleaning load balancers in ${vpc_id}."
+
+            mapfile -t classic_lbs < <(
+              aws elb describe-load-balancers \
+                --query "LoadBalancerDescriptions[?VPCId=='${vpc_id}'].LoadBalancerName" \
+                --output text | tr '\t' '\n' | sed '/^$/d'
+            )
+            for lb in "${classic_lbs[@]}"; do
+              echo "Deleting Classic ELB ${lb} in ${vpc_id}."
+              aws elb delete-load-balancer --load-balancer-name "${lb}"
+            done
+
+            mapfile -t lbv2_arns < <(
+              aws elbv2 describe-load-balancers \
+                --query "LoadBalancers[?VpcId=='${vpc_id}'].LoadBalancerArn" \
+                --output text | tr '\t' '\n' | sed '/^$/d'
+            )
+            for arn in "${lbv2_arns[@]}"; do
+              echo "Deleting ALB/NLB ${arn} in ${vpc_id}."
+              aws elbv2 delete-load-balancer --load-balancer-arn "${arn}"
+            done
+          done
+
+          echo "Waiting for load balancer ENIs to disappear."
+          for attempt in {1..60}; do
+            lb_eni_count=0
+            for vpc_id in "${vpc_ids[@]}"; do
+              count="$(aws ec2 describe-network-interfaces \
+                --filters Name=vpc-id,Values="${vpc_id}" \
+                --query "length(NetworkInterfaces[?starts_with(Description, 'ELB')])" \
+                --output text)"
+              lb_eni_count=$((lb_eni_count + count))
+            done
+
+            if [ "${lb_eni_count}" -eq 0 ]; then
+              echo "No load balancer ENIs remain in managed VPCs."
+              break
+            fi
+
+            echo "Still waiting for ${lb_eni_count} load balancer ENI(s) to disappear."
+            sleep 10
+          done
+
+          if [ "${lb_eni_count}" -ne 0 ]; then
+            echo "::error::Load balancer ENIs still exist after waiting for cleanup."
+            for vpc_id in "${vpc_ids[@]}"; do
+              aws ec2 describe-network-interfaces \
+                --filters Name=vpc-id,Values="${vpc_id}" \
+                --query "NetworkInterfaces[?starts_with(Description, 'ELB')].{Id:NetworkInterfaceId,Description:Description,Status:Status,Type:InterfaceType,Owner:Attachment.InstanceOwnerId}" \
+                --output table || true
+            done
+            exit 1
+          fi
+
+          for vpc_id in "${vpc_ids[@]}"; do
+            mapfile -t k8s_elb_sgs < <(
+              aws ec2 describe-security-groups \
+                --filters Name=vpc-id,Values="${vpc_id}" Name=group-name,Values="k8s-elb-*" \
+                --query 'SecurityGroups[].GroupId' \
+                --output text | tr '\t' '\n' | sed '/^$/d'
+            )
+            for sg_id in "${k8s_elb_sgs[@]}"; do
+              echo "Deleting Kubernetes ELB security group ${sg_id} in ${vpc_id}."
+              aws ec2 delete-security-group --group-id "${sg_id}" || true
+            done
+          done
+
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >

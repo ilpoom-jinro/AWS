@@ -177,8 +177,8 @@ build {
   # ── aws-iam-authenticator 설치 ──────────────────────────────────────────────
   provisioner "shell" {
     inline = [
-      "curl -L -o /usr/local/bin/aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.14/aws-iam-authenticator_0.6.14_linux_amd64",
-      "chmod +x /usr/local/bin/aws-iam-authenticator",
+      "sudo curl -L -o /usr/local/bin/aws-iam-authenticator https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.14/aws-iam-authenticator_0.6.14_linux_amd64",
+      "sudo chmod +x /usr/local/bin/aws-iam-authenticator",
       "aws-iam-authenticator version"
     ]
   }

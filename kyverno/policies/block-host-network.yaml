@@ -1,0 +1,76 @@
+# =============================================================================
+# ClusterPolicy: block-host-network
+# 목적: hostNetwork: true 로 설정된 Pod 배포를 차단합니다.
+#
+# 위험성:
+#   hostNetwork: true 를 사용하면 Pod 가 호스트 노드의 네트워크 네임스페이스를
+#   공유합니다. 이를 통해 공격자는 노드 전체 네트워크 트래픽을 도청하거나
+#   임의의 포트를 점유하여 다른 서비스를 방해할 수 있습니다.
+#   참고: CIS Kubernetes Benchmark 5.2.4, NSA/CISA Kubernetes Hardening Guide
+#
+# 현재 상태: Audit (위반 Pod 를 허용하되 PolicyReport 에 기록)
+#   위반 Pod 확인:
+#     kubectl get policyreport -A
+#     kubectl get clusterpolicyreport
+#
+# Audit → Enforce 전환 (위반 Pod 가 없음을 확인한 뒤 실행):
+#   kubectl patch clusterpolicy block-host-network \
+#     --type=merge \
+#     -p '{"spec":{"validationFailureAction":"Enforce"}}'
+#
+# 예외 네임스페이스:
+#   kube-system — kube-proxy, aws-node 등 EKS 시스템 DaemonSet 이 hostNetwork 를 사용
+#   kyverno     — Kyverno 웹훅 컴포넌트 자체
+#   monitoring  — Prometheus node-exporter 등 노드 수준 메트릭 수집기
+#   falco       — Falco 런타임 보안 DaemonSet (syscall 감지를 위해 hostNetwork 필요)
+# =============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: block-host-network
+  annotations:
+    policies.kyverno.io/title: Block Host Network
+    policies.kyverno.io/category: Pod Security Standards / Baseline
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/minversion: "1.6.0"
+    policies.kyverno.io/description: >-
+      hostNetwork: true 를 사용하는 Pod 는 호스트 네트워크 네임스페이스를 공유하여
+      노드 수준 네트워크 트래픽 도청 및 포트 점유가 가능합니다.
+      이 정책은 hostNetwork: true 인 Pod 생성·업데이트를 차단합니다.
+      kube-system, kyverno, monitoring, falco 는 예외 처리됩니다.
+spec:
+  # Audit: 위반을 허용하되 PolicyReport 에 기록 (영향 파악 후 Enforce 로 전환)
+  # Enforce 전환 명령어는 상단 주석 참고
+  validationFailureAction: Audit
+
+  # background: true → 이미 실행 중인 Pod 도 정책 평가 대상 (PolicyReport 생성)
+  background: true
+
+  rules:
+    - name: block-host-network
+      # 모든 네임스페이스의 Pod 생성·업데이트 요청을 검사
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      # hostNetwork 를 합법적으로 사용하는 시스템 컴포넌트 예외 처리
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system  # kube-proxy, aws-node 등 AWS EKS 시스템 DaemonSet
+                - kyverno      # Kyverno 자체 컴포넌트
+                - monitoring   # Prometheus node-exporter 등 노드 메트릭 수집기
+                - falco        # Falco 런타임 보안 DaemonSet
+      validate:
+        message: >-
+          hostNetwork: true 는 허용되지 않습니다.
+          Pod 스펙에서 hostNetwork 를 제거하거나 false 로 설정하세요.
+          예외가 필요한 경우 클러스터 관리자에게 문의하세요.
+        pattern:
+          spec:
+            # =(field): Conditional Anchor — 필드가 존재할 때만 검사
+            # hostNetwork 가 명시되지 않으면 기본값(false) 이므로 정책 통과
+            =(hostNetwork): "false"
