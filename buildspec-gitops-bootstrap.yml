@@ -36,11 +36,24 @@ phases:
           sleep 2
         done
 
+        # ── ECR 레지스트리 URL 구성 ──
+        ECR_REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-northeast-2.amazonaws.com"
+
         # ── Kyverno 설치 매니페스트 렌더링 (이미지 내 차트 사용 — 외부 네트워크 불필요) ──
         helm template kyverno /opt/helm-charts/kyverno \
           --namespace kyverno \
           --include-crds \
           -f /workspace/kyverno/helm/values.yaml \
+          --set "admissionController.initContainer.image.registry=${ECR_REGISTRY}" \
+          --set "admissionController.initContainer.image.repository=financial/kyverno/kyvernopre" \
+          --set "admissionController.container.image.registry=${ECR_REGISTRY}" \
+          --set "admissionController.container.image.repository=financial/kyverno/kyverno" \
+          --set "backgroundController.image.registry=${ECR_REGISTRY}" \
+          --set "backgroundController.image.repository=financial/kyverno/background-controller" \
+          --set "cleanupController.image.registry=${ECR_REGISTRY}" \
+          --set "cleanupController.image.repository=financial/kyverno/cleanup-controller" \
+          --set "reportsController.image.registry=${ECR_REGISTRY}" \
+          --set "reportsController.image.repository=financial/kyverno/reports-controller" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──

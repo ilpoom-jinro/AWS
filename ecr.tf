@@ -11,6 +11,10 @@ resource "aws_ecr_repository" "ansible_codebuild" {
     Purpose   = "ansible-codebuild-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "ansible_codebuild" {
@@ -44,6 +48,10 @@ resource "aws_ecr_repository" "internal_git" {
     Name      = var.internal_git_image_repository_name
     Purpose   = "internal-git-runtime"
     ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -79,6 +87,10 @@ resource "aws_ecr_repository" "argocd" {
     Purpose   = "argocd-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "argocd" {
@@ -112,6 +124,10 @@ resource "aws_ecr_repository" "argocd_redis" {
     Name      = var.argocd_redis_image_repository_name
     Purpose   = "argocd-redis-runtime"
     ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -147,6 +163,10 @@ resource "aws_ecr_repository" "istio_pilot" {
     Purpose   = "istio-ambient-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_repository" "istio_proxyv2" {
@@ -161,6 +181,10 @@ resource "aws_ecr_repository" "istio_proxyv2" {
     Name      = "${var.istio_image_repository_prefix}/proxyv2"
     Purpose   = "istio-ambient-runtime"
     ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -177,6 +201,10 @@ resource "aws_ecr_repository" "istio_install_cni" {
     Purpose   = "istio-ambient-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_repository" "istio_ztunnel" {
@@ -191,6 +219,10 @@ resource "aws_ecr_repository" "istio_ztunnel" {
     Name      = "${var.istio_image_repository_prefix}/ztunnel"
     Purpose   = "istio-ambient-runtime"
     ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -283,6 +315,10 @@ resource "aws_ecr_repository" "teleport" {
     Purpose   = "teleport-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "teleport" {
@@ -315,6 +351,10 @@ resource "aws_ecr_repository" "pause" {
     Purpose   = "k3s-pause-image"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_repository" "aws_load_balancer_controller" {
@@ -329,6 +369,10 @@ resource "aws_ecr_repository" "aws_load_balancer_controller" {
     Name      = "financial/system/aws-load-balancer-controller"
     Purpose   = "aws-load-balancer-controller-runtime"
     ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -364,6 +408,10 @@ resource "aws_ecr_repository" "observability_indexer" {
     Purpose   = "observability-indexer-runtime"
     ManagedBy = "terraform"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "observability_indexer" {
@@ -373,6 +421,196 @@ resource "aws_ecr_lifecycle_policy" "observability_indexer" {
     rules = [{
       rulePriority = 1
       description  = "Keep the last 10 Observability Indexer images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "kyverno" {
+  name                 = "financial/kyverno/kyverno"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/kyverno"
+    Purpose   = "kyverno-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyverno" {
+  repository = aws_ecr_repository.kyverno.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "kyvernopre" {
+  name                 = "financial/kyverno/kyvernopre"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/kyvernopre"
+    Purpose   = "kyverno-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyvernopre" {
+  repository = aws_ecr_repository.kyvernopre.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "kyverno_background_controller" {
+  name                 = "financial/kyverno/background-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/background-controller"
+    Purpose   = "kyverno-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyverno_background_controller" {
+  repository = aws_ecr_repository.kyverno_background_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "kyverno_cleanup_controller" {
+  name                 = "financial/kyverno/cleanup-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/cleanup-controller"
+    Purpose   = "kyverno-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyverno_cleanup_controller" {
+  repository = aws_ecr_repository.kyverno_cleanup_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "kyverno_reports_controller" {
+  name                 = "financial/kyverno/reports-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/reports-controller"
+    Purpose   = "kyverno-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyverno_reports_controller" {
+  repository = aws_ecr_repository.kyverno_reports_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"

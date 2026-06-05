@@ -39,6 +39,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_kyverno:
+        description: "Mirror Kyverno images into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -67,6 +72,8 @@ env:
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/system/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
+  KYVERNO_REPOSITORY_PREFIX: financial/kyverno
+  KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
 
 jobs:
   images:
@@ -165,6 +172,16 @@ jobs:
           -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller
           -target=aws_ecr_repository.observability_indexer
           -target=aws_ecr_lifecycle_policy.observability_indexer
+          -target=aws_ecr_repository.kyverno
+          -target=aws_ecr_lifecycle_policy.kyverno
+          -target=aws_ecr_repository.kyvernopre
+          -target=aws_ecr_lifecycle_policy.kyvernopre
+          -target=aws_ecr_repository.kyverno_background_controller
+          -target=aws_ecr_lifecycle_policy.kyverno_background_controller
+          -target=aws_ecr_repository.kyverno_cleanup_controller
+          -target=aws_ecr_lifecycle_policy.kyverno_cleanup_controller
+          -target=aws_ecr_repository.kyverno_reports_controller
+          -target=aws_ecr_lifecycle_policy.kyverno_reports_controller
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -187,6 +204,11 @@ jobs:
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/ztunnel"
           aws ecr describe-repositories --repository-names "${AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${OBSERVABILITY_INDEXER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/kyverno"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/kyvernopre"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/background-controller"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/cleanup-controller"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/reports-controller"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -246,6 +268,20 @@ jobs:
 
             docker tag "docker.io/istio/${image}:${ISTIO_VERSION}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
             docker push "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
+          done
+
+      - name: Mirror Kyverno images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_kyverno == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          for component in kyverno kyvernopre background-controller cleanup-controller reports-controller; do
+            source_image="${KYVERNO_SOURCE_REGISTRY}/${component}:latest"
+            target_image="${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
+
+            docker pull "${source_image}"
+            docker tag "${source_image}" "${target_image}"
+            docker push "${target_image}"
           done
 
       - name: Mirror internal Git image to ECR
