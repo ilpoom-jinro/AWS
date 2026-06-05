@@ -90,6 +90,7 @@ addon_helm_timeout: 15m
 rollout_timeout: 600s
 service_ambient_namespaces:
   - service-apps
+  - stock-demo
 ops_ambient_namespaces:
   - agents
 
@@ -100,6 +101,7 @@ internal_git_image: "{{ lookup('env', 'INTERNAL_GIT_IMAGE') | default('gitea/git
 internal_git_http_port: 3000
 internal_git_local_http_port: 13000
 internal_git_demo_local_http_port: 13001
+internal_git_platform_local_http_port: 13002
 internal_git_ssh_port: 2222
 internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
 internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"
@@ -126,3 +128,17 @@ service_apps:
     container_port: 8080
     service_port: 8080
     argocd_application_name: backend-service-app
+
+demo_app_name: demo-app
+demo_app_namespace: stock-demo
+demo_app_path: financial-service-eks
+demo_backend_name: backend
+demo_frontend_name: frontend
+demo_db_name: postgres
+demo_backend_image: "{{ lookup('env', 'DEMO_BACKEND_IMAGE') | default('public.ecr.aws/docker/library/python:3.12-slim', true) }}"
+demo_frontend_image: "{{ lookup('env', 'DEMO_FRONTEND_IMAGE') | default('public.ecr.aws/docker/library/nginx:1.27-alpine', true) }}"
+demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
+demo_db_name_value: stockdemo
+demo_db_user: stockuser
+demo_db_password: stockpass
+demo_argocd_application_name: service-demo-app

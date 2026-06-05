@@ -3,15 +3,18 @@ name: App Deploy
 on:
   workflow_dispatch:
     inputs:
-      app_name:
+      component:
         description: "Application name passed to CodeBuild"
         required: true
-        default: "frontend"
-        type: string
+        default: "backend"
+        type: choice
+        options:
+          - backend
+          - frontend
       ecr_repository:
         description: "ECR repository name for the application image"
         required: true
-        default: "financial/demo-app-frontend"
+        default: "financial/demo-app-backend"
         type: string
       codebuild_project:
         description: "CodeBuild project that updates the internal Git manifest"
@@ -36,12 +39,12 @@ on:
       manifest_path:
         description: "Manifest path in the internal GitOps repository"
         required: false
-        default: "apps/frontend/deployment.yaml"
+        default: "apps/backend/deployment.yaml"
         type: string
       target_container:
         description: "Container name to update inside the manifest"
         required: false
-        default: "frontend"
+        default: "backend"
         type: string
 
 permissions:
@@ -49,7 +52,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-deploy-${{ inputs.app_name }}-${{ inputs.gitops_branch }}
+  group: app-deploy-${{ inputs.component }}-${{ inputs.gitops_branch }}
   cancel-in-progress: false
 
 env:
@@ -117,7 +120,7 @@ jobs:
         id: codebuild
         shell: bash
         env:
-          APP_NAME: ${{ inputs.app_name }}
+          APP_NAME: ${{ inputs.component }}
           CODEBUILD_PROJECT: ${{ inputs.codebuild_project }}
           ECR_REPOSITORY: ${{ inputs.ecr_repository }}
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}

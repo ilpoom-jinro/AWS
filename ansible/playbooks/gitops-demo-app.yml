@@ -162,8 +162,8 @@
         method: GET
         status_code: 200
       register: internal_git_demo_api_probe
-      retries: 30
-      delay: 2
+      retries: 60
+      delay: 5
       until: internal_git_demo_api_probe.status == 200
       ignore_errors: true
 
@@ -178,6 +178,72 @@
       ansible.builtin.fail:
         msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during demo bootstrap. Check the port-forward log above."
       when: internal_git_demo_api_probe.failed | default(false)
+
+    - name: Ensure GitOps organization exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/orgs"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 422]
+        body_format: json
+        body:
+          username: "{{ internal_git_org }}"
+          full_name: GitOps
+          visibility: public
+      no_log: true
+
+    - name: Ensure GitOps repository exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/orgs/{{ internal_git_org }}/repos"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 409, 422]
+        body_format: json
+        body:
+          name: "{{ internal_git_repo }}"
+          description: Internal GitOps source of truth
+          private: false
+          auto_init: false
+          default_branch: main
+      no_log: true
+
+    - name: Check whether the GitOps repository already has a main branch
+      ansible.builtin.shell: |
+        set -e
+        git ls-remote \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git" \
+          refs/heads/main
+      register: internal_git_demo_main_branch
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Push initial GitOps repository commit
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/internal-gitops-bootstrap
+        mkdir -p /tmp/internal-gitops-bootstrap/apps
+        cd /tmp/internal-gitops-bootstrap
+        git init -b main
+        git config user.name "GitOps Bootstrap"
+        git config user.email "gitops-bootstrap@internal.ops.local"
+        cat > README.md <<'EOF'
+        # Internal GitOps Repository
+
+        This repository is bootstrapped automatically for the internal Argo CD control plane.
+        EOF
+        touch apps/.gitkeep
+        git add README.md apps/.gitkeep
+        git commit -m "Initial GitOps bootstrap"
+        git remote add origin \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git"
+        git push -u origin main
+      when: internal_git_demo_main_branch.rc != 0 or internal_git_demo_main_branch.stdout | length == 0
+      no_log: true
 
     - name: Push service app manifests to internal Git
       ansible.builtin.shell: |
