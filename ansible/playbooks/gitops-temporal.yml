@@ -1,0 +1,233 @@
+- name: Bootstrap Temporal GitOps deployment for the Ops EKS cluster
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Update kubeconfig for the Ops EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ ops_eks_cluster_name }}
+          --alias {{ ops_kube_context }}
+      changed_when: false
+
+    - name: Stop when Temporal chart is not present in the CodeBuild image
+      ansible.builtin.stat:
+        path: "{{ temporal_chart_ref }}/Chart.yaml"
+      register: temporal_chart_file
+
+    - name: Fail when Temporal chart is missing
+      ansible.builtin.fail:
+        msg: "Temporal chart was not found at {{ temporal_chart_ref }}. Rebuild the Ansible CodeBuild image."
+      when: not temporal_chart_file.stat.exists
+
+  tasks:
+    - name: Ensure Temporal namespace exists
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ temporal_namespace }}"
+
+    - name: Create or update Temporal database secret
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ temporal_db_secret_name }}"
+            namespace: "{{ temporal_namespace }}"
+          type: Opaque
+          stringData:
+            password: "{{ temporal_db_password }}"
+      no_log: true
+
+    - name: Start local port-forward to internal Git service
+      ansible.builtin.shell: |
+        set -e
+        rm -f /tmp/internal-git-temporal-port-forward.log
+        nohup kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          port-forward svc/{{ internal_git_service_name }} {{ internal_git_demo_local_http_port }}:{{ internal_git_http_port }} \
+          >/tmp/internal-git-temporal-port-forward.log 2>&1 &
+        echo $!
+      changed_when: false
+      register: internal_git_temporal_port_forward_pid
+
+    - name: Wait for internal Git Temporal port-forward listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ internal_git_demo_local_http_port }}"
+        timeout: 30
+      register: internal_git_temporal_port_forward_wait
+      failed_when: false
+
+    - name: Show internal Git Temporal port-forward log when listener is not ready
+      ansible.builtin.command:
+        cmd: cat /tmp/internal-git-temporal-port-forward.log
+      when: internal_git_temporal_port_forward_wait.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when internal Git Temporal port-forward listener is not ready
+      ansible.builtin.fail:
+        msg: "Internal Git port-forward did not open 127.0.0.1:{{ internal_git_demo_local_http_port }}. Check the port-forward log above."
+      when: internal_git_temporal_port_forward_wait.failed | default(false)
+
+    - name: Wait for internal Git API through Temporal port-forward
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/version"
+        method: GET
+        status_code: 200
+      register: internal_git_temporal_api_probe
+      retries: 30
+      delay: 2
+      until: internal_git_temporal_api_probe.status == 200
+      ignore_errors: true
+
+    - name: Stop when internal Git API is not ready through Temporal port-forward
+      ansible.builtin.fail:
+        msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during Temporal bootstrap."
+      when: internal_git_temporal_api_probe.failed | default(false)
+
+    - name: Render Temporal Helm values for GitOps
+      ansible.builtin.copy:
+        dest: /tmp/temporal-values.yaml
+        mode: "0644"
+        content: "{{ lookup('template', '../templates/temporal-values.yml.j2') }}"
+      changed_when: false
+
+    - name: Ensure Temporal GitOps repository exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_demo_local_http_port }}/api/v1/orgs/{{ internal_git_org }}/repos"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        status_code: [201, 409, 422]
+        body_format: json
+        body:
+          name: "{{ temporal_gitops_repo }}"
+          description: Temporal GitOps source of truth
+          private: false
+          auto_init: false
+          default_branch: main
+      no_log: true
+
+    - name: Check whether the Temporal GitOps repository already has a main branch
+      ansible.builtin.shell: |
+        set -e
+        git ls-remote \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ temporal_gitops_repo }}.git" \
+          refs/heads/main
+      register: temporal_gitops_main_branch
+      failed_when: false
+      changed_when: false
+      no_log: true
+
+    - name: Push initial Temporal GitOps repository commit
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/temporal-gitops-initial
+        mkdir -p /tmp/temporal-gitops-initial
+        cd /tmp/temporal-gitops-initial
+        git init -b main
+        git config user.name "Temporal GitOps Bot"
+        git config user.email "temporal-gitops@internal.ops.local"
+        cat > README.md <<'EOF'
+        # Temporal GitOps Repository
+
+        This repository is managed automatically for the Ops Temporal platform.
+        EOF
+        git add README.md
+        git commit -m "Initial Temporal GitOps bootstrap"
+        git remote add origin \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ temporal_gitops_repo }}.git"
+        git push -u origin main
+      when: temporal_gitops_main_branch.rc != 0 or temporal_gitops_main_branch.stdout | length == 0
+      no_log: true
+
+    - name: Push Temporal chart and values to internal Git
+      ansible.builtin.shell: |
+        set -e
+        rm -rf /tmp/internal-gitops-temporal
+        git clone "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_demo_local_http_port }}/{{ internal_git_org }}/{{ temporal_gitops_repo }}.git" /tmp/internal-gitops-temporal
+        cd /tmp/internal-gitops-temporal
+        git config user.name "Temporal GitOps Bot"
+        git config user.email "temporal-gitops@internal.ops.local"
+        git checkout main || git checkout -b main
+        rm -rf "{{ temporal_chart_path }}"
+        mkdir -p "$(dirname '{{ temporal_chart_path }}')" "{{ temporal_app_path }}"
+        cp -R "{{ temporal_chart_ref }}" "{{ temporal_chart_path }}"
+        cp /tmp/temporal-values.yaml "{{ temporal_chart_path }}/values-financial.yaml"
+        cat > "{{ temporal_app_path }}/README.md" <<'EOF'
+        # Temporal
+
+        Argo CD deploys the Temporal Helm chart from `charts/temporal` with `values-financial.yaml`.
+        EOF
+        git add "{{ temporal_chart_path }}" "{{ temporal_app_path }}"
+        git diff --cached --quiet && exit 0
+        git commit -m "deploy: sync temporal platform"
+        git push origin main
+      no_log: true
+
+    - name: Create Argo CD repository secret for Temporal GitOps
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ temporal_gitops_repo_name }}"
+            namespace: "{{ argocd_namespace }}"
+            labels:
+              argocd.argoproj.io/secret-type: repository
+          stringData:
+            type: git
+            url: "{{ temporal_gitops_repo_url }}"
+            project: default
+            username: "{{ internal_git_admin_username }}"
+            password: "{{ internal_git_admin_password }}"
+      no_log: true
+
+    - name: Create Argo CD Application for Temporal
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: "{{ temporal_argocd_application_name }}"
+            namespace: "{{ argocd_namespace }}"
+          spec:
+            project: default
+            source:
+              repoURL: "{{ temporal_gitops_repo_url }}"
+              targetRevision: main
+              path: "{{ temporal_chart_path }}"
+              helm:
+                releaseName: "{{ temporal_release_name }}"
+                valueFiles:
+                  - values-financial.yaml
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: "{{ temporal_namespace }}"
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+              syncOptions:
+                - CreateNamespace=true
+
+    - name: Stop internal Git Temporal port-forward
+      ansible.builtin.shell: |
+        kill {{ internal_git_temporal_port_forward_pid.stdout }} >/dev/null 2>&1 || true
+      changed_when: false
+      failed_when: false

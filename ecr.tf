@@ -168,6 +168,108 @@ resource "aws_ecr_lifecycle_policy" "prometheus" {
   })
 }
 
+resource "aws_ecr_repository" "temporal_server" {
+  name                 = var.temporal_server_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.temporal_server_image_repository_name
+    Purpose   = "temporal-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_server" {
+  repository = aws_ecr_repository.temporal_server.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal server images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "temporal_admin_tools" {
+  name                 = var.temporal_admin_tools_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.temporal_admin_tools_image_repository_name
+    Purpose   = "temporal-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_admin_tools" {
+  repository = aws_ecr_repository.temporal_admin_tools.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal admin tools images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "temporal_ui" {
+  name                 = var.temporal_ui_image_repository_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = var.temporal_ui_image_repository_name
+    Purpose   = "temporal-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_ui" {
+  repository = aws_ecr_repository.temporal_ui.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal UI images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"

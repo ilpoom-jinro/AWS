@@ -1,6 +1,6 @@
 - import_playbook: service-istio-ambient.yml
 - import_playbook: ops-internal-git.yml
 - import_playbook: ops-argocd.yml
-- import_playbook: ops-prometheus.yml
+- import_playbook: gitops-temporal.yml
 - import_playbook: service-cluster-access.yml
 - import_playbook: gitops-demo-app.yml

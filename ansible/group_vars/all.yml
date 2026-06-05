@@ -20,6 +20,31 @@ prometheus_chart_ref: /opt/helm-charts/prometheus
 prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
 prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
 
+temporal_namespace: temporal-system
+temporal_release_name: temporal
+temporal_argocd_application_name: temporal
+temporal_gitops_repo: temporal
+temporal_gitops_repo_name: temporal-gitops
+temporal_gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/temporal.git"
+temporal_app_path: apps/temporal
+temporal_chart_path: charts/temporal
+temporal_chart_ref: /opt/helm-charts/temporal
+temporal_chart_version: "{{ lookup('env', 'TEMPORAL_CHART_VERSION') | default('', true) }}"
+temporal_server_image_repository: "{{ lookup('env', 'TEMPORAL_SERVER_IMAGE_REPOSITORY') }}"
+temporal_server_image_tag: "{{ lookup('env', 'TEMPORAL_SERVER_IMAGE_TAG') | default('1.31.0', true) }}"
+temporal_admin_tools_image_repository: "{{ lookup('env', 'TEMPORAL_ADMIN_TOOLS_IMAGE_REPOSITORY') }}"
+temporal_admin_tools_image_tag: "{{ lookup('env', 'TEMPORAL_ADMIN_TOOLS_IMAGE_TAG') | default('1.31.0', true) }}"
+temporal_ui_image_repository: "{{ lookup('env', 'TEMPORAL_UI_IMAGE_REPOSITORY') }}"
+temporal_ui_image_tag: "{{ lookup('env', 'TEMPORAL_UI_IMAGE_TAG') | default('2.49.1', true) }}"
+temporal_db_host: "{{ lookup('env', 'TEMPORAL_DB_HOST') }}"
+temporal_db_port: "{{ lookup('env', 'TEMPORAL_DB_PORT') | default('5432', true) }}"
+temporal_db_name: "{{ lookup('env', 'TEMPORAL_DB_NAME') | default('temporal', true) }}"
+temporal_visibility_db_name: "{{ lookup('env', 'TEMPORAL_VISIBILITY_DB_NAME') | default('temporal_visibility', true) }}"
+temporal_db_username: "{{ lookup('env', 'TEMPORAL_DB_USERNAME') | default('temporal', true) }}"
+temporal_db_password: "{{ lookup('env', 'TEMPORAL_DB_PASSWORD') }}"
+temporal_db_secret_name: temporal-db-secret
+temporal_frontend_host: "temporal-frontend.temporal-system.svc.cluster.local:7233"
+
 mas_namespace: mas
 mas_release_name: mas-runtime
 mas_argocd_application_name: mas

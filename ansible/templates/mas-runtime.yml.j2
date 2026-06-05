@@ -91,6 +91,16 @@ spec:
               value: {{ agent.bedrock_max_tokens | quote }}
             - name: PROMETHEUS_URL
               value: {{ agent.prometheus_url | quote }}
+            - name: TEMPORAL_HOST
+              value: {{ temporal_frontend_host | quote }}
+            - name: TEMPORAL_NAMESPACE
+              value: {{ mas_namespace | quote }}
+            - name: TEMPORAL_ORCHESTRATOR_TASK_QUEUE
+              value: "mas-orchestrator"
+            - name: TEMPORAL_OBSERVER_TASK_QUEUE
+              value: "mas-observer-agent"
+            - name: TEMPORAL_ANALYZER_TASK_QUEUE
+              value: "mas-analyzer-agent"
 {% if agent.observer_url is defined %}
             - name: MAS_OBSERVER_URL
               value: {{ agent.observer_url | quote }}

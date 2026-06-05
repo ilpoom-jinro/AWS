@@ -8,6 +8,11 @@ on:
     paths:
       - "ansible/**"
       - "buildspec-ansible.yml"
+      - "codebuild.tf"
+      - "ecr.tf"
+      - "variables.tf"
+      - "versions.tf"
+      - "vpc/ops/**"
       - "tools/ansible-codebuild/**"
       - ".github/workflows/ecr-images.yml"
   workflow_dispatch:
@@ -34,6 +39,11 @@ on:
         type: boolean
       mirror_prometheus:
         description: "Mirror the Prometheus image into ECR"
+        required: true
+        default: true
+        type: boolean
+      mirror_temporal:
+        description: "Mirror the Temporal images into ECR"
         required: true
         default: true
         type: boolean
@@ -73,6 +83,12 @@ env:
   ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
   PROMETHEUS_REPOSITORY: financial/prometheus
   PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
+  TEMPORAL_SERVER_REPOSITORY: financial/temporal-server
+  TEMPORAL_SERVER_SOURCE_IMAGE: temporalio/server:1.31.0
+  TEMPORAL_ADMIN_TOOLS_REPOSITORY: financial/temporal-admin-tools
+  TEMPORAL_ADMIN_TOOLS_SOURCE_IMAGE: temporalio/admin-tools:1.31.0
+  TEMPORAL_UI_REPOSITORY: financial/temporal-ui
+  TEMPORAL_UI_SOURCE_IMAGE: temporalio/ui:2.49.1
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
   TELEPORT_REPOSITORY: financial/teleport
@@ -122,6 +138,12 @@ jobs:
           -target=aws_ecr_lifecycle_policy.argocd_redis
           -target=aws_ecr_repository.prometheus
           -target=aws_ecr_lifecycle_policy.prometheus
+          -target=aws_ecr_repository.temporal_server
+          -target=aws_ecr_lifecycle_policy.temporal_server
+          -target=aws_ecr_repository.temporal_admin_tools
+          -target=aws_ecr_lifecycle_policy.temporal_admin_tools
+          -target=aws_ecr_repository.temporal_ui
+          -target=aws_ecr_lifecycle_policy.temporal_ui
           -target=aws_ecr_repository.istio_pilot
           -target=aws_ecr_lifecycle_policy.istio_pilot
           -target=aws_ecr_repository.istio_proxyv2
@@ -145,6 +167,9 @@ jobs:
           aws ecr describe-repositories --repository-names "${ARGOCD_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ARGOCD_REDIS_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${PROMETHEUS_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_SERVER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_ADMIN_TOOLS_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_UI_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/pilot"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
@@ -200,6 +225,28 @@ jobs:
           docker pull "${PROMETHEUS_SOURCE_IMAGE}"
           docker tag "${PROMETHEUS_SOURCE_IMAGE}" "${IMAGE_URI}:v3.7.3"
           docker push "${IMAGE_URI}:v3.7.3"
+
+      - name: Mirror Temporal images to ECR
+        if: github.event_name == 'push' || inputs.mirror_temporal == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          mirror_image() {
+            local source_image="$1"
+            local repository="$2"
+            local version_tag="$3"
+            local image_uri="${REGISTRY}/${repository}"
+
+            docker pull "${source_image}"
+            docker tag "${source_image}" "${image_uri}:${version_tag}"
+            docker tag "${source_image}" "${image_uri}:latest"
+            docker push "${image_uri}:${version_tag}"
+            docker push "${image_uri}:latest"
+          }
+
+          mirror_image "${TEMPORAL_SERVER_SOURCE_IMAGE}" "${TEMPORAL_SERVER_REPOSITORY}" "1.31.0"
+          mirror_image "${TEMPORAL_ADMIN_TOOLS_SOURCE_IMAGE}" "${TEMPORAL_ADMIN_TOOLS_REPOSITORY}" "1.31.0"
+          mirror_image "${TEMPORAL_UI_SOURCE_IMAGE}" "${TEMPORAL_UI_REPOSITORY}" "2.49.1"
 
       - name: Mirror Istio ambient images to ECR
         if: github.event_name == 'push' || inputs.mirror_istio == true

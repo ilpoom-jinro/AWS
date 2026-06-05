@@ -14,6 +14,11 @@ class Settings:
     orchestrator_url: str
     observer_url: str
     analyzer_url: str
+    temporal_host: str
+    temporal_namespace: str
+    temporal_orchestrator_task_queue: str
+    temporal_observer_task_queue: str
+    temporal_analyzer_task_queue: str
 
 
 def load_settings() -> Settings:
@@ -40,4 +45,12 @@ def load_settings() -> Settings:
             "MAS_ANALYZER_URL",
             "http://mas-analyzer-agent.mas.svc.cluster.local:8080",
         ),
+        temporal_host=os.getenv(
+            "TEMPORAL_HOST",
+            "temporal-frontend.temporal-system.svc.cluster.local:7233",
+        ),
+        temporal_namespace=os.getenv("TEMPORAL_NAMESPACE", "mas"),
+        temporal_orchestrator_task_queue=os.getenv("TEMPORAL_ORCHESTRATOR_TASK_QUEUE", "mas-orchestrator"),
+        temporal_observer_task_queue=os.getenv("TEMPORAL_OBSERVER_TASK_QUEUE", "mas-observer-agent"),
+        temporal_analyzer_task_queue=os.getenv("TEMPORAL_ANALYZER_TASK_QUEUE", "mas-analyzer-agent"),
     )

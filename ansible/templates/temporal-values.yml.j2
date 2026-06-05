@@ -1,0 +1,67 @@
+server:
+  image:
+    repository: "{{ temporal_server_image_repository }}"
+    tag: "{{ temporal_server_image_tag }}"
+  replicaCount: 1
+  config:
+    persistence:
+      defaultStore: default
+      visibilityStore: visibility
+      numHistoryShards: 512
+      datastores:
+        default:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: "{{ temporal_db_name }}"
+            connectAddr: "{{ temporal_db_host }}:{{ temporal_db_port }}"
+            connectProtocol: tcp
+            user: "{{ temporal_db_username }}"
+            existingSecret: "{{ temporal_db_secret_name }}"
+            secretKey: password
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: 1h
+        visibility:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            driverName: postgres12
+            databaseName: "{{ temporal_visibility_db_name }}"
+            connectAddr: "{{ temporal_db_host }}:{{ temporal_db_port }}"
+            connectProtocol: tcp
+            user: "{{ temporal_db_username }}"
+            existingSecret: "{{ temporal_db_secret_name }}"
+            secretKey: password
+            maxConns: 10
+            maxIdleConns: 10
+            maxConnLifetime: 1h
+  frontend:
+    service:
+      type: ClusterIP
+      port: 7233
+  metrics:
+    prometheus:
+      listenAddress: "0.0.0.0:9090"
+
+admintools:
+  enabled: true
+  image:
+    repository: "{{ temporal_admin_tools_image_repository }}"
+    tag: "{{ temporal_admin_tools_image_tag }}"
+
+web:
+  enabled: true
+  image:
+    repository: "{{ temporal_ui_image_repository }}"
+    tag: "{{ temporal_ui_image_tag }}"
+  service:
+    type: ClusterIP
+    port: 8080
+
+schema:
+  useHelmHooks: true
+  backoffLimit: 100

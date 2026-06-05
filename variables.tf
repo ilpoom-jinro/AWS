@@ -55,6 +55,24 @@ variable "prometheus_image_repository_name" {
   default     = "financial/prometheus"
 }
 
+variable "temporal_server_image_repository_name" {
+  description = "ECR repository name for the mirrored Temporal server image"
+  type        = string
+  default     = "financial/temporal-server"
+}
+
+variable "temporal_admin_tools_image_repository_name" {
+  description = "ECR repository name for the mirrored Temporal admin tools image"
+  type        = string
+  default     = "financial/temporal-admin-tools"
+}
+
+variable "temporal_ui_image_repository_name" {
+  description = "ECR repository name for the mirrored Temporal UI image"
+  type        = string
+  default     = "financial/temporal-ui"
+}
+
 variable "app_frontend_image_repository_name" {
   description = "Existing ECR repository name for the frontend application image"
   type        = string
@@ -113,6 +131,30 @@ variable "prometheus_image_tag" {
   description = "Prometheus image tag used by the Helm release"
   type        = string
   default     = "v3.7.3"
+}
+
+variable "temporal_chart_version" {
+  description = "Temporal Helm chart version copied into the internal GitOps repository"
+  type        = string
+  default     = ""
+}
+
+variable "temporal_server_image_tag" {
+  description = "Temporal server image tag used by the Helm release"
+  type        = string
+  default     = "1.31.0"
+}
+
+variable "temporal_admin_tools_image_tag" {
+  description = "Temporal admin tools image tag used by the Helm release"
+  type        = string
+  default     = "1.31.0"
+}
+
+variable "temporal_ui_image_tag" {
+  description = "Temporal UI image tag used by the Helm release"
+  type        = string
+  default     = "2.49.1"
 }
 
 variable "app_frontend_image_tag" {

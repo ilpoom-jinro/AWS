@@ -1,35 +1,23 @@
+from uuid import uuid4
 from typing import Any
 
-import httpx
+from temporalio.client import Client
+
+from app.temporal_workflows import NamespaceAnalysisWorkflow
 
 
 class OrchestratorAgent:
-    def __init__(self, observer_url: str, analyzer_url: str) -> None:
-        self.observer_url = observer_url.rstrip("/")
-        self.analyzer_url = analyzer_url.rstrip("/")
+    def __init__(self, temporal_client: Client, task_queue: str) -> None:
+        self.temporal_client = temporal_client
+        self.task_queue = task_queue
 
     async def analyze_namespace(self, namespace: str, prompt: str | None = None) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            observer_response = await client.post(
-                f"{self.observer_url}/observe",
-                json={"namespace": namespace},
-            )
-            observer_response.raise_for_status()
-            observation = observer_response.json()
-
-            analyzer_response = await client.post(
-                f"{self.analyzer_url}/analyze-signals",
-                json={
-                    "namespace": namespace,
-                    "signals": observation["signals"],
-                    "prompt": prompt,
-                },
-            )
-            analyzer_response.raise_for_status()
-            analysis = analyzer_response.json()
-
-        return {
-            "namespace": namespace,
-            "observation": observation,
-            "analysis": analysis,
-        }
+        workflow_id = f"mas-analyze-{namespace}-{uuid4()}"
+        handle = await self.temporal_client.start_workflow(
+            NamespaceAnalysisWorkflow.run,
+            args=[namespace, prompt],
+            id=workflow_id,
+            task_queue=self.task_queue,
+        )
+        result = await handle.result()
+        return {"workflow_id": workflow_id, "result": result}

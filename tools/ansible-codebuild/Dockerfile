@@ -4,6 +4,7 @@ ARG KUBECTL_VERSION=v1.35.0
 ARG HELM_VERSION=v3.17.3
 ARG ARGOCD_CHART_VERSION=""
 ARG PROMETHEUS_CHART_VERSION=""
+ARG TEMPORAL_CHART_VERSION=""
 ARG ISTIO_CHART_VERSION="1.30.0"
 
 RUN dnf install -y \
@@ -47,6 +48,7 @@ RUN curl -fsSLo /tmp/helm.tar.gz \
 RUN mkdir -p /opt/helm-charts \
     && helm repo add argo https://argoproj.github.io/argo-helm \
     && helm repo add prometheus-community https://prometheus-community.github.io/helm-charts \
+    && helm repo add temporal https://go.temporal.io/helm-charts \
     && helm repo add istio https://istio-release.storage.googleapis.com/charts \
     && helm repo update \
     && if [ -n "${ARGOCD_CHART_VERSION}" ]; then \
@@ -59,12 +61,18 @@ RUN mkdir -p /opt/helm-charts \
        else \
          helm pull prometheus-community/prometheus --untar --untardir /opt/helm-charts; \
        fi \
+    && if [ -n "${TEMPORAL_CHART_VERSION}" ]; then \
+         helm pull temporal/temporal --version "${TEMPORAL_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
+       else \
+         helm pull temporal/temporal --untar --untardir /opt/helm-charts; \
+       fi \
     && helm pull istio/base --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && helm pull istio/istiod --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && helm pull istio/cni --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && helm pull istio/ztunnel --version "${ISTIO_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && test -f /opt/helm-charts/argo-cd/Chart.yaml \
     && test -f /opt/helm-charts/prometheus/Chart.yaml \
+    && test -f /opt/helm-charts/temporal/Chart.yaml \
     && test -f /opt/helm-charts/base/Chart.yaml \
     && test -f /opt/helm-charts/istiod/Chart.yaml \
     && test -f /opt/helm-charts/cni/Chart.yaml \

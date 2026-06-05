@@ -5,6 +5,9 @@ locals {
   argocd_image_repository            = "${local.ecr_registry}/${var.argocd_image_repository_name}"
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
   prometheus_image_repository        = "${local.ecr_registry}/${var.prometheus_image_repository_name}"
+  temporal_server_image_repository   = "${local.ecr_registry}/${var.temporal_server_image_repository_name}"
+  temporal_admin_tools_repository    = "${local.ecr_registry}/${var.temporal_admin_tools_image_repository_name}"
+  temporal_ui_image_repository       = "${local.ecr_registry}/${var.temporal_ui_image_repository_name}"
   app_frontend_image_repository      = "${local.ecr_registry}/${var.app_frontend_image_repository_name}"
   app_backend_image_repository       = "${local.ecr_registry}/${var.app_backend_image_repository_name}"
   mas_base_image_repository          = "${local.ecr_registry}/${var.mas_base_image_repository_name}"
@@ -91,6 +94,14 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
           "ecr:GetAuthorizationToken"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "TemporalDatabaseSecret"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = module.vpc2.temporal_db_secret_arn
       },
       {
         Sid    = "EksDescribe"
@@ -224,6 +235,72 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     environment_variable {
       name  = "PROMETHEUS_IMAGE_TAG"
       value = var.prometheus_image_tag
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_CHART_VERSION"
+      value = var.temporal_chart_version
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_SERVER_IMAGE_REPOSITORY"
+      value = local.temporal_server_image_repository
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_SERVER_IMAGE_TAG"
+      value = var.temporal_server_image_tag
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_ADMIN_TOOLS_IMAGE_REPOSITORY"
+      value = local.temporal_admin_tools_repository
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_ADMIN_TOOLS_IMAGE_TAG"
+      value = var.temporal_admin_tools_image_tag
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_UI_IMAGE_REPOSITORY"
+      value = local.temporal_ui_image_repository
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_UI_IMAGE_TAG"
+      value = var.temporal_ui_image_tag
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_DB_HOST"
+      value = module.vpc2.temporal_db_address
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_DB_PORT"
+      value = tostring(module.vpc2.temporal_db_port)
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_DB_NAME"
+      value = module.vpc2.temporal_db_name
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_VISIBILITY_DB_NAME"
+      value = module.vpc2.temporal_visibility_db_name
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_DB_USERNAME"
+      value = module.vpc2.temporal_db_username
+    }
+
+    environment_variable {
+      name  = "TEMPORAL_DB_PASSWORD"
+      value = "${module.vpc2.temporal_db_secret_arn}:password"
+      type  = "SECRETS_MANAGER"
     }
 
     environment_variable {

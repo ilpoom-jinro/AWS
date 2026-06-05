@@ -111,3 +111,111 @@ variable "eks_monitor_node_max_size" {
   type        = number
   default     = 2
 }
+
+variable "temporal_db_identifier" {
+  description = "RDS instance identifier for Temporal persistence"
+  type        = string
+  default     = "financial-ops-temporal-postgres"
+}
+
+variable "temporal_db_name" {
+  description = "Initial PostgreSQL database name for Temporal"
+  type        = string
+  default     = "temporal"
+}
+
+variable "temporal_visibility_db_name" {
+  description = "PostgreSQL database name for Temporal visibility data"
+  type        = string
+  default     = "temporal_visibility"
+}
+
+variable "temporal_db_username" {
+  description = "Temporal PostgreSQL master username"
+  type        = string
+  default     = "temporal"
+}
+
+variable "temporal_db_engine_version" {
+  description = "PostgreSQL engine version for Temporal RDS"
+  type        = string
+  default     = "16.6"
+}
+
+variable "temporal_db_instance_class" {
+  description = "RDS instance class for Temporal PostgreSQL"
+  type        = string
+  default     = "db.t4g.medium"
+}
+
+variable "temporal_db_allocated_storage" {
+  description = "Initial Temporal RDS storage in GiB"
+  type        = number
+  default     = 50
+}
+
+variable "temporal_db_max_allocated_storage" {
+  description = "Maximum Temporal RDS storage autoscaling limit in GiB"
+  type        = number
+  default     = 200
+}
+
+variable "temporal_db_multi_az" {
+  description = "Whether Temporal RDS should run in Multi-AZ mode"
+  type        = bool
+  default     = true
+}
+
+variable "temporal_db_backup_retention_period" {
+  description = "Temporal RDS automated backup retention in days"
+  type        = number
+  default     = 7
+}
+
+variable "temporal_db_backup_window" {
+  description = "Temporal RDS preferred backup window"
+  type        = string
+  default     = "18:00-19:00"
+}
+
+variable "temporal_db_maintenance_window" {
+  description = "Temporal RDS preferred maintenance window"
+  type        = string
+  default     = "sun:19:00-sun:20:00"
+}
+
+variable "temporal_db_deletion_protection" {
+  description = "Protect Temporal RDS from accidental deletion"
+  type        = bool
+  default     = true
+}
+
+variable "temporal_db_skip_final_snapshot" {
+  description = "Skip the final snapshot when Temporal RDS is destroyed"
+  type        = bool
+  default     = false
+}
+
+variable "temporal_db_subnet_group_name" {
+  description = "DB subnet group name for Temporal RDS"
+  type        = string
+  default     = "financial-ops-temporal-db-subnets"
+}
+
+variable "temporal_db_parameter_group_name" {
+  description = "DB parameter group name for Temporal RDS"
+  type        = string
+  default     = "financial-ops-temporal-postgres16"
+}
+
+variable "temporal_db_parameter_group_family" {
+  description = "DB parameter group family for Temporal RDS"
+  type        = string
+  default     = "postgres16"
+}
+
+variable "temporal_db_secret_name" {
+  description = "Secrets Manager secret name for Temporal RDS connection settings"
+  type        = string
+  default     = "financial/ops/temporal/postgres"
+}

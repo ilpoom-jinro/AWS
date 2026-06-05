@@ -63,3 +63,32 @@ output "monitor_subnet_cidr" {
   description = "monitoring only subnet CIDR"
   value       = aws_subnet.monitor_a.cidr_block
 }
+
+output "temporal_db_endpoint" {
+  value = aws_db_instance.temporal.endpoint
+}
+
+output "temporal_db_address" {
+  value = aws_db_instance.temporal.address
+}
+
+output "temporal_db_port" {
+  value = aws_db_instance.temporal.port
+}
+
+output "temporal_db_name" {
+  value = var.temporal_db_name
+}
+
+output "temporal_visibility_db_name" {
+  value = var.temporal_visibility_db_name
+}
+
+output "temporal_db_username" {
+  value = var.temporal_db_username
+}
+
+output "temporal_db_secret_arn" {
+  value     = aws_secretsmanager_secret.temporal_db.arn
+  sensitive = true
+}
