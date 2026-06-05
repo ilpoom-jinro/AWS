@@ -63,16 +63,16 @@ jobs:
               ecr_repository="financial/demo-app-backend"
               dockerfile="demo-app/backend/Dockerfile"
               build_context="demo-app/backend"
-              manifest_path="apps/demo-app/backend.yaml"
-              target_container="backend"
+              manifest_path="financial-service-eks/kustomization.yaml"
+              target_container="stock-api-image"
               ;;
             frontend)
               app_name="demo-app-frontend"
               ecr_repository="financial/demo-app-frontend"
               dockerfile="demo-app/frontend/Dockerfile"
               build_context="demo-app/frontend"
-              manifest_path="apps/demo-app/frontend.yaml"
-              target_container="frontend"
+              manifest_path="financial-service-eks/kustomization.yaml"
+              target_container="stock-web-image"
               ;;
             *)
               echo "::error::Unsupported component: ${{ inputs.component }}"

@@ -1,0 +1,22 @@
+# AWS Load Balancer Controller runs in the Ops EKS cluster and creates the
+# internal NLBs requested by the Loki and Thanos Kubernetes Services.
+clusterName: financial-ops-eks
+region: ap-northeast-2
+
+# Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
+# Keeping a placeholder in GitHub makes destroy -> apply repeatable.
+vpcId: REPLACE_WITH_OPS_VPC_ID
+
+replicaCount: 2
+
+image:
+  # Terraform creates this private ECR repository. The monitoring image mirror
+  # workflow copies public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0.
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/system/aws-load-balancer-controller
+  tag: v3.3.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  # Terraform Pod Identity Association must use this exact ServiceAccount name.
+  name: aws-load-balancer-controller

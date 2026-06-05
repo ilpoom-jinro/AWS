@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - frontend/namespace.yaml
+  - frontend/frontend.yaml
+  - backend/backend.yaml
+  - xray/xray-collector.yaml
+
+images:
+  - name: stock-api-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/demo-app-backend
+    newTag: latest
+  - name: stock-web-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/demo-app-frontend
+    newTag: latest
+  - name: xray-collector-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/xray-collector
+    newTag: latest

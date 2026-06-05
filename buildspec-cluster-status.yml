@@ -54,8 +54,8 @@ phases:
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 
-        run_check "Argo CD demo-app details" \
-          kubectl --context "${OPS_CONTEXT}" -n argocd describe application demo-app
+        run_check "Argo CD service-demo-app details" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application service-demo-app
 
         section "Rollout checks"
         for item in \

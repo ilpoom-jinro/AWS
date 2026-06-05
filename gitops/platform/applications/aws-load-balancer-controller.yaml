@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+    targetRevision: main
+    path: helmChart/charts/aws-load-balancer-controller
+    helm:
+      valueFiles:
+        - ../../aws-load-balancer-controller/values.yaml
+  destination:
+    name: financial-ops-eks
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+

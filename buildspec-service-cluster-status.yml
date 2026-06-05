@@ -47,30 +47,29 @@ phases:
           kubectl --context "${SERVICE_CONTEXT}" get pods -n istio-system -o wide
 
         run_check "Demo app workloads" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps get deploy,svc,pods -o wide
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo get deploy,svc,pods -o wide
 
         run_check "Backend deployment details" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps describe deployment/backend
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo describe deployment/stock-api
 
         run_check "Backend pod details" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps describe pod -l app.kubernetes.io/name=backend
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo describe pod -l app=stock-api
 
         run_check "Backend previous logs" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps logs -l app.kubernetes.io/name=backend --previous --tail=200
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo logs -l app=stock-api --previous --tail=200
 
         run_check "Backend current logs" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps logs -l app.kubernetes.io/name=backend --tail=200
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo logs -l app=stock-api --tail=200
 
         run_check "Frontend LoadBalancer endpoint" \
-          kubectl --context "${SERVICE_CONTEXT}" -n service-apps get svc frontend \
+          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo get svc stock-web \
             -o jsonpath='{.status.loadBalancer.ingress[*].hostname}{"\n"}'
 
         section "Rollout checks"
         for item in \
           "istio-system:deployment/istiod" \
-          "service-apps:deployment/postgres" \
-          "service-apps:deployment/backend" \
-          "service-apps:deployment/frontend"; do
+          "stock-demo:deployment/stock-api" \
+          "stock-demo:deployment/stock-web"; do
           IFS=: read -r namespace resource <<<"${item}"
           echo "--- ${namespace} ${resource}"
           kubectl --context "${SERVICE_CONTEXT}" -n "${namespace}" rollout status "${resource}" --timeout=120s || true

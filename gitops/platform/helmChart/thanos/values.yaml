@@ -1,0 +1,60 @@
+global:
+  security:
+    # The official Bitnami chart cannot verify images mirrored into our ECR.
+    allowInsecureImages: true
+
+image:
+  # Mirrored Thanos image in the private ECR registry.
+  registry: REPLACE_WITH_ECR_REGISTRY
+  repository: financial/monitoring/thanos
+  tag: latest
+  pullPolicy: Always
+
+query:
+  enabled: true
+  replicaCount: 1
+  nodeSelector:
+    role: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+
+receive:
+  enabled: true
+  replicaCount: 1
+  nodeSelector:
+    role: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      # Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
+      service.beta.kubernetes.io/aws-load-balancer-security-groups: REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID
+      service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
+
+bucketweb:
+  enabled: false
+
+compactor:
+  enabled: false
+
+storegateway:
+  enabled: false
+
+# TODO: S3 object storage is intentionally deferred.
+# TODO: S3 Vectors should be populated later by an AI indexing pipeline from selected observability data.
+# objstoreConfig:
+#   type: S3
+#   config:
+#     bucket: jinro-observability-thanos
+#     endpoint: s3.ap-northeast-2.amazonaws.com
+#     region: ap-northeast-2

@@ -7,6 +7,7 @@ on:
       - feature/eks
     paths:
       - "ansible/**"
+      - "gitops/**"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
       - "kyverno/**"
@@ -64,6 +65,8 @@ env:
   ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
+  AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/system/aws-load-balancer-controller
+  OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
 
 jobs:
   images:
@@ -95,7 +98,7 @@ jobs:
           changed_files="$(git diff --name-only "${before}" "${{ github.sha }}")"
           printf '%s\n' "${changed_files}"
 
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|buildspec-ansible.yml|tools/ansible-codebuild/)'; then
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|gitops/|buildspec-ansible.yml|tools/ansible-codebuild/)'; then
             echo "ansible=true" >> "${GITHUB_OUTPUT}"
           else
             echo "ansible=false" >> "${GITHUB_OUTPUT}"
@@ -158,6 +161,10 @@ jobs:
           -target=aws_ecr_lifecycle_policy.istio_install_cni
           -target=aws_ecr_repository.istio_ztunnel
           -target=aws_ecr_lifecycle_policy.istio_ztunnel
+          -target=aws_ecr_repository.aws_load_balancer_controller
+          -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller
+          -target=aws_ecr_repository.observability_indexer
+          -target=aws_ecr_lifecycle_policy.observability_indexer
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -178,6 +185,8 @@ jobs:
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/ztunnel"
+          aws ecr describe-repositories --repository-names "${AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${OBSERVABILITY_INDEXER_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >

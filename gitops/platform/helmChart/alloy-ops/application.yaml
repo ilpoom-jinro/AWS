@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-alloy-ops
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+    targetRevision: main
+    path: helmChart/charts/alloy
+    helm:
+      valueFiles:
+        - ../../alloy-ops/values.yaml
+  destination:
+    name: financial-ops-eks
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+

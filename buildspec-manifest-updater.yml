@@ -64,10 +64,32 @@ phases:
 
         manifest_path = Path(os.environ["MANIFEST_PATH"])
         image_uri = os.environ["IMAGE_URI"]
+        image_tag = os.environ.get("IMAGE_TAG", "")
+        ecr_registry = os.environ.get("ECR_REGISTRY", "")
+        ecr_repository = os.environ.get("ECR_REPOSITORY", "")
         target_container = os.environ.get("TARGET_CONTAINER", "")
 
         docs = list(yaml.safe_load_all(manifest_path.read_text()))
         changed = False
+
+        def update_kustomize_image(doc):
+          global changed
+          if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
+            return
+
+          for image in doc["images"]:
+            if not isinstance(image, dict):
+              continue
+            if target_container and image.get("name") != target_container:
+              continue
+
+            new_name = f"{ecr_registry}/{ecr_repository}" if ecr_registry and ecr_repository else None
+            if new_name and image.get("newName") != new_name:
+              image["newName"] = new_name
+              changed = True
+            if image_tag and image.get("newTag") != image_tag:
+              image["newTag"] = image_tag
+              changed = True
 
         def visit(node):
           global changed
@@ -87,6 +109,7 @@ phases:
               visit(item)
 
         for doc in docs:
+          update_kustomize_image(doc)
           visit(doc)
 
         if not changed:

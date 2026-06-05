@@ -1,0 +1,16 @@
+image:
+  # The Alertmanager chart expects the full ECR path in repository.
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/alertmanager
+  tag: latest
+  pullPolicy: Always
+
+nodeSelector:
+  role: monitoring
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
+
+# TODO: Add Slack/SNS/PagerDuty receiver after alert channel is chosen.

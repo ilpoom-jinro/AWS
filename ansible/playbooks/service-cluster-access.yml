@@ -21,10 +21,106 @@
           --alias {{ service_kube_context }}
       changed_when: false
 
-    - name: Ensure a service application namespace exists
+    - name: Ensure the stock demo namespace exists
       ansible.builtin.shell: >
           kubectl --context {{ service_kube_context }}
-          create namespace service-apps
+          create namespace stock-demo
           --dry-run=client -o yaml
           | kubectl --context {{ service_kube_context }} apply -f -
       changed_when: false
+
+    - name: Ensure Argo CD manager service account exists in the Service cluster
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: argocd-manager
+            namespace: kube-system
+
+    - name: Ensure Argo CD manager has cluster admin access in the Service cluster
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: argocd-manager-cluster-admin
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+            - kind: ServiceAccount
+              name: argocd-manager
+              namespace: kube-system
+
+    - name: Ensure long-lived token secret exists for Argo CD manager
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: argocd-manager-token
+            namespace: kube-system
+            annotations:
+              kubernetes.io/service-account.name: argocd-manager
+          type: kubernetes.io/service-account-token
+
+    - name: Read Argo CD manager token
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n kube-system
+          get secret argocd-manager-token
+          -o jsonpath={.data.token}
+      register: service_cluster_token_b64
+      retries: 30
+      delay: 2
+      until: service_cluster_token_b64.stdout | length > 0
+      changed_when: false
+      no_log: true
+
+    - name: Describe Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks describe-cluster
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --query cluster
+          --output json
+      register: service_cluster_description
+      changed_when: false
+
+    - name: Register Service EKS cluster in Argo CD
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cluster-{{ service_eks_cluster_name }}
+            namespace: "{{ argocd_namespace }}"
+            labels:
+              argocd.argoproj.io/secret-type: cluster
+          stringData:
+            name: "{{ service_eks_cluster_name }}"
+            server: "{{ (service_cluster_description.stdout | from_json).endpoint }}"
+            config: >-
+              {{
+                {
+                  "bearerToken": service_cluster_token_b64.stdout | b64decode,
+                  "tlsClientConfig": {
+                    "insecure": false,
+                    "caData": (service_cluster_description.stdout | from_json).certificateAuthority.data
+                  }
+                } | to_json
+              }}
+      no_log: true
+
