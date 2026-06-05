@@ -77,7 +77,7 @@ resource "aws_db_instance" "ops" {
   storage_type      = "gp3"
   storage_encrypted = true
 
-  backup_retention_period = 7
+  backup_retention_period = 0
   backup_window           = "18:00-19:00"
   maintenance_window      = "sun:19:00-sun:20:00"
 
