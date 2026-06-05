@@ -81,3 +81,17 @@ variable "eks_node_max_size" {
   type        = number
   default     = 3
 }
+
+# ── RDS ───────────────────────────────────────────────────────────────────────
+
+variable "rds_instance_class" {
+  description = "RDS instance class"
+  type        = string
+  default     = "db.t3.small"
+}
+
+variable "rds_multi_az" {
+  description = "Multi-AZ 활성화 여부 (비용 약 2배, 운영 환경에서는 true 권장)"
+  type        = bool
+  default     = true
+}

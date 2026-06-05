@@ -67,3 +67,23 @@ output "monitor_subnet_cidr" {
   description = "monitoring only subnet CIDR"
   value       = aws_subnet.monitor_a.cidr_block
 }
+
+output "rds_endpoint" {
+  description = "financial-ops RDS 엔드포인트"
+  value       = aws_db_instance.ops.endpoint
+}
+
+output "rds_port" {
+  description = "financial-ops RDS 포트"
+  value       = aws_db_instance.ops.port
+}
+
+output "rds_db_name" {
+  description = "financial-ops RDS DB 이름"
+  value       = aws_db_instance.ops.db_name
+}
+
+output "rds_secret_arn" {
+  description = "financial-ops RDS 비밀번호 Secrets Manager ARN"
+  value       = aws_secretsmanager_secret.rds_password.arn
+}
