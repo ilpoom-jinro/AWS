@@ -46,14 +46,19 @@ phases:
           -f /workspace/kyverno/helm/values.yaml \
           --set "admissionController.initContainer.image.registry=${ECR_REGISTRY}" \
           --set "admissionController.initContainer.image.repository=financial/kyverno/kyvernopre" \
+          --set "admissionController.initContainer.image.tag=latest" \
           --set "admissionController.container.image.registry=${ECR_REGISTRY}" \
           --set "admissionController.container.image.repository=financial/kyverno/kyverno" \
+          --set "admissionController.container.image.tag=latest" \
           --set "backgroundController.image.registry=${ECR_REGISTRY}" \
           --set "backgroundController.image.repository=financial/kyverno/background-controller" \
+          --set "backgroundController.image.tag=latest" \
           --set "cleanupController.image.registry=${ECR_REGISTRY}" \
           --set "cleanupController.image.repository=financial/kyverno/cleanup-controller" \
+          --set "cleanupController.image.tag=latest" \
           --set "reportsController.image.registry=${ECR_REGISTRY}" \
           --set "reportsController.image.repository=financial/kyverno/reports-controller" \
+          --set "reportsController.image.tag=latest" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
