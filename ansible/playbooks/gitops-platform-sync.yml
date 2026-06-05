@@ -168,19 +168,6 @@
         msg: "Observability stack not deployed yet. Skipping NLB DNS configuration. Re-run after Loki and Thanos are up."
       when: monitoring_svcs_check.rc != 0
 
-    - name: Check if Loki and Thanos Receive services exist in observability namespace
-      ansible.builtin.shell: |
-        kubectl --context {{ ops_kube_context }} -n observability \
-          get svc observability-loki observability-thanos-receive 2>/dev/null
-      register: monitoring_svcs_check
-      changed_when: false
-      failed_when: false
-
-    - name: Skip NLB wait — observability stack not yet deployed
-      ansible.builtin.debug:
-        msg: "Observability stack not deployed yet. Skipping NLB DNS configuration. Re-run after Loki and Thanos are up."
-      when: monitoring_svcs_check.rc != 0
-
     - name: Wait for the Loki and Thanos Receive internal NLB DNS names
       ansible.builtin.shell: |
         set -e
