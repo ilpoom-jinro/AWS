@@ -104,6 +104,56 @@
         msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_demo_local_http_port }} during MAS bootstrap."
       when: internal_git_mas_api_probe.failed | default(false)
 
+    - name: Ensure MAS namespace exists for Teleport App Service secret
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ mas_namespace }}"
+      when: teleport_app_service_enabled | bool
+
+    - name: Check existing Teleport App Service join token secret
+      kubernetes.core.k8s_info:
+        context: "{{ ops_kube_context }}"
+        api_version: v1
+        kind: Secret
+        namespace: "{{ mas_namespace }}"
+        name: "{{ teleport_app_join_token_secret_name }}"
+      register: teleport_app_join_token_secret_info
+      when: teleport_app_service_enabled | bool
+      no_log: true
+
+    - name: Stop when Teleport App Service is enabled without a join token
+      ansible.builtin.fail:
+        msg: >-
+          TELEPORT_APP_SERVICE_ENABLED is true, but no {{ teleport_app_join_token_secret_name }}
+          Secret exists in namespace {{ mas_namespace }} and TELEPORT_APP_JOIN_TOKEN was not provided.
+      when:
+        - teleport_app_service_enabled | bool
+        - teleport_app_join_token | length == 0
+        - teleport_app_join_token_secret_info.resources | default([]) | length == 0
+
+    - name: Create or update Teleport App Service join token secret
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ teleport_app_join_token_secret_name }}"
+            namespace: "{{ mas_namespace }}"
+          type: Opaque
+          stringData:
+            token: "{{ teleport_app_join_token }}"
+      when:
+        - teleport_app_service_enabled | bool
+        - teleport_app_join_token | length > 0
+      no_log: true
+
     - name: Render MAS manifests for GitOps
       ansible.builtin.copy:
         dest: /tmp/mas-gitops-manifest.yaml

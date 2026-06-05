@@ -28,6 +28,11 @@ on:
         required: true
         default: false
         type: boolean
+      teleport_allowed_client_cidrs:
+        description: 'Optional JSON list of client CIDRs allowed to reach Teleport, for example ["203.0.113.10/32"].'
+        required: true
+        default: "[]"
+        type: string
 
 permissions:
   id-token: write
@@ -45,6 +50,7 @@ env:
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
   TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+  TF_VAR_teleport_allowed_client_cidrs: ${{ inputs.teleport_allowed_client_cidrs || '[]' }}
   TF_MOVED_RESOURCE_TARGETS: >-
     -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
@@ -317,6 +323,15 @@ jobs:
           }
 
           run_codebuild_and_wait financial-ansible-bootstrap
+
+  deploy-mas-after-apply:
+    name: Deploy MAS after apply
+    needs: infrastructure
+    if: github.ref == 'refs/heads/main' && inputs.action == 'apply'
+    uses: ./.github/workflows/mas-deploy.yml
+    secrets: inherit
+    with:
+      enable_teleport_app_service: true
 
   codebuild:
     name: Run Ansible CodeBuild

@@ -42,6 +42,11 @@ on:
         required: true
         default: true
         type: boolean
+      mirror_teleport:
+        description: "Mirror the Teleport image into ECR"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   id-token: write
@@ -70,6 +75,8 @@ env:
   PROMETHEUS_SOURCE_IMAGE: quay.io/prometheus/prometheus:v3.7.3
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
+  TELEPORT_REPOSITORY: financial/teleport
+  TELEPORT_SOURCE_IMAGE: public.ecr.aws/gravitational/teleport:17.0.0
 
 jobs:
   images:
@@ -123,6 +130,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.istio_install_cni
           -target=aws_ecr_repository.istio_ztunnel
           -target=aws_ecr_lifecycle_policy.istio_ztunnel
+          -target=aws_ecr_repository.teleport
+          -target=aws_ecr_lifecycle_policy.teleport
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -140,6 +149,7 @@ jobs:
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/proxyv2"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/install-cni"
           aws ecr describe-repositories --repository-names "${ISTIO_REPOSITORY_PREFIX}/ztunnel"
+          aws ecr describe-repositories --repository-names "${TELEPORT_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: github.event_name == 'push' || inputs.build_ansible_codebuild == true
@@ -223,4 +233,18 @@ jobs:
           docker tag "${INTERNAL_GIT_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
 
           docker push "${IMAGE_URI}:${IMAGE_TAG}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Mirror Teleport image to ECR
+        if: github.event_name == 'push' || inputs.mirror_teleport == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${TELEPORT_REPOSITORY}"
+
+          docker pull "${TELEPORT_SOURCE_IMAGE}"
+          docker tag "${TELEPORT_SOURCE_IMAGE}" "${IMAGE_URI}:17.0.0"
+          docker tag "${TELEPORT_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
+
+          docker push "${IMAGE_URI}:17.0.0"
           docker push "${IMAGE_URI}:latest"

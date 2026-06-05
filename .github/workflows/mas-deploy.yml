@@ -15,6 +15,49 @@ on:
       - ".github/workflows/mas-deploy.yml"
       - ".github/workflows/mas-analyze.yml"
   workflow_dispatch:
+    inputs:
+      enable_teleport_app_service:
+        description: "Deploy the Teleport App Service pod for MAS UI"
+        required: true
+        default: true
+        type: boolean
+      teleport_proxy_server:
+        description: "Teleport proxy address used by the app service"
+        required: false
+        default: "teleport.example.internal:443"
+        type: string
+      teleport_mas_ui_public_addr:
+        description: "Public address registered for MAS UI in Teleport"
+        required: false
+        default: "mas-ui.teleport.example.internal"
+        type: string
+      teleport_app_join_token_secret_name:
+        description: "Kubernetes Secret name that stores the Teleport app join token"
+        required: false
+        default: "teleport-app-join-token"
+        type: string
+  workflow_call:
+    inputs:
+      enable_teleport_app_service:
+        description: "Deploy the Teleport App Service pod for MAS UI"
+        required: false
+        default: true
+        type: boolean
+      teleport_proxy_server:
+        description: "Teleport proxy address used by the app service"
+        required: false
+        default: "teleport.example.internal:443"
+        type: string
+      teleport_mas_ui_public_addr:
+        description: "Public address registered for MAS UI in Teleport"
+        required: false
+        default: "mas-ui.teleport.example.internal"
+        type: string
+      teleport_app_join_token_secret_name:
+        description: "Kubernetes Secret name that stores the Teleport app join token"
+        required: false
+        default: "teleport-app-join-token"
+        type: string
 
 permissions:
   id-token: write
@@ -84,7 +127,7 @@ jobs:
 
           changed_files="$(mktemp)"
 
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "${GITHUB_EVENT_NAME}" = "workflow_call" ]; then
             build_all=true
             git ls-files mas > "${changed_files}"
           else
@@ -166,8 +209,15 @@ jobs:
 
       - name: Sync MAS GitOps manifests
         shell: bash
+        env:
+          TELEPORT_APP_SERVICE_ENABLED: ${{ inputs.enable_teleport_app_service || false }}
+          TELEPORT_PROXY_SERVER: ${{ inputs.teleport_proxy_server || 'teleport.example.internal:443' }}
+          TELEPORT_MAS_UI_PUBLIC_ADDR: ${{ inputs.teleport_mas_ui_public_addr || 'mas-ui.teleport.example.internal' }}
+          TELEPORT_APP_JOIN_TOKEN_SECRET_NAME: ${{ inputs.teleport_app_join_token_secret_name || 'teleport-app-join-token' }}
+          TELEPORT_APP_JOIN_TOKEN: ${{ secrets.TELEPORT_APP_JOIN_TOKEN }}
         run: |
           python - <<'PY'
+          import os
           import json
           from pathlib import Path
 
@@ -179,6 +229,24 @@ jobs:
                   "type": "PLAINTEXT",
               }
           ]
+
+          passthrough_names = [
+              "TELEPORT_APP_SERVICE_ENABLED",
+              "TELEPORT_PROXY_SERVER",
+              "TELEPORT_MAS_UI_PUBLIC_ADDR",
+              "TELEPORT_APP_JOIN_TOKEN_SECRET_NAME",
+              "TELEPORT_APP_JOIN_TOKEN",
+          ]
+
+          for name in passthrough_names:
+              value = os.environ.get(name, "")
+              if value:
+                  env_overrides.append({
+                      "name": name,
+                      "value": value,
+                      "type": "PLAINTEXT",
+                  })
+
           Path("mas-codebuild-env.json").write_text(json.dumps(env_overrides), encoding="utf-8")
           PY
 

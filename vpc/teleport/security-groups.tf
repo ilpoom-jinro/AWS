@@ -37,3 +37,27 @@ resource "aws_security_group" "teleport" {
     Name = "financial-vpc3-teleport-sg"
   }
 }
+
+resource "aws_security_group_rule" "teleport_client_https" {
+  count = length(var.teleport_allowed_client_cidrs) > 0 ? 1 : 0
+
+  type              = "ingress"
+  description       = "Allow Teleport web UI from approved client CIDRs"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = var.teleport_allowed_client_cidrs
+  security_group_id = aws_security_group.teleport.id
+}
+
+resource "aws_security_group_rule" "teleport_client_proxy" {
+  count = length(var.teleport_allowed_client_cidrs) > 0 ? 1 : 0
+
+  type              = "ingress"
+  description       = "Allow Teleport proxy from approved client CIDRs"
+  from_port         = 3022
+  to_port           = 3025
+  protocol          = "tcp"
+  cidr_blocks       = var.teleport_allowed_client_cidrs
+  security_group_id = aws_security_group.teleport.id
+}

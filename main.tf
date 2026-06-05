@@ -12,7 +12,8 @@ module "vpc2" {
 }
 
 module "vpc3" {
-  source = "./vpc/teleport"
+  source                        = "./vpc/teleport"
+  teleport_allowed_client_cidrs = var.teleport_allowed_client_cidrs
 }
 
 module "vpc4" {

@@ -26,3 +26,9 @@ variable "teleport_ami_id" {
   type        = string
   default     = "ami-045f6d48c567e98f8"
 }
+
+variable "teleport_allowed_client_cidrs" {
+  description = "Client CIDR blocks allowed to reach the Teleport proxy directly when a network path exists"
+  type        = list(string)
+  default     = []
+}

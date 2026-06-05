@@ -241,3 +241,9 @@ variable "teleport_image_repository_name" {
   type        = string
   default     = "financial/teleport"
 }
+
+variable "teleport_allowed_client_cidrs" {
+  description = "Client CIDR blocks allowed to reach the Teleport proxy directly when a network path exists"
+  type        = list(string)
+  default     = []
+}

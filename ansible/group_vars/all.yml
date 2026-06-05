@@ -50,6 +50,7 @@ teleport_app_image: "{{ lookup('env', 'TELEPORT_APP_IMAGE') | default('financial
 teleport_proxy_server: "{{ lookup('env', 'TELEPORT_PROXY_SERVER') | default('teleport.example.internal:443', true) }}"
 teleport_mas_ui_public_addr: "{{ lookup('env', 'TELEPORT_MAS_UI_PUBLIC_ADDR') | default('mas-ui.teleport.example.internal', true) }}"
 teleport_app_join_token_secret_name: "{{ lookup('env', 'TELEPORT_APP_JOIN_TOKEN_SECRET_NAME') | default('teleport-app-join-token', true) }}"
+teleport_app_join_token: "{{ lookup('env', 'TELEPORT_APP_JOIN_TOKEN') | default('', true) }}"
 
 istio_namespace: istio-system
 istio_base_chart_ref: /opt/helm-charts/base
