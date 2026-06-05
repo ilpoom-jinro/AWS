@@ -123,7 +123,7 @@ variable "eks_monitor_node_max_size" {
 variable "rds_instance_class" {
   description = "RDS instance class "
   type        = string
-  default     = "db.t3.small"
+  default     = "db.t3.micro"
 }
 
 variable "rds_multi_az" {
