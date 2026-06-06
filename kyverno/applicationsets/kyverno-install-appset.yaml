@@ -4,7 +4,7 @@
 #
 # 소스: 내부 Gitea (buildspec-gitops-bootstrap.yml 에서 helm template 으로 렌더링 후 push)
 #   경로: kyverno/install/kyverno.yaml
-#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
 #
 # 새 클러스터 자동 적용:
 #   argocd cluster add 로 클러스터를 등록하면 ApplicationSet 이 즉시
@@ -37,7 +37,7 @@ spec:
 
       source:
         # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
-        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
         targetRevision: main
         # helm template --include-crds 로 렌더링된 Kyverno 전체 매니페스트
         path: kyverno/install
