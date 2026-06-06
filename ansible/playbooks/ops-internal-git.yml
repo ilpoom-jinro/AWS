@@ -97,6 +97,8 @@
                 labels:
                   app.kubernetes.io/name: internal-git
               spec:
+                securityContext:
+                  fsGroup: 1000
                 containers:
                   - name: gitea
                     image: "{{ internal_git_image }}"
