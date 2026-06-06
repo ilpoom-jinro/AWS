@@ -7,9 +7,8 @@ phases:
         set -euo pipefail
 
         : "${AWS_REGION:?AWS_REGION is required}"
-        : "${SERVICE_EKS_CLUSTER_NAME:?SERVICE_EKS_CLUSTER_NAME is required}"
-
-        SERVICE_CONTEXT="status-${SERVICE_EKS_CLUSTER_NAME}"
+        : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
+        OPS_CONTEXT="status-${OPS_EKS_CLUSTER_NAME}"
 
         section() {
           printf '\n===== %s =====\n' "$1"
@@ -24,56 +23,85 @@ phases:
 
         aws eks update-kubeconfig \
           --region "${AWS_REGION}" \
-          --name "${SERVICE_EKS_CLUSTER_NAME}" \
-          --alias "${SERVICE_CONTEXT}"
+          --name "${OPS_EKS_CLUSTER_NAME}" \
+          --alias "${OPS_CONTEXT}"
 
-        run_check "Service EKS control plane version" \
+        run_check "Ops EKS control plane version" \
           aws eks describe-cluster \
             --region "${AWS_REGION}" \
-            --name "${SERVICE_EKS_CLUSTER_NAME}" \
+            --name "${OPS_EKS_CLUSTER_NAME}" \
             --query 'cluster.{name:name,version:version,platformVersion:platformVersion,status:status,endpoint:endpoint}' \
             --output table
 
-        run_check "Service Kubernetes API server version" \
-          kubectl --context "${SERVICE_CONTEXT}" version -o yaml
+        run_check "Ops Kubernetes API server version" \
+          kubectl --context "${OPS_CONTEXT}" version -o yaml
 
-        run_check "Service cluster nodes" \
-          kubectl --context "${SERVICE_CONTEXT}" get nodes -o wide
+        run_check "Ops cluster nodes" \
+          kubectl --context "${OPS_CONTEXT}" get nodes -o wide
 
-        run_check "Service core pods" \
-          kubectl --context "${SERVICE_CONTEXT}" get pods -n kube-system -o wide
+        run_check "Ops core pods" \
+          kubectl --context "${OPS_CONTEXT}" get pods -n kube-system -o wide
 
-        run_check "Service Istio pods" \
-          kubectl --context "${SERVICE_CONTEXT}" get pods -n istio-system -o wide
+        run_check "Ops Istio pods" \
+          kubectl --context "${OPS_CONTEXT}" get pods -n istio-system -o wide
 
-        run_check "Demo app workloads" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo get deploy,svc,pods -o wide
+        run_check "Internal Git pods and service" \
+          kubectl --context "${OPS_CONTEXT}" -n git get deploy,svc,pods -o wide
 
-        run_check "Backend deployment details" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo describe deployment/stock-api
+        run_check "Argo CD pods and services" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd get deploy,sts,svc,pods -o wide
 
-        run_check "Backend pod details" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo describe pod -l app=stock-api
+        run_check "Argo CD applications" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 
-        run_check "Backend previous logs" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo logs -l app=stock-api --previous --tail=200
+        run_check "Argo CD service-demo-app details" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application service-demo-app
 
-        run_check "Backend current logs" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo logs -l app=stock-api --tail=200
+        run_check "AWS Load Balancer Controller pods" \
+          kubectl --context "${OPS_CONTEXT}" get pods -A -o wide -l app.kubernetes.io/name=aws-load-balancer-controller
 
-        run_check "Frontend LoadBalancer endpoint" \
-          kubectl --context "${SERVICE_CONTEXT}" -n stock-demo get svc stock-web \
-            -o jsonpath='{.status.loadBalancer.ingress[*].hostname}{"\n"}'
+        run_check "AWS Load Balancer Controller Argo CD application" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application aws-load-balancer-controller
+
+        run_check "AWS Load Balancer Controller logs in kube-system" \
+          kubectl --context "${OPS_CONTEXT}" -n kube-system logs deploy/aws-load-balancer-controller --tail=200
+
+        run_check "Monitoring namespace resources" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get all -o wide
+
+        run_check "Monitoring services" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get svc -o wide
+
+        run_check "Monitoring endpoints" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get endpoints -o wide
+
+        run_check "Loki service detail and events" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring describe svc loki
+
+        run_check "Thanos service detail and events" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring describe svc thanos
+
+        run_check "Loki pods" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get pods -o wide -l app.kubernetes.io/name=loki
+
+        run_check "Thanos pods" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get pods -o wide -l app.kubernetes.io/name=thanos
+
+        run_check "Monitoring warning events" \
+          kubectl --context "${OPS_CONTEXT}" -n monitoring get events --sort-by=.lastTimestamp
+
+        run_check "All recent warning events" \
+          kubectl --context "${OPS_CONTEXT}" get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -120
 
         section "Rollout checks"
         for item in \
-          "istio-system:deployment/istiod" \
-          "stock-demo:deployment/stock-api" \
-          "stock-demo:deployment/stock-web"; do
-          IFS=: read -r namespace resource <<<"${item}"
-          echo "--- ${namespace} ${resource}"
-          kubectl --context "${SERVICE_CONTEXT}" -n "${namespace}" rollout status "${resource}" --timeout=120s || true
+          "${OPS_CONTEXT}:argocd:deployment/argocd-server" \
+          "${OPS_CONTEXT}:git:deployment/internal-git" \
+          "${OPS_CONTEXT}:istio-system:deployment/istiod"; do
+          IFS=: read -r context namespace resource <<<"${item}"
+          echo "--- ${context} ${namespace} ${resource}"
+          kubectl --context "${context}" -n "${namespace}" rollout status "${resource}" --timeout=120s || true
         done
 
         section "Recent warning events"
-        kubectl --context "${SERVICE_CONTEXT}" get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -80 || true
+        kubectl --context "${OPS_CONTEXT}" get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -80 || true
