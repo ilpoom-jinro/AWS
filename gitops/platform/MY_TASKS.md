@@ -29,7 +29,7 @@ Kubernetes 내부 DNS `http://backend:8000`으로 Backend를 호출합니다.
 | [ ] | 1 | Controller values의 Ops VPC ID 교체 | Ops VPC ID |
 | [ ] | 2 | Loki values에 Loki NLB SG ID 입력 | Loki NLB SG ID |
 | [ ] | 3 | Thanos values에 Thanos Receive NLB SG ID 입력 | Thanos Receive NLB SG ID |
-| [ ] | 4 | GitOps 파일을 내부 Git `gitops/platform.git`에 반영 | 내부 Git 접근 |
+| [ ] | 4 | GitOps 파일을 내부 Git `gitadmin/platform.git`에 반영 | 내부 Git 접근 |
 | [ ] | 5 | Argo CD에서 Controller Application 동기화 | Controller IAM 연동 완료 여부 |
 | [ ] | 6 | Argo CD에서 Loki와 Thanos Application 동기화 | Controller Pod 실행 확인 |
 | [ ] | 7 | 생성된 Loki와 Thanos internal NLB DNS 확인 | AWS 콘솔 또는 담당 팀원 |

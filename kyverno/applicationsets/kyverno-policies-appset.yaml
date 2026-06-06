@@ -5,7 +5,7 @@
 #
 # 소스: 내부 Gitea (buildspec-gitops-bootstrap.yml 에서 정책 파일 push)
 #   경로: kyverno/policies/
-#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
 #
 # 정책 추가 방법:
 #   kyverno/policies/ 에 새 ClusterPolicy YAML 을 추가하고 커밋하면
@@ -35,7 +35,7 @@ spec:
       project: default
 
       source:
-        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
         targetRevision: main
         # ClusterPolicy YAML 파일들이 위치하는 경로
         path: kyverno/policies

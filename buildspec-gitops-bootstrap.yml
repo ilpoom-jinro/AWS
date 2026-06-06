@@ -64,7 +64,7 @@ phases:
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
         rm -rf /tmp/kyverno-gitops
         git clone \
-          "http://${INTERNAL_GIT_ADMIN_USERNAME}:${INTERNAL_GIT_ADMIN_PASSWORD}@127.0.0.1:13002/gitops/platform.git" \
+          "http://${INTERNAL_GIT_ADMIN_USERNAME}:${INTERNAL_GIT_ADMIN_PASSWORD}@127.0.0.1:13002/gitadmin/platform.git" \
           /tmp/kyverno-gitops
         cd /tmp/kyverno-gitops
 
