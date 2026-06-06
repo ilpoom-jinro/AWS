@@ -51,6 +51,12 @@ resource "aws_iam_group_policy_attachment" "mfa_sre" {
   policy_arn = aws_iam_policy.require_mfa.arn
 }
 
+# mas 그룹 MFA 강제 적용
+resource "aws_iam_group_policy_attachment" "mfa_mas" {
+  group      = aws_iam_group.mas.name
+  policy_arn = aws_iam_policy.require_mfa.arn
+}
+
 # =============================================
 # 비밀번호 정책 (#37)
 # 이 코드 하나로 AWS 계정 전체 비밀번호 규칙 적용
