@@ -20,7 +20,61 @@
           | kubectl --context {{ ops_kube_context }} apply -f -
       changed_when: false
 
+    - name: Create gp3 StorageClass
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: gp3
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+          provisioner: ebs.csi.aws.com
+          volumeBindingMode: WaitForFirstConsumer
+          reclaimPolicy: Delete
+          parameters:
+            type: gp3
+            encrypted: "true"
+
   tasks:
+    - name: Create PersistentVolumeClaim for Gitea data
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: internal-git-data
+            namespace: "{{ internal_git_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: gp3
+            resources:
+              requests:
+                storage: 10Gi
+
+    - name: Create PersistentVolumeClaim for Gitea config
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: internal-git-config
+            namespace: "{{ internal_git_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: gp3
+            resources:
+              requests:
+                storage: 1Gi
+
     - name: Install or update internal Git deployment
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
@@ -86,9 +140,11 @@
                         mountPath: /etc/gitea
                 volumes:
                   - name: gitea-data
-                    emptyDir: {}
+                    persistentVolumeClaim:
+                      claimName: internal-git-data
                   - name: gitea-config
-                    emptyDir: {}
+                    persistentVolumeClaim:
+                      claimName: internal-git-config
 
     - name: Expose internal Git service inside the cluster
       kubernetes.core.k8s:
@@ -192,6 +248,22 @@
       ansible.builtin.fail:
         msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_local_http_port }}. Check the port-forward log above."
       when: internal_git_api_probe.failed | default(false)
+
+    - name: Create platform repository under admin user in Gitea
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ internal_git_local_http_port }}/api/v1/user/repos"
+        method: POST
+        user: "{{ internal_git_admin_username }}"
+        password: "{{ internal_git_admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "{{ internal_git_repo }}"
+          private: true
+          auto_init: true
+          default_branch: main
+        status_code: [201, 409]
+      no_log: true
 
     - name: Stop internal Git bootstrap port-forward
       ansible.builtin.shell: |

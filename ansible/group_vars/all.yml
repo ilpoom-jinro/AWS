@@ -51,7 +51,7 @@ internal_git_admin_email: "gitadmin@internal.ops.local"
 internal_git_org: gitops
 internal_git_repo: platform
 
-gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git"
+gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/{{ internal_git_admin_username }}/{{ internal_git_repo }}.git"
 gitops_repo_name: internal-gitops
 
 demo_app_name: demo-app
