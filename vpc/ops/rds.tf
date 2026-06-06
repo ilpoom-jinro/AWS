@@ -13,10 +13,14 @@ resource "random_password" "rds" {
 resource "aws_secretsmanager_secret" "rds_password" {
   name                    = "financial-ops-rds-password"
   description             = "RDS master password for financial-ops PostgreSQL"
-  recovery_window_in_days = 0
+  recovery_window_in_days = 7
 
   tags = {
     Name = "financial-ops-rds-password"
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 

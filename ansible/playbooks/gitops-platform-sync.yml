@@ -102,7 +102,7 @@
         set -e
         rm -rf "{{ gitops_platform_workdir }}"
         git clone \
-          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_platform_local_http_port }}/{{ internal_git_org }}/{{ internal_git_repo }}.git" \
+          "http://{{ internal_git_admin_username }}:{{ internal_git_admin_password }}@127.0.0.1:{{ internal_git_platform_local_http_port }}/{{ internal_git_admin_username }}/{{ internal_git_repo }}.git" \
           "{{ gitops_platform_workdir }}"
         cd "{{ gitops_platform_workdir }}"
         git config user.name "GitOps Platform Sync"
