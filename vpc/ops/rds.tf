@@ -57,9 +57,8 @@ resource "aws_db_instance" "ops" {
   maintenance_window      = "sun:19:00-sun:20:00"
 
   auto_minor_version_upgrade = false
-  deletion_protection        = true
-  skip_final_snapshot        = false
-  final_snapshot_identifier  = "financial-ops-db-final-snapshot"
+  deletion_protection        = false
+  skip_final_snapshot        = true
 
   performance_insights_enabled = true
 
