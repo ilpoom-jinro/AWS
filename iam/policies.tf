@@ -263,3 +263,166 @@ resource "aws_iam_group_policy_attachment" "sre_deny_cloudshell" {
   group      = aws_iam_group.sre_engineers.name
   policy_arn = aws_iam_policy.deny_cloudshell.arn
 }
+
+# =============================================
+# MAS 팀 전용 권한 정책
+# Bedrock, ECR, EKS 조회, CloudWatch/Logs 읽기,
+# Prometheus 쿼리, 보안 서비스 읽기, S3 KB, SecretsManager, RDS IAM 인증
+# =============================================
+resource "aws_iam_policy" "mas_policy" {
+  name = "mas-policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockAll"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:ListFoundationModels",
+          "bedrock:GetFoundationModel",
+          "bedrock:RetrieveAndGenerate",
+          "bedrock:Retrieve",
+          "bedrock:ListKnowledgeBases",
+          "bedrock:GetKnowledgeBase"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRPushPull"
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:DescribeRepositories",
+          "ecr:DescribeImages",
+          "ecr:ListImages"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "EKSDescribe"
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster",
+          "eks:ListClusters",
+          "eks:ListNodegroups",
+          "eks:DescribeNodegroup"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchAndLogsRead"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarms",
+          "logs:FilterLogEvents",
+          "logs:GetLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:StartQuery",
+          "logs:GetQueryResults",
+          "logs:StopQuery"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "PrometheusQuery"
+        Effect = "Allow"
+        Action = [
+          "aps:QueryMetrics",
+          "aps:GetMetricMetadata",
+          "aps:ListWorkspaces",
+          "aps:DescribeWorkspace",
+          "aps:GetLabels",
+          "aps:GetSeries"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SecurityServicesRead"
+        Effect = "Allow"
+        Action = [
+          "cloudtrail:LookupEvents",
+          "cloudtrail:GetTrailStatus",
+          "cloudtrail:DescribeTrails",
+          "guardduty:GetFindings",
+          "guardduty:ListFindings",
+          "guardduty:GetDetector",
+          "guardduty:ListDetectors",
+          "securityhub:GetFindings",
+          "securityhub:ListFindings",
+          "securityhub:GetInsights"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "S3KnowledgeBaseRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = [
+          "arn:aws:s3:::ilpumjinro-kb-*",
+          "arn:aws:s3:::ilpumjinro-kb-*/*"
+        ]
+      },
+      {
+        Sid    = "SecretsManagerRead"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecrets"
+        ]
+        Resource = "arn:aws:secretsmanager:*:*:secret:ilpumjinro/*"
+      },
+      {
+        Sid      = "RDSIAMAuth"
+        Effect   = "Allow"
+        Action   = ["rds-db:connect"]
+        Resource = "arn:aws:rds-db:*:*:dbuser:*/mas_sdk_user"
+      }
+    ]
+  })
+}
+
+# mas 그룹 → mas-policy 항상 연결
+resource "aws_iam_group_policy_attachment" "mas_policy" {
+  group      = aws_iam_group.mas.name
+  policy_arn = aws_iam_policy.mas_policy.arn
+}
+
+# mas 그룹 → Access Key 신규 생성 차단 (prod 환경)
+resource "aws_iam_group_policy_attachment" "mas_deny_access_key" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.mas.name
+  policy_arn = aws_iam_policy.deny_create_access_key.arn
+}
+
+# mas 그룹 → CloudShell 차단 (prod 환경)
+resource "aws_iam_group_policy_attachment" "mas_deny_cloudshell" {
+  count      = var.dev_mode ? 0 : 1
+  group      = aws_iam_group.mas.name
+  policy_arn = aws_iam_policy.deny_cloudshell.arn
+}
+
+# [DEV ONLY] mas 그룹 → 개발 기간 임시 AdministratorAccess
+resource "aws_iam_group_policy_attachment" "mas_admin_dev" {
+  count      = var.dev_mode ? 1 : 0
+  group      = aws_iam_group.mas.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
