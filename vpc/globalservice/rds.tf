@@ -3,35 +3,6 @@
 # 용도: demo-app 서비스 DB, 주식 추천 데이터 저장 (recommendations 테이블)
 # ──────────────────────────────────────────────────────────────────────────────
 
-# ── DB Password (Secrets Manager) ────────────────────────────────────────────
-
-resource "random_password" "rds" {
-  length  = 32
-  special = false
-}
-
-resource "aws_secretsmanager_secret" "rds_password" {
-  name                    = "financial-service-rds-password"
-  description             = "RDS master password for financial-service PostgreSQL"
-  recovery_window_in_days = 7
-
-  tags = {
-    Name = "financial-service-rds-password"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "rds_password" {
-  secret_id = aws_secretsmanager_secret.rds_password.id
-  secret_string = jsonencode({
-    username = "financial_admin"
-    password = random_password.rds.result
-  })
-}
-
 # ── DB Subnet Group ───────────────────────────────────────────────────────────
 
 resource "aws_db_subnet_group" "service" {
@@ -70,7 +41,7 @@ resource "aws_db_instance" "service" {
 
   db_name  = "financial_service"
   username = "financial_admin"
-  password = random_password.rds.result
+  password = var.rds_password
   port     = 5432
 
   db_subnet_group_name   = aws_db_subnet_group.service.name

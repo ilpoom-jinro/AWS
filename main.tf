@@ -8,11 +8,13 @@ module "security" {
 }
 
 module "vpc1" {
-  source = "./vpc/globalservice"
+  source       = "./vpc/globalservice"
+  rds_password = random_password.service_rds.result
 }
 
 module "vpc2" {
-  source = "./vpc/ops"
+  source       = "./vpc/ops"
+  rds_password = random_password.ops_rds.result
 }
 
 module "vpc3" {

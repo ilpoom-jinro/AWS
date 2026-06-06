@@ -131,3 +131,9 @@ variable "rds_multi_az" {
   type        = bool
   default     = true
 }
+
+variable "rds_password" {
+  description = "RDS 마스터 비밀번호 — 루트 secrets.tf의 random_password.ops_rds에서 주입"
+  type        = string
+  sensitive   = true
+}

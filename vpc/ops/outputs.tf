@@ -82,8 +82,3 @@ output "rds_db_name" {
   description = "financial-ops RDS DB 이름"
   value       = aws_db_instance.ops.db_name
 }
-
-output "rds_secret_arn" {
-  description = "financial-ops RDS 비밀번호 Secrets Manager ARN"
-  value       = aws_secretsmanager_secret.rds_password.arn
-}

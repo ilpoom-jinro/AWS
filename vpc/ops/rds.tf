@@ -3,35 +3,6 @@
 # 용도: Bedrock AI Agent 주식 분석 보고서, 내부 운영 데이터, ArgoCD 메타데이터
 # ──────────────────────────────────────────────────────────────────────────────
 
-# ── DB Password (Secrets Manager) ────────────────────────────────────────────
-
-resource "random_password" "rds" {
-  length  = 32
-  special = false
-}
-
-resource "aws_secretsmanager_secret" "rds_password" {
-  name                    = "financial-ops-rds-password"
-  description             = "RDS master password for financial-ops PostgreSQL"
-  recovery_window_in_days = 7
-
-  tags = {
-    Name = "financial-ops-rds-password"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "rds_password" {
-  secret_id = aws_secretsmanager_secret.rds_password.id
-  secret_string = jsonencode({
-    username = "financial_admin"
-    password = random_password.rds.result
-  })
-}
-
 # ── DB Subnet Group ───────────────────────────────────────────────────────────
 
 resource "aws_db_subnet_group" "ops" {
@@ -70,7 +41,7 @@ resource "aws_db_instance" "ops" {
 
   db_name  = "financial_ops"
   username = "financial_admin"
-  password = random_password.rds.result
+  password = var.rds_password
   port     = 5432
 
   db_subnet_group_name   = aws_db_subnet_group.ops.name
