@@ -6,11 +6,11 @@ loki:
   useTestSchema: true
   commonConfig:
     replication_factor: 1
-  limits_config:
-    retention_period: 168h
-  compactor:
-    retention_enabled: false
-    working_directory: /var/loki/compactor
+  #limits_config:
+   # retention_period: 168h
+  #compactor:
+  #  retention_enabled: false
+  #  working_directory: /var/loki/compactor
   storage:
     type: filesystem
   image:
