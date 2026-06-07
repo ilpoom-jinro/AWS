@@ -97,6 +97,7 @@ resource "aws_iam_role" "ebs_csi" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
+      Sid    = "AllowEksAuthToAssumeRoleForPodIdentity"
       Effect = "Allow"
       Principal = {
         Service = "pods.eks.amazonaws.com"
@@ -105,6 +106,12 @@ resource "aws_iam_role" "ebs_csi" {
         "sts:AssumeRole",
         "sts:TagSession"
       ]
+      Condition = {
+        StringEquals = {
+          "aws:RequestTag/kubernetes-namespace"       = "kube-system"
+          "aws:RequestTag/kubernetes-service-account" = "ebs-csi-controller-sa"
+        }
+      }
     }]
   })
 
