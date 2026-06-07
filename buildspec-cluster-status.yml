@@ -136,6 +136,18 @@ phases:
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
             -l app.kubernetes.io/part-of=observability -o wide
             
+        run_check "Thanos Receive pod status" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get pod observability-thanos-receive-0 -o wide
+
+        run_check "Thanos Receive PVC" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get pvc
+
+        run_check "Prometheus/Alloy pods" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get pods -o wide | egrep "prometheus|alloy"
+
+        run_check "Thanos Receive recent warnings" \
+          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0 --tail=200
+            
         run_check "Loki previous logs" \
           kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0 --previous
 
