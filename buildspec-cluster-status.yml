@@ -110,6 +110,13 @@ phases:
         run_check "Gitea repositories" \
           kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
           find /data -name "*.git" 2>/dev/null
+        
+        run_check "Service demo deployment images" \
+          bash -c '
+            aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
+            kubectl --context financial-service-eks -n stock-demo get deploy stock-api stock-web \
+              -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image
+          '
 
         run_check "All namespaces" \
           kubectl --context "${OPS_CONTEXT}" get ns
