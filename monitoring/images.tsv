@@ -7,4 +7,4 @@ alloy	docker.io/grafana/alloy:latest	financial/monitoring/alloy	latest
 alertmanager	quay.io/prometheus/alertmanager:latest	financial/monitoring/alertmanager	latest
 xray-collector	public.ecr.aws/aws-observability/aws-otel-collector:latest	financial/monitoring/xray-collector	latest
 # prometheus	quay.io/prometheus/prometheus:v3.7.3	financial/monitoring/prometheus	v3.7.3
-aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/system/aws-load-balancer-controller	v3.3.0
+aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/monitoring/aws-load-balancer-controller	v3.3.0
