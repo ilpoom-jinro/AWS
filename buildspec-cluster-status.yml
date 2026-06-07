@@ -144,7 +144,27 @@ phases:
 
         run_check "Loki current logs" \
           kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0
+          
+        run_check "Loki pod describe" \
+          kubectl --context "${OPS_CONTEXT}" -n observability describe pod observability-loki-0
 
+        run_check "Loki config secret" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get secret \
+            -l app.kubernetes.io/name=loki
+
+        run_check "Loki configmap" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get cm | grep loki
+
+        run_check "Loki rendered config" \
+          bash -c '
+            POD=$(kubectl --context "${OPS_CONTEXT}" -n observability get pod \
+              -l app.kubernetes.io/name=loki \
+              -o jsonpath="{.items[0].metadata.name}")
+
+            kubectl --context "${OPS_CONTEXT}" -n observability exec $POD -- \
+              cat /etc/loki/config/config.yaml
+          '
+          
         run_check "Thanos Receive current logs" \
           kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0
 
