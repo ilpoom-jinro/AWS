@@ -55,9 +55,6 @@ phases:
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 
-        run_check "Argo CD service-demo-app details" \
-          kubectl --context "${OPS_CONTEXT}" -n argocd describe application service-demo-app
-
         run_check "AWS Load Balancer Controller pods" \
           kubectl --context "${OPS_CONTEXT}" get pods -A -o wide -l app.kubernetes.io/name=aws-load-balancer-controller
 
