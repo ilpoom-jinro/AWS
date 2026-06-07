@@ -388,7 +388,7 @@ resource "aws_iam_policy" "mas_policy" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:ListSecrets"
         ]
-        Resource = "arn:aws:secretsmanager:*:*:secret:ilpumjinro/*"
+        Resource = "arn:aws:secretsmanager:*:*:secret:financial-*"
       },
       {
         Sid      = "RDSIAMAuth"
