@@ -99,6 +99,10 @@ phases:
           kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
             sh -c 'ls -al /data/git/repositories/gitadmin || true'
 
+        run_check "Gitea repositories" \
+          kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
+          find /data -name "*.git" 2>/dev/null
+
         run_check "All namespaces" \
           kubectl --context "${OPS_CONTEXT}" get ns
           
