@@ -120,6 +120,12 @@ echo "kube-access role 설정 완료"
 
 # ── 8. Teleport 유저 생성 ───────────────────────────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재"
+tctl users add bgshin     --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 신병건
+tctl users add junho      --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 백준호
+tctl users add junyounglee --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 이준영
+tctl users add dahyeon    --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 조다현
+tctl users add sangjun    --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 허상준
+tctl users add gyeonghan  --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 김경한
+tctl users add minsu      --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 김민수
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"
