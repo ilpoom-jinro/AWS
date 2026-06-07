@@ -56,3 +56,11 @@ spec:
           - ServerSideApply=true
           # CRD 설치 후 나머지 리소스 적용 시 타이밍 문제를 방지
           - Replace=false
+        # ArgoCD가 네임스페이스 생성·동기화 시 PSS 레이블을 자동으로 적용
+        # enforce=baseline: Kyverno 웹훅 컴포넌트가 일부 권한을 필요로 하므로 baseline 적용
+        # audit/warn=restricted: restricted 위반 여부 감시 (향후 Enforce 전환 판단에 활용)
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted

@@ -20,6 +20,19 @@
           | kubectl --context {{ ops_kube_context }} apply -f -
       changed_when: false
 
+    # PSS enforce=baseline: Gitea는 일부 볼륨 마운트가 필요하므로 baseline으로 설정
+    # audit/warn=restricted: restricted 위반 여부를 감시하여 향후 Enforce 전환 판단에 활용
+    - name: Apply PSS labels to internal Git namespace
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          label namespace {{ internal_git_namespace }}
+          pod-security.kubernetes.io/enforce=baseline
+          pod-security.kubernetes.io/audit=restricted
+          pod-security.kubernetes.io/warn=restricted
+          --overwrite
+      changed_when: false
+
     - name: Create gp3 StorageClass
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
