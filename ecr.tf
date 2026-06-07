@@ -358,7 +358,7 @@ resource "aws_ecr_repository" "pause" {
 }
 
 resource "aws_ecr_repository" "aws_load_balancer_controller" {
-  name                 = "financial/system/aws-load-balancer-controller"
+  name                 = "financial/monitoring/aws-load-balancer-controller"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
