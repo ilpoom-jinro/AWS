@@ -20,6 +20,19 @@
           | kubectl --context {{ ops_kube_context }} apply -f -
       changed_when: false
 
+    # PSS enforce=baseline: ArgoCD Redis 등 일부 컴포넌트가 restricted 미준수 가능성이 있어 baseline 적용
+    # audit/warn=restricted: restricted 위반 여부 감시 (PolicyReport 확인 후 enforce 상향 예정)
+    - name: Apply PSS labels to Argo CD namespace
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ ops_kube_context }}
+          label namespace {{ argocd_namespace }}
+          pod-security.kubernetes.io/enforce=baseline
+          pod-security.kubernetes.io/audit=restricted
+          pod-security.kubernetes.io/warn=restricted
+          --overwrite
+      changed_when: false
+
   tasks:
     - name: Install or upgrade Argo CD
       kubernetes.core.helm:
