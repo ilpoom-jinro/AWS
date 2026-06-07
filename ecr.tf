@@ -394,6 +394,24 @@ resource "aws_ecr_repository" "aws_load_balancer_controller_monitoring" {
     prevent_destroy = true
   }
 }
+resource "aws_ecr_lifecycle_policy" "aws_load_balancer_controller_monitoring" {
+  repository = aws_ecr_repository.aws_load_balancer_controller_monitoring.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 AWS Load Balancer Controller images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
 
 resource "aws_ecr_lifecycle_policy" "aws_load_balancer_controller" {
   repository = aws_ecr_repository.aws_load_balancer_controller.name
