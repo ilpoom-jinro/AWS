@@ -91,11 +91,6 @@ resource "aws_iam_role_policy_attachment" "eks_node_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
-resource "aws_iam_role_policy_attachment" "eks_node_ebs_csi" {
-  role       = aws_iam_role.eks_node.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-}
-
 resource "aws_iam_role" "ebs_csi" {
   name = "${var.eks_cluster_name}-ebs-csi-role"
 
@@ -185,7 +180,6 @@ resource "aws_eks_node_group" "ops" {
     aws_iam_role_policy_attachment.eks_node_worker,
     aws_iam_role_policy_attachment.eks_node_cni,
     aws_iam_role_policy_attachment.eks_node_ecr,
-    aws_iam_role_policy_attachment.eks_node_ebs_csi,
     aws_vpc_endpoint.ecr_api,
     aws_vpc_endpoint.ecr_dkr,
     aws_vpc_endpoint.eks,
@@ -365,7 +359,6 @@ resource "aws_eks_node_group" "monitoring" {
     aws_iam_role_policy_attachment.eks_node_worker,
     aws_iam_role_policy_attachment.eks_node_cni,
     aws_iam_role_policy_attachment.eks_node_ecr,
-    aws_iam_role_policy_attachment.eks_node_ebs_csi,
     aws_vpc_endpoint.ecr_api,
     aws_vpc_endpoint.ecr_dkr,
     aws_vpc_endpoint.eks,
