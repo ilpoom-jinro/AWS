@@ -164,6 +164,8 @@ phases:
             kubectl --context "${OPS_CONTEXT}" -n observability exec $POD -- \
               cat /etc/loki/config/config.yaml
           '
+         run_check "Loki StatefulSet" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get sts observability-loki -o yaml 
           
         run_check "Thanos Receive current logs" \
           kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0
