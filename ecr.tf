@@ -358,7 +358,7 @@ resource "aws_ecr_repository" "pause" {
 }
 
 resource "aws_ecr_repository" "aws_load_balancer_controller" {
-  name                 = "financial/monitoring/aws-load-balancer-controller"
+  name                 = "financial/system/aws-load-balancer-controller"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -367,6 +367,25 @@ resource "aws_ecr_repository" "aws_load_balancer_controller" {
 
   tags = {
     Name      = "financial/system/aws-load-balancer-controller"
+    Purpose   = "aws-load-balancer-controller-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_repository" "aws_load_balancer_controller_monitoring" {
+  name                 = "financial/monitoring/aws-load-balancer-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/monitoring/aws-load-balancer-controller"
     Purpose   = "aws-load-balancer-controller-runtime"
     ManagedBy = "terraform"
   }
