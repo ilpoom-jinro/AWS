@@ -135,6 +135,18 @@ phases:
         run_check "Observability Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
             -l app.kubernetes.io/part-of=observability -o wide
+            
+        run_check "Loki previous logs" \
+          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0 --previous
+
+        run_check "Thanos Receive previous logs" \
+          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0 --previous
+
+        run_check "Loki current logs" \
+          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0
+
+        run_check "Thanos Receive current logs" \
+          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0
 
         run_check "AWS Load Balancer Controller pods" \
           kubectl --context "${OPS_CONTEXT}" get pods -A -o wide \
