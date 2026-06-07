@@ -70,7 +70,7 @@ env:
   ARGOCD_REDIS_SOURCE_IMAGE: docker.io/library/redis:7.4.2-alpine
   ISTIO_VERSION: "1.30.0"
   ISTIO_REPOSITORY_PREFIX: financial/istio
-  AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/system/aws-load-balancer-controller
+  AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/monitoring/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
