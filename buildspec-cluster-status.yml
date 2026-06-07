@@ -8,7 +8,6 @@ phases:
 
         : "${AWS_REGION:?AWS_REGION is required}"
         : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
-
         OPS_CONTEXT="status-${OPS_EKS_CLUSTER_NAME}"
 
         section() {
@@ -55,14 +54,16 @@ phases:
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 
+        run_check "Argo CD service-demo-app details" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application service-demo-app
+
+        run_check "Observability Argo CD applications" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
+            -l app.kubernetes.io/part-of=observability -o wide
+
         run_check "AWS Load Balancer Controller pods" \
-          kubectl --context "${OPS_CONTEXT}" get pods -A -o wide -l app.kubernetes.io/name=aws-load-balancer-controller
-
-        run_check "AWS Load Balancer Controller Argo CD application" \
-          kubectl --context "${OPS_CONTEXT}" -n argocd describe application aws-load-balancer-controller
-
-        run_check "AWS Load Balancer Controller logs" \
-          kubectl --context "${OPS_CONTEXT}" -n kube-system logs deploy/aws-load-balancer-controller --tail=200
+          kubectl --context "${OPS_CONTEXT}" get pods -A -o wide \
+            -l app.kubernetes.io/name=aws-load-balancer-controller
 
         run_check "Observability namespace resources" \
           kubectl --context "${OPS_CONTEXT}" -n observability get all -o wide
@@ -70,52 +71,27 @@ phases:
         run_check "Observability services and NLB endpoints" \
           kubectl --context "${OPS_CONTEXT}" -n observability get svc -o wide
 
-        run_check "Observability endpoints" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get endpoints -o wide
+        run_check "Expected Loki and Thanos Receive service DNS names" \
+          bash -c '
+            set -e
+            echo "Loki service hostname:"
+            kubectl --context "${OPS_CONTEXT}" -n observability \
+              get svc observability-loki \
+              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}"
+            echo "Thanos Receive service hostname:"
+            kubectl --context "${OPS_CONTEXT}" -n observability \
+              get svc observability-thanos-receive \
+              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}"
+          '
 
-        run_check "Observability pods" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pods -o wide
-
-        run_check "Loki service detail and events" \
+        run_check "Expected Loki service detail" \
           kubectl --context "${OPS_CONTEXT}" -n observability describe svc observability-loki
 
-        run_check "Thanos Receive service detail and events" \
+        run_check "Expected Thanos Receive service detail" \
           kubectl --context "${OPS_CONTEXT}" -n observability describe svc observability-thanos-receive
 
-        run_check "Thanos Query service detail and events" \
-          kubectl --context "${OPS_CONTEXT}" -n observability describe svc observability-thanos-query
-
-        run_check "Loki pods" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pods -o wide -l app.kubernetes.io/name=loki
-
-        run_check "Thanos pods" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pods -o wide -l app.kubernetes.io/name=thanos
-
-        run_check "Loki readiness and labels" \
-          bash -c '
-            set -e
-            kubectl --context "'"${OPS_CONTEXT}"'" -n observability port-forward svc/observability-loki 3100:3100 >/tmp/loki-pf.log 2>&1 &
-            pid=$!
-            trap "kill $pid >/dev/null 2>&1 || true" EXIT
-            sleep 5
-            curl -sf http://127.0.0.1:3100/ready
-            echo
-            curl -sf "http://127.0.0.1:3100/loki/api/v1/labels"
-            echo
-          '
-
-        run_check "Thanos readiness and sample query" \
-          bash -c '
-            set -e
-            kubectl --context "'"${OPS_CONTEXT}"'" -n observability port-forward svc/observability-thanos-query 9090:9090 >/tmp/thanos-pf.log 2>&1 &
-            pid=$!
-            trap "kill $pid >/dev/null 2>&1 || true" EXIT
-            sleep 5
-            curl -sf http://127.0.0.1:9090/-/ready
-            echo
-            curl -sf "http://127.0.0.1:9090/api/v1/query?query=up"
-            echo
-          '
+        run_check "Observability endpoints" \
+          kubectl --context "${OPS_CONTEXT}" -n observability get endpoints -o wide
 
         run_check "Observability warning events" \
           kubectl --context "${OPS_CONTEXT}" -n observability get events --sort-by=.lastTimestamp
