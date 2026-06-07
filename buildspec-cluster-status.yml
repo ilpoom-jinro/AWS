@@ -80,6 +80,24 @@ phases:
               echo '---'
             done
           "
+        run_check "Argo CD repository auth fields" \
+          bash -c "
+            set -e
+
+            SECRET=internal-gitops
+
+            echo 'Username:'
+            kubectl --context ${OPS_CONTEXT} -n argocd get secret \$SECRET \
+              -o jsonpath='{.data.username}' | base64 -d || true
+            echo
+
+            echo 'Password/token length:'
+            kubectl --context ${OPS_CONTEXT} -n argocd get secret \$SECRET \
+              -o jsonpath='{.data.password}' | base64 -d | wc -c || true
+          "
+        run_check "Internal Gitea platform repo check" \
+          kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
+            sh -c 'ls -al /data/git/repositories/gitadmin || true'
 
         run_check "All namespaces" \
           kubectl --context "${OPS_CONTEXT}" get ns
