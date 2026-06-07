@@ -12,7 +12,7 @@ replicaCount: 2
 image:
   # Terraform creates this private ECR repository. The monitoring image mirror
   # workflow copies public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0.
-  repository: REPLACE_WITH_ECR_REGISTRY/financial/system/aws-load-balancer-controller
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/aws-load-balancer-controller
   tag: v3.3.0
   pullPolicy: IfNotPresent
 
