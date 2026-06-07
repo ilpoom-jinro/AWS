@@ -373,21 +373,3 @@ resource "aws_eks_node_group" "monitoring" {
     aws_vpc_endpoint.sts,
   ]
 }
-
-# ──────────────────────────────────────────────────────────────────────────────
-# EKS OIDC Provider — IRSA 전제 조건
-# MAS Agent Pod가 AWS 서비스 호출 시 ServiceAccount 단위 IAM Role 부여에 사용
-# ──────────────────────────────────────────────────────────────────────────────
-data "tls_certificate" "eks" {
-  url = aws_eks_cluster.ops.identity[0].oidc[0].issuer
-}
-
-resource "aws_iam_openid_connect_provider" "eks" {
-  url             = aws_eks_cluster.ops.identity[0].oidc[0].issuer
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
-
-  tags = {
-    Name = "financial-ops-eks-oidc-provider"
-  }
-}

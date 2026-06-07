@@ -82,12 +82,3 @@ output "rds_db_name" {
   description = "financial-ops RDS DB 이름"
   value       = aws_db_instance.ops.db_name
 }
-
-# MAS Agent IRSA Role trust policy 작성 시 참조
-output "eks_oidc_provider_arn" {
-  value = aws_iam_openid_connect_provider.eks.arn
-}
-
-output "eks_oidc_provider_url" {
-  value = aws_iam_openid_connect_provider.eks.url
-}
