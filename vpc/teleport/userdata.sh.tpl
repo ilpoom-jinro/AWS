@@ -82,7 +82,13 @@ cat > /etc/systemd/system/teleport.service.d/override.conf << 'SVCEOF'
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 SVCEOF
 
-# ── 6. Teleport 시작 ────────────────────────────────────────────────────────
+# ── 6. EFS 마운트 (/var/lib/teleport) ──────────────────────────────────────
+mkdir -p /var/lib/teleport
+mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${efs_dns}:/ /var/lib/teleport
+echo "${efs_dns}:/ /var/lib/teleport nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,_netdev 0 0" >> /etc/fstab
+echo "EFS 마운트 완료"
+
+# ── 7. Teleport 시작 ────────────────────────────────────────────────────────
 systemctl daemon-reload
 systemctl enable teleport
 systemctl start teleport
@@ -97,7 +103,7 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-# ── 7. kube-access role 생성 ───────────────────────────────────────────────
+# ── 8. kube-access role 생성 ───────────────────────────────────────────────
 tctl create -f << 'ROLEEOF' 2>&1 || echo "kube-access role 이미 존재"
 kind: role
 version: v7
@@ -118,14 +124,14 @@ spec:
 ROLEEOF
 echo "kube-access role 설정 완료"
 
-# ── 8. Teleport 유저 생성 ───────────────────────────────────────────────────
+# ── 9. Teleport 유저 생성 ───────────────────────────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin     --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 신병건
-tctl users add junho      --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 백준호
-tctl users add junyounglee --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 이준영
-tctl users add dahyeon    --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 조다현
-tctl users add sangjun    --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 허상준
-tctl users add gyeonghan  --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 김경한
-tctl users add minsu      --roles=editor,access,kube-access --logins=root,ubuntu 2>&1 || echo "유저 이미 존재" # 김민수
+tctl users add bgshin     --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 신봉근
+tctl users add junho      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 백준호
+tctl users add junyounglee --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 이준영
+tctl users add dahyeon    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 조다현
+tctl users add sangjun    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 허상준
+tctl users add gyeonghan  --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김경한
+tctl users add minsu      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김민수
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"
