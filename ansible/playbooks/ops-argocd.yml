@@ -89,4 +89,6 @@
             type: git
             url: "{{ gitops_repo_url }}"
             project: default
+            username: "{{ internal_git_admin_username }}"
+            password: "{{ internal_git_admin_password }}"
       when: gitops_repo_url | length > 0
