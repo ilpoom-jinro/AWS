@@ -123,6 +123,32 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
+# ops 노드그룹 launch template — IMDSv2 강제 및 hop_limit 제한
+resource "aws_launch_template" "eks_node_ops" {
+  name_prefix = "financial-ops-eks-node-ops-"
+
+  # 기존 aws_eks_node_group.ops의 disk_size = var.eks_node_disk_size (30GiB)를 여기로 이동
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.eks_node_disk_size
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    instance_metadata_tags      = "enabled"
+  }
+
+  tags = {
+    Name = "financial-ops-eks-node-ops-lt"
+  }
+}
+
 resource "aws_eks_node_group" "ops" {
   cluster_name    = aws_eks_cluster.ops.name
   node_group_name = "${var.eks_cluster_name}-general"
@@ -130,7 +156,6 @@ resource "aws_eks_node_group" "ops" {
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   instance_types  = var.eks_node_instance_types
   capacity_type   = var.eks_node_capacity_type
-  disk_size       = var.eks_node_disk_size
 
   scaling_config {
     desired_size = var.eks_node_desired_size
@@ -140,6 +165,11 @@ resource "aws_eks_node_group" "ops" {
 
   update_config {
     max_unavailable = 1
+  }
+
+  launch_template {
+    id      = aws_launch_template.eks_node_ops.id
+    version = "$Latest"
   }
 
   labels = {
@@ -271,7 +301,7 @@ resource "aws_launch_template" "eks_node_monitor" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2
+    http_put_response_hop_limit = 1
   }
 
   tag_specifications {
@@ -342,4 +372,22 @@ resource "aws_eks_node_group" "monitoring" {
     aws_vpc_endpoint.s3,
     aws_vpc_endpoint.sts,
   ]
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EKS OIDC Provider — IRSA 전제 조건
+# MAS Agent Pod가 AWS 서비스 호출 시 ServiceAccount 단위 IAM Role 부여에 사용
+# ──────────────────────────────────────────────────────────────────────────────
+data "tls_certificate" "eks" {
+  url = aws_eks_cluster.ops.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  url             = aws_eks_cluster.ops.identity[0].oidc[0].issuer
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
+
+  tags = {
+    Name = "financial-ops-eks-oidc-provider"
+  }
 }
