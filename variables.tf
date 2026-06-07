@@ -164,9 +164,9 @@ variable "internal_git_http_port" {
 }
 
 variable "internal_git_org" {
-  description = "Internal Git organization that owns the GitOps repository"
+  description = "Internal Git organization/user that owns the GitOps repository"
   type        = string
-  default     = "gitops"
+  default     = "gitadmin"
 }
 
 variable "internal_git_repo" {
