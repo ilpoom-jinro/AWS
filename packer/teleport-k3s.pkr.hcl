@@ -86,7 +86,7 @@ build {
   provisioner "shell" {
     inline = [
       "sudo apt-get update -y",
-      "sudo apt-get install -y curl wget unzip"
+      "sudo apt-get install -y curl wget unzip nfs-common"
     ]
   }
 
