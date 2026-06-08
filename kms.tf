@@ -291,3 +291,13 @@ resource "aws_kms_alias" "key_rds_globalservice" {
   name          = "alias/key-rds-globalservice"
   target_key_id = aws_kms_key.key_rds_globalservice.key_id
 }
+
+# KMS 키 생성 후 AWS 내부 전파 대기
+# 키 생성 직후 RDS가 바로 사용하면 inaccessible-encryption-credentials 발생
+resource "time_sleep" "kms_rds_propagation" {
+  depends_on = [
+    aws_kms_key.key_rds_ops,
+    aws_kms_key.key_rds_globalservice
+  ]
+  create_duration = "15s"
+}
