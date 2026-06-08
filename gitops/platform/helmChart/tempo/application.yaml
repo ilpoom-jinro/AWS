@@ -13,7 +13,7 @@ spec:
       valueFiles:
         - ../../tempo/values.yaml
   destination:
-    name: financial-ops-eks
+    name: cluster-financial-service-eks
     namespace: observability
   syncPolicy:
     automated:
