@@ -182,6 +182,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.kyverno_cleanup_controller
           -target=aws_ecr_repository.kyverno_reports_controller
           -target=aws_ecr_lifecycle_policy.kyverno_reports_controller
+          -target=aws_ecr_repository.kyverno_cli
+          -target=aws_ecr_lifecycle_policy.kyverno_cli
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -275,7 +277,7 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          for component in kyverno kyvernopre background-controller cleanup-controller reports-controller; do
+          for component in kyverno kyvernopre background-controller cleanup-controller reports-controller kyverno-cli; do
             source_image="${KYVERNO_SOURCE_REGISTRY}/${component}:latest"
             target_image="${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
 
