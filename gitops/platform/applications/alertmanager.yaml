@@ -13,7 +13,7 @@ spec:
       valueFiles:
         - ../../alertmanager/values.yaml
   destination:
-    name: financial-ops-eks
+    server: https://kubernetes.default.svc
     namespace: observability
   syncPolicy:
     automated:
