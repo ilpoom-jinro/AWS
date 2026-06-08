@@ -59,6 +59,9 @@ phases:
           --set "reportsController.image.registry=${ECR_REGISTRY}" \
           --set "reportsController.image.repository=financial/kyverno/reports-controller" \
           --set "reportsController.image.tag=latest" \
+          --set "migration.image.registry=${ECR_REGISTRY}" \
+          --set "migration.image.repository=financial/kyverno/kyverno-cli" \
+          --set "migration.image.tag=latest" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
