@@ -21,12 +21,6 @@ variable "vpc2_cidr" {
   type        = string
   default     = "10.20.0.0/16"
 }
-variable "teleport_ami_id" {
-  description = "Packer로 빌드한 Teleport + K3s AMI ID"
-  type        = string
-  default     = "ami-09a54acd4b2842690"
-}
-
 variable "eks_endpoint" {
   description = "VPC2 EKS 클러스터 API 서버 엔드포인트"
   type        = string

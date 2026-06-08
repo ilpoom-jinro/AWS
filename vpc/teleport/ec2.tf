@@ -50,7 +50,7 @@ resource "aws_iam_instance_profile" "teleport_ec2" {
 
 # Teleport EC2 (Packer AMI)
 resource "aws_instance" "teleport" {
-  ami                         = var.teleport_ami_id
+  ami                         = data.aws_ami.teleport.id
   instance_type               = "t3.small"
   subnet_id                   = aws_subnet.private_a.id
   vpc_security_group_ids      = [aws_security_group.teleport.id]
