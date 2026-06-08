@@ -11,7 +11,7 @@ spec:
     path: financial-ops-eks/observability-indexer
     kustomize: {}
   destination:
-    name: financial-ops-eks
+    server: https://kubernetes.default.svc
     namespace: observability
   syncPolicy:
     automated:
