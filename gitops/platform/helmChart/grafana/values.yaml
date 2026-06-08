@@ -48,3 +48,12 @@ datasources:
         jsonData:
           authType: default
           defaultRegion: ap-northeast-2
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://observability-tempo.observability.svc.cluster.local:3200
+        jsonData:
+            tracesToLogsV2:
+              datasourceUid: Loki
+          serviceMap:
+              datasourceUid: Thanos
