@@ -1,0 +1,64 @@
+# Values for the official Grafana Tempo Helm chart.
+# Copy the official chart into `helmChart/charts/tempo` first, then verify these keys
+# against the chart version you use.
+
+fullnameOverride: observability-tempo
+
+tempo:
+  registry: REPLACE_WITH_ECR_REGISTRY
+  repository: financial/monitoring/tempo
+  tag: latest
+  pullPolicy: Always
+  reportingEnabled: false
+  retention: 24h
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+service:
+  type: LoadBalancer
+  port: 3200
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: REPLACE_WITH_OPS_TEMPO_NLB_SG_ID
+  additionalPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
+nodeSelector:
+  role: monitoring
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi

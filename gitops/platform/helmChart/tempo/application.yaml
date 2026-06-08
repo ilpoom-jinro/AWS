@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-tempo
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitops/platform.git
+    targetRevision: main
+    path: helmChart/charts/tempo
+    helm:
+      valueFiles:
+        - ../../tempo/values.yaml
+  destination:
+    name: financial-ops-eks
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
