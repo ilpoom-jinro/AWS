@@ -117,7 +117,13 @@ resource "aws_kms_key" "key_rds_ops" {
         Resource = "*"
         Condition = {
           StringNotEquals = {
+            # 다른 계정 IAM principal 차단
             "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            # AWS 서비스(rds.amazonaws.com 등)는 Deny 제외
+            # 서비스가 KMS 호출 시 CallerAccount가 내부 계정이 되어 Deny에 걸릴 수 있음
+            "aws:PrincipalIsAWSService" = "false"
           }
         }
       },
@@ -251,7 +257,13 @@ resource "aws_kms_key" "key_rds_globalservice" {
         Resource = "*"
         Condition = {
           StringNotEquals = {
+            # 다른 계정 IAM principal 차단
             "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            # AWS 서비스(rds.amazonaws.com 등)는 Deny 제외
+            # 서비스가 KMS 호출 시 CallerAccount가 내부 계정이 되어 Deny에 걸릴 수 있음
+            "aws:PrincipalIsAWSService" = "false"
           }
         }
       },
