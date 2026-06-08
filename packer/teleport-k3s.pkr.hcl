@@ -85,6 +85,9 @@ build {
   # ── 1. 시스템 업데이트 ──────────────────────────────────────────────────────
   provisioner "shell" {
     inline = [
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get update -y",
+      "sudo add-apt-repository universe -y",
       "sudo apt-get update -y",
       "sudo apt-get install -y curl wget unzip nfs-common"
     ]
