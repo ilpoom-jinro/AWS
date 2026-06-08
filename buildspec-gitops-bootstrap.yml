@@ -62,6 +62,8 @@ phases:
           --set "migration.image.registry=${ECR_REGISTRY}" \
           --set "migration.image.repository=financial/kyverno/kyverno-cli" \
           --set "migration.image.tag=latest" \
+          --set "migration.enabled=false" \
+          --set "migrationJob.enabled=false" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
