@@ -42,7 +42,7 @@ metadata:
 spec:
   # Audit: 위반을 허용하되 PolicyReport 에 기록 (영향 파악 후 Enforce 로 전환)
   # Enforce 전환 명령어는 상단 주석 참고
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
 
   # background: true → 이미 실행 중인 Pod 도 정책 평가 대상 (PolicyReport 생성)
   background: true
