@@ -9,7 +9,7 @@ sysctl -p /etc/sysctl.d/99-teleport.conf
 
 # ── 2. K3s 시작 ────────────────────────────────────────────────────────────
 systemctl enable k3s
-systemctl start k3s
+systemctl start k3s || true  # K3s 시작 실패해도 스크립트 계속 진행 (타이밍 이슈 방지)
 until kubectl get nodes 2>/dev/null | grep -q Ready; do
   echo "K3s 준비 대기중..."
   sleep 5
