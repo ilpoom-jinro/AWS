@@ -13,7 +13,7 @@ spec:
       valueFiles:
         - ../../tempo/values.yaml
   destination:
-    name: cluster-financial-service-eks
+    server: https://kubernetes.default.svc
     namespace: observability
   syncPolicy:
     automated:
