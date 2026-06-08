@@ -221,7 +221,7 @@ jobs:
               continue
             fi
 
-            vpc_id="$(terraform state show -no-color "${resource}" | awk -F' = ' '$1 == "id" {print $2; exit}')"
+            vpc_id="$(terraform state show -no-color "${resource}" | grep -m1 '^\s*id\s*=' | awk -F'"' '{print $2}')"
             if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "null" ]; then
               echo "Could not resolve VPC ID for ${resource}; skipping."
               continue
