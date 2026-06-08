@@ -145,6 +145,30 @@ alloy:
           url = "http://observability-thanos-receive.observability.svc.cluster.local:19291/api/v1/receive"
         }
       }
+      otelcol.receiver.otlp "ops_traces" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "observability-tempo.observability.svc.cluster.local:4317"
+
+          tls {
+            insecure = true
+          }
+        }
+      }
+
 
       // TODO: S3 Vectors ingestion should be handled by a separate AI indexing pipeline.
 
