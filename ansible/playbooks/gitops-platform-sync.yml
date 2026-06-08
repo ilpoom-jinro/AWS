@@ -164,6 +164,14 @@
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
+        
+    - name: Register Tempo application in Argo CD
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        namespace: "{{ argocd_namespace }}"
+        state: present
+        src: "/workspace/gitops/platform/helmChart/tempo/application.yaml"
+
 
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
