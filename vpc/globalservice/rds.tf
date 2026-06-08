@@ -51,6 +51,7 @@ resource "aws_db_instance" "service" {
   allocated_storage = 100
   storage_type      = "gp3"
   storage_encrypted = true
+  kms_key_id        = var.kms_key_rds_arn # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
 
   backup_retention_period = 0
   backup_window           = "18:00-19:00"

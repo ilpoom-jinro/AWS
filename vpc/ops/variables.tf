@@ -137,3 +137,8 @@ variable "rds_password" {
   type        = string
   sensitive   = true
 }
+
+variable "kms_key_rds_arn" {
+  description = "RDS 암호화에 사용할 KMS CMK ARN"
+  type        = string
+}
