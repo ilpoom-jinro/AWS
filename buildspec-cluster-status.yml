@@ -8,8 +8,12 @@ phases:
 
         : "${AWS_REGION:?AWS_REGION is required}"
         : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
+
         OPS_CONTEXT="status-${OPS_EKS_CLUSTER_NAME}"
+        OBSERVABILITY_NAMESPACE="${OBSERVABILITY_NAMESPACE:-observability}"
+
         export OPS_CONTEXT
+        export OBSERVABILITY_NAMESPACE
 
         section() {
           printf '\n===== %s =====\n' "$1"
@@ -43,9 +47,6 @@ phases:
         run_check "Ops core pods" \
           kubectl --context "${OPS_CONTEXT}" get pods -n kube-system -o wide
 
-        run_check "Ops Istio pods" \
-          kubectl --context "${OPS_CONTEXT}" get pods -n istio-system -o wide
-
         run_check "Internal Git pods and service" \
           kubectl --context "${OPS_CONTEXT}" -n git get deploy,svc,pods -o wide
 
@@ -55,6 +56,30 @@ phases:
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
 
+        run_check "Argo CD registered clusters" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd get secret \
+            -l argocd.argoproj.io/secret-type=cluster \
+            -o custom-columns='SECRET:.metadata.name,CLUSTER_NAME:.data.name,SERVER:.data.server'
+
+        run_check "Argo CD registered cluster names decoded" \
+          bash -c '
+            for secret in $(kubectl --context "${OPS_CONTEXT}" -n argocd get secret \
+              -l argocd.argoproj.io/secret-type=cluster \
+              -o jsonpath="{.items[*].metadata.name}"); do
+              echo
+              echo "Secret: $secret"
+              echo -n "name: "
+              kubectl --context "${OPS_CONTEXT}" -n argocd get secret "$secret" \
+                -o jsonpath="{.data.name}" | base64 -d || true
+              echo
+              echo -n "server: "
+              kubectl --context "${OPS_CONTEXT}" -n argocd get secret "$secret" \
+                -o jsonpath="{.data.server}" | base64 -d || true
+              echo
+              echo "---"
+            done
+          '
+
         run_check "Argo CD platform-applications details" \
           kubectl --context "${OPS_CONTEXT}" -n argocd describe application platform-applications
 
@@ -63,76 +88,72 @@ phases:
             -l argocd.argoproj.io/secret-type=repository
 
         run_check "Argo CD repository URLs" \
-          bash -c "
-            set -e
-
-            for secret in \$(kubectl --context ${OPS_CONTEXT} -n argocd get secret \
+          bash -c '
+            for secret in $(kubectl --context "${OPS_CONTEXT}" -n argocd get secret \
               -l argocd.argoproj.io/secret-type=repository \
-              -o jsonpath='{.items[*].metadata.name}'); do
-
+              -o jsonpath="{.items[*].metadata.name}"); do
               echo
-              echo 'Secret:' \$secret
-
-              kubectl --context ${OPS_CONTEXT} -n argocd get secret \$secret \
-                -o jsonpath='{.data.url}' | base64 -d || true
-
+              echo "Secret: $secret"
+              kubectl --context "${OPS_CONTEXT}" -n argocd get secret "$secret" \
+                -o jsonpath="{.data.url}" | base64 -d || true
               echo
-              echo '---'
+              echo "---"
             done
-          "
-        run_check "Argo CD repository auth fields" \
-          bash -c "
-            set -e
+          '
 
+        run_check "Argo CD repository auth fields" \
+          bash -c '
             SECRET=internal-gitops
 
-            echo 'Username:'
-            kubectl --context ${OPS_CONTEXT} -n argocd get secret \$SECRET \
-              -o jsonpath='{.data.username}' | base64 -d || true
+            echo "Username:"
+            kubectl --context "${OPS_CONTEXT}" -n argocd get secret "$SECRET" \
+              -o jsonpath="{.data.username}" | base64 -d || true
             echo
 
-            echo 'Password/token length:'
-            kubectl --context ${OPS_CONTEXT} -n argocd get secret \$SECRET \
-              -o jsonpath='{.data.password}' | base64 -d | wc -c || true
-          "
-        run_check "Internal Gitea platform repo check" \
+            echo "Password/token length:"
+            kubectl --context "${OPS_CONTEXT}" -n argocd get secret "$SECRET" \
+              -o jsonpath="{.data.password}" | base64 -d | wc -c || true
+          '
+
+        run_check "Internal Gitea platform repo check - old path" \
           kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
             sh -c 'ls -al /data/git/repositories/gitadmin || true'
 
+        run_check "Internal Gitea platform repo check - var lib path" \
+          kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
+            sh -c 'find /var/lib/gitea -name "platform.git" -o -name "*.git" 2>/dev/null | head -50'
+
         run_check "Gitea data path" \
           kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
-          sh -c 'pwd; ls -al /; ls -al /data; ls -al /var/lib'
-  
+            sh -c 'pwd; ls -al / || true; ls -al /data || true; ls -al /var/lib || true; ls -al /var/lib/gitea || true'
+
         run_check "Gitea app.ini" \
           kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
-          sh -c 'find / -name app.ini 2>/dev/null'
-  
-        run_check "Gitea repositories" \
-          kubectl --context "${OPS_CONTEXT}" -n git exec deploy/internal-git -- \
-          find /data -name "*.git" 2>/dev/null
-        
+            sh -c 'find / -name app.ini 2>/dev/null'
+
         run_check "Service demo deployment images" \
           bash -c '
-            aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
+            aws eks update-kubeconfig --region "${AWS_REGION}" --name financial-service-eks --alias financial-service-eks
             kubectl --context financial-service-eks -n stock-demo get deploy stock-api stock-web \
               -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image
           '
 
         run_check "All namespaces" \
           kubectl --context "${OPS_CONTEXT}" get ns
-          
+
         run_check "Argo CD observability applications" \
-          kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
-            | grep observability
-            
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io | grep observability || true
+          '
+
         run_check "Observability service names and NLB hostnames" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get svc \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get svc \
             -o custom-columns='NAME:.metadata.name,TYPE:.spec.type,PORTS:.spec.ports[*].port,NLB:.status.loadBalancer.ingress[*].hostname'
 
         run_check "Argo CD service-demo-app details" \
           kubectl --context "${OPS_CONTEXT}" -n argocd describe application service-demo-app
 
-        run_check "Observability Argo CD applications" \
+        run_check "Observability Argo CD applications by label" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
             -l app.kubernetes.io/part-of=observability -o wide
 
@@ -154,93 +175,102 @@ phases:
         run_check "Argo CD observability-thanos details" \
           kubectl --context "${OPS_CONTEXT}" -n argocd describe application observability-thanos
 
+        run_check "Argo CD observability-grafana details" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application observability-grafana
+
         run_check "Argo CD aws-load-balancer-controller details" \
           kubectl --context "${OPS_CONTEXT}" -n argocd describe application aws-load-balancer-controller
-
-        run_check "Observability service names and NLB hostnames" \
-          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get svc \
-            -o custom-columns='NAME:.metadata.name,TYPE:.spec.type,PORTS:.spec.ports[*].port,NLB:.status.loadBalancer.ingress[*].hostname'
-            
-        run_check "Thanos Receive pod status" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pod observability-thanos-receive-0 -o wide
-
-        run_check "Thanos Receive PVC" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pvc
-
-        run_check "Prometheus/Alloy pods" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get pods -o wide | egrep "prometheus|alloy"
-
-        run_check "Thanos Receive recent warnings" \
-          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0 --tail=200
-            
-        run_check "Loki previous logs" \
-          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0 --previous
-
-        run_check "Thanos Receive previous logs" \
-          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0 --previous
-
-        run_check "Loki current logs" \
-          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-loki-0
-          
-        run_check "Loki pod describe" \
-          kubectl --context "${OPS_CONTEXT}" -n observability describe pod observability-loki-0
-
-        run_check "Loki config secret" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get secret \
-            -l app.kubernetes.io/name=loki
-
-        run_check "Loki configmap" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get cm | grep loki
-
-        run_check "Loki rendered config" \
-          bash -c '
-            POD=$(kubectl --context "${OPS_CONTEXT}" -n observability get pod \
-              -l app.kubernetes.io/name=loki \
-              -o jsonpath="{.items[0].metadata.name}")
-
-            kubectl --context "${OPS_CONTEXT}" -n observability exec $POD -- \
-              cat /etc/loki/config/config.yaml
-          '
-         run_check "Loki StatefulSet" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get sts observability-loki -o yaml 
-          
-        run_check "Thanos Receive current logs" \
-          kubectl --context "${OPS_CONTEXT}" -n observability logs observability-thanos-receive-0
 
         run_check "AWS Load Balancer Controller pods" \
           kubectl --context "${OPS_CONTEXT}" get pods -A -o wide \
             -l app.kubernetes.io/name=aws-load-balancer-controller
 
         run_check "Observability namespace resources" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get all -o wide
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get all -o wide
+
+        run_check "Observability PVC" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get pvc
 
         run_check "Observability services and NLB endpoints" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get svc -o wide
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get svc -o wide
+
+        run_check "Prometheus/Alloy pods" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get pods -o wide | egrep "prometheus|alloy" || true
+          '
+
+        run_check "Thanos Receive pod status" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get pod observability-thanos-receive-0 -o wide
+
+        run_check "Loki pod status" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get pod observability-loki-0 -o wide
 
         run_check "Expected Loki and Thanos Receive service DNS names" \
           bash -c '
-            set -e
             echo "Loki service hostname:"
-            kubectl --context "${OPS_CONTEXT}" -n observability \
+            kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" \
               get svc observability-loki \
-              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}"
+              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}" || true
+
             echo "Thanos Receive service hostname:"
-            kubectl --context "${OPS_CONTEXT}" -n observability \
+            kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" \
               get svc observability-thanos-receive \
-              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}"
+              -o jsonpath="{.status.loadBalancer.ingress[0].hostname}{\"\n\"}" || true
           '
 
         run_check "Expected Loki service detail" \
-          kubectl --context "${OPS_CONTEXT}" -n observability describe svc observability-loki
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" describe svc observability-loki
 
         run_check "Expected Thanos Receive service detail" \
-          kubectl --context "${OPS_CONTEXT}" -n observability describe svc observability-thanos-receive
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" describe svc observability-thanos-receive
+
+        run_check "Loki pod describe" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" describe pod observability-loki-0
+
+        run_check "Thanos Receive recent logs" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" logs observability-thanos-receive-0 --tail=200
+
+        run_check "Loki current logs" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" logs observability-loki-0 --tail=200
+
+        run_check "Loki previous logs" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" logs observability-loki-0 --previous --tail=200
+
+        run_check "Thanos Receive previous logs" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" logs observability-thanos-receive-0 --previous --tail=200
+
+        run_check "Loki config secret" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get secret \
+            -l app.kubernetes.io/name=loki
+
+        run_check "Loki configmap" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get cm | grep loki || true
+          '
+
+        run_check "Loki rendered config" \
+          bash -c '
+            POD=$(kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get pod \
+              -l app.kubernetes.io/name=loki \
+              -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
+
+            if [ -z "$POD" ]; then
+              echo "No Loki pod found"
+              exit 0
+            fi
+
+            kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" exec "$POD" -- \
+              cat /etc/loki/config/config.yaml || true
+          '
+
+        run_check "Loki StatefulSet" \
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get sts observability-loki -o yaml
 
         run_check "Observability endpoints" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get endpoints -o wide
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get endpoints -o wide
 
         run_check "Observability warning events" \
-          kubectl --context "${OPS_CONTEXT}" -n observability get events --sort-by=.lastTimestamp
+          kubectl --context "${OPS_CONTEXT}" -n "${OBSERVABILITY_NAMESPACE}" get events --sort-by=.lastTimestamp
 
         section "Rollout checks"
         for item in \
