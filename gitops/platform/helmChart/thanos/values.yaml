@@ -31,16 +31,24 @@ receive:
       operator: Equal
       value: monitoring
       effect: NoSchedule
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
   service:
     type: LoadBalancer
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-scheme: internal
       service.beta.kubernetes.io/aws-load-balancer-type: external
       service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-      # Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
       service.beta.kubernetes.io/aws-load-balancer-security-groups: REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID
       service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
-
+      
 bucketweb:
   enabled: false
 
