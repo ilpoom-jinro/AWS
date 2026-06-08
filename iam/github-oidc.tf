@@ -528,7 +528,8 @@ resource "aws_iam_policy" "github_actions_security" {
           "kms:CreateAlias",
           "kms:UpdateAlias",
           "kms:DeleteAlias",
-          "kms:UpdateKeyDescription"
+          "kms:UpdateKeyDescription",
+          "kms:CreateGrant"
         ]
         Resource = "*"
       },
