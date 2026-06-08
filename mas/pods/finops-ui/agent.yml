@@ -1,0 +1,7 @@
+name: finops-ui
+role: ui
+image_repository: financial/mas/finops-ui
+service_account_name: finops-ui
+service_name: finops-ui
+namespace: finops-mas
+target_cluster: financial-ops-eks
