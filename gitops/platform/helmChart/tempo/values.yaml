@@ -1,7 +1,3 @@
-# Values for the official Grafana Tempo Helm chart.
-# Copy the official chart into `helmChart/charts/tempo` first, then verify these keys
-# against the chart version you use.
-
 fullnameOverride: observability-tempo
 
 tempo:
@@ -10,19 +6,32 @@ tempo:
   tag: latest
   pullPolicy: Always
   reportingEnabled: false
-  retention: 24h
-  receivers:
-    otlp:
-      protocols:
-        grpc:
-          endpoint: 0.0.0.0:4317
-        http:
-          endpoint: 0.0.0.0:4318
-  storage:
-    trace:
-      backend: local
-      local:
-        path: /var/tempo/traces
+
+  config: |
+    multitenancy_enabled: false
+
+    usage_report:
+      reporting_enabled: false
+
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
 
 persistence:
   enabled: true
