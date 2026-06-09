@@ -365,6 +365,12 @@ resource "aws_codebuild_project" "cluster_status" {
       name  = "SERVICE_EKS_CLUSTER_NAME"
       value = module.vpc1.eks_cluster_name
     }
+
+    environment_variable {
+      name  = "TELEPORT_APP_JOIN_TOKEN"
+      value = ""
+      type  = "PLAINTEXT"
+    }
   }
 
   source {
