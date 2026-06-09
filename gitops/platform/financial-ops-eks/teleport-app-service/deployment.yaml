@@ -24,6 +24,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --config=/etc/teleport/teleport.yaml
+            - --insecure
           volumeMounts:
             - name: config
               mountPath: /etc/teleport/teleport.yaml
