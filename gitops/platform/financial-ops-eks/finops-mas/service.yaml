@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-ui
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-ui
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
