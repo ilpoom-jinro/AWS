@@ -5,6 +5,16 @@ image:
   pullPolicy: Always
 
 alloy:
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
   configMap:
     create: true
     content: |
@@ -145,6 +155,7 @@ alloy:
           url = "http://observability-thanos-receive.observability.svc.cluster.local:19291/api/v1/receive"
         }
       }
+
       otelcol.receiver.otlp "ops_traces" {
         grpc {
           endpoint = "0.0.0.0:4317"
@@ -169,8 +180,11 @@ alloy:
         }
       }
 
-
       // TODO: S3 Vectors ingestion should be handled by a separate AI indexing pipeline.
+
+service:
+  enabled: true
+  type: ClusterIP
 
 configReloader:
   enabled: false

@@ -84,6 +84,18 @@
       register: thanos_receive_nlb_sg_id
       changed_when: false
 
+    - name: Read the Tempo internal NLB security group ID
+      ansible.builtin.command:
+        cmd: >
+          aws ec2 describe-security-groups
+          --region {{ aws_region }}
+          --filters
+          Name=vpc-id,Values={{ ops_vpc_id.stdout }}
+          Name=group-name,Values=financial-vpc2-tempo-nlb-sg
+          --query SecurityGroups[0].GroupId
+          --output text
+      register: tempo_nlb_sg_id
+      changed_when: false
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
         msg: "Failed to discover the Ops VPC ID or monitoring NLB security group IDs."
@@ -91,7 +103,8 @@
         ops_vpc_id.stdout in ["", "None"] or
         teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
-        thanos_receive_nlb_sg_id.stdout in ["", "None"]
+        thanos_receive_nlb_sg_id.stdout in ["", "None"] or
+        tempo_nlb_sg_id.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -178,6 +191,7 @@
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
+            "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
         }
 
         for path in Path(".").rglob("*"):
@@ -206,17 +220,18 @@
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
-
+        TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
+        
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present
         src: "{{ gitops_platform_seed_dir }}/bootstrap/platform-app-of-apps.yaml"
 
-    - name: Check if Loki and Thanos Receive services exist in observability namespace
+    - name: Check if Loki, Thanos Receive and Tempo services exist in observability namespace
       ansible.builtin.shell: |
         kubectl --context {{ ops_kube_context }} -n observability \
-          get svc observability-loki observability-thanos-receive 2>/dev/null
+          get svc observability-loki observability-thanos-receive observability-tempo 2>/dev/null
       register: monitoring_svcs_check
       changed_when: false
       failed_when: false
@@ -232,12 +247,22 @@
 
         for attempt in $(seq 1 90); do
           loki_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc observability-loki -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-          thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc observability-thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            get svc observability-loki \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
 
-          if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ]; then
-            printf '%s|%s\n' "${loki_dns}" "${thanos_dns}"
+          thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc observability-thanos-receive \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+
+          tempo_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc observability-tempo \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+
+          if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ] && [ -n "${tempo_dns}" ]; then
+            printf '%s|%s|%s\n' \
+              "${loki_dns}" \
+              "${thanos_dns}" \
+              "${tempo_dns}"
             exit 0
           fi
 
@@ -274,6 +299,7 @@
         content = path.read_text()
         content = content.replace("loki-internal-nlb.example.local", os.environ["LOKI_NLB_DNS"])
         content = content.replace("thanos-receive-internal-nlb.example.local", os.environ["THANOS_RECEIVE_NLB_DNS"])
+        content = content.replace("tempo-internal-nlb.example.local", os.environ["TEMPO_NLB_DNS"])
         path.write_text(content)
         PY
 
@@ -295,6 +321,7 @@
       environment:
         LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
         THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"
+        TEMPO_NLB_DNS: "{{ tempo_nlb_dns }}"
 
   post_tasks:
     - name: Stop local internal Git port-forward
