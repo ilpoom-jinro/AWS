@@ -228,14 +228,11 @@
         state: present
         src: "{{ gitops_platform_seed_dir }}/bootstrap/platform-app-of-apps.yaml"
 
-    - name: Check if Loki and Thanos Receive services exist in observability namespace
+    - name: Check if Loki, Thanos Receive and Tempo services exist in observability namespace
       ansible.builtin.shell: |
         kubectl --context {{ ops_kube_context }} -n observability \
-          get svc observability-loki observability-thanos-receive 2>/dev/null
-      register: monitoring_svcs_check
-      changed_when: false
-      failed_when: false
-
+          get svc observability-loki observability-thanos-receive observability-tempo 2>/dev/null
+          
     - name: Skip NLB wait — observability stack not yet deployed
       ansible.builtin.debug:
         msg: "Observability stack not deployed yet. Skipping NLB DNS configuration. Re-run after Loki and Thanos are up."
@@ -247,12 +244,22 @@
 
         for attempt in $(seq 1 90); do
           loki_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc observability-loki -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-          thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
-            get svc observability-thanos-receive -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            get svc observability-loki \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
 
-          if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ]; then
-            printf '%s|%s\n' "${loki_dns}" "${thanos_dns}"
+          thanos_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc observability-thanos-receive \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+
+          tempo_dns="$(kubectl --context {{ ops_kube_context }} -n observability \
+            get svc observability-tempo \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+
+          if [ -n "${loki_dns}" ] && [ -n "${thanos_dns}" ] && [ -n "${tempo_dns}" ]; then
+            printf '%s|%s|%s\n' \
+              "${loki_dns}" \
+              "${thanos_dns}" \
+              "${tempo_dns}"
             exit 0
           fi
 
