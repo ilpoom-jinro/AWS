@@ -31,6 +31,26 @@ phases:
           --name "${OPS_EKS_CLUSTER_NAME}" \
           --alias "${OPS_CONTEXT}"
 
+        if [ -n "${TELEPORT_APP_JOIN_TOKEN:-}" ]; then
+          section "Apply Teleport app join token"
+          kubectl --context "${OPS_CONTEXT}" create namespace teleport-apps \
+            --dry-run=client -o yaml | kubectl --context "${OPS_CONTEXT}" apply -f -
+
+          kubectl --context "${OPS_CONTEXT}" -n teleport-apps create secret generic teleport-app-service-join-token \
+            --from-literal=token="${TELEPORT_APP_JOIN_TOKEN}" \
+            --dry-run=client -o yaml | kubectl --context "${OPS_CONTEXT}" apply -f -
+
+          if kubectl --context "${OPS_CONTEXT}" -n teleport-apps get deployment teleport-app-service >/dev/null 2>&1; then
+            kubectl --context "${OPS_CONTEXT}" -n teleport-apps rollout restart deployment/teleport-app-service
+            kubectl --context "${OPS_CONTEXT}" -n teleport-apps rollout status deployment/teleport-app-service --timeout=180s || true
+          else
+            echo "teleport-app-service deployment is not present yet"
+          fi
+        else
+          section "Apply Teleport app join token"
+          echo "TELEPORT_APP_JOIN_TOKEN is empty; skipping secret update"
+        fi
+
         run_check "Ops EKS control plane version" \
           aws eks describe-cluster \
             --region "${AWS_REGION}" \
@@ -55,6 +75,12 @@ phases:
 
         run_check "Argo CD applications" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io -o wide
+
+        run_check "MAS FinOps Argo CD application detail" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application finops-mas
+
+        run_check "Teleport app-service Argo CD application detail" \
+          kubectl --context "${OPS_CONTEXT}" -n argocd describe application teleport-app-service
 
         run_check "Argo CD registered clusters" \
           kubectl --context "${OPS_CONTEXT}" -n argocd get secret \
@@ -140,6 +166,28 @@ phases:
 
         run_check "All namespaces" \
           kubectl --context "${OPS_CONTEXT}" get ns
+
+        run_check "MAS FinOps resources" \
+          kubectl --context "${OPS_CONTEXT}" -n finops-mas get deploy,svc,pods -o wide
+
+        run_check "MAS FinOps images" \
+          kubectl --context "${OPS_CONTEXT}" -n finops-mas get deploy \
+            -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image'
+
+        run_check "Teleport app-service resources" \
+          kubectl --context "${OPS_CONTEXT}" -n teleport-apps get deploy,svc,pods,cm,secret -o wide
+
+        run_check "Teleport app-service config proxy server" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n teleport-apps get cm teleport-app-service-config \
+              -o jsonpath="{.data.teleport\\.yaml}" 2>/dev/null | grep "proxy_server" || true
+          '
+
+        run_check "Teleport app-service current logs" \
+          kubectl --context "${OPS_CONTEXT}" -n teleport-apps logs deploy/teleport-app-service --tail=200
+
+        run_check "Teleport app-service previous logs" \
+          kubectl --context "${OPS_CONTEXT}" -n teleport-apps logs deploy/teleport-app-service --previous --tail=200
 
         run_check "Argo CD observability applications" \
           bash -c '
@@ -276,6 +324,8 @@ phases:
         for item in \
           "${OPS_CONTEXT}:argocd:deployment/argocd-server" \
           "${OPS_CONTEXT}:git:deployment/internal-git" \
+          "${OPS_CONTEXT}:finops-mas:deployment/finops-ui" \
+          "${OPS_CONTEXT}:teleport-apps:deployment/teleport-app-service" \
           "${OPS_CONTEXT}:istio-system:deployment/istiod"; do
           IFS=: read -r context namespace resource <<<"${item}"
           echo "--- ${context} ${namespace} ${resource}"
