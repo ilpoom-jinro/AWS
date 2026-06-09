@@ -170,7 +170,7 @@ alloy:
 
       otelcol.exporter.otlp "tempo" {
         client {
-          endpoint = "k8s-observab-observab-6068049b22-9a099ead4ddb8724.elb.ap-northeast-2.amazonaws.com:4317"
+          endpoint = "tempo-internal-nlb.example.local:4317"
           tls {
             insecure = true
           }
