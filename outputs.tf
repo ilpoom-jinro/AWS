@@ -53,6 +53,11 @@ output "cluster_status_codebuild_project_name" {
   value       = aws_codebuild_project.cluster_status.name
 }
 
+output "mas_status_codebuild_project_name" {
+  description = "CodeBuild project that prints MAS UI and Teleport app-service status"
+  value       = aws_codebuild_project.mas_status.name
+}
+
 output "service_cluster_status_codebuild_project_name" {
   description = "CodeBuild project that prints Service EKS workload status"
   value       = aws_codebuild_project.service_cluster_status.name

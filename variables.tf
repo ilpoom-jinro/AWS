@@ -115,6 +115,12 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
+variable "mas_status_codebuild_project_name" {
+  description = "CodeBuild project name for checking MAS and Teleport app-service status"
+  type        = string
+  default     = "financial-mas-status"
+}
+
 variable "service_cluster_status_codebuild_project_name" {
   description = "CodeBuild project name for checking Service EKS workload status from inside the Service VPC"
   type        = string
