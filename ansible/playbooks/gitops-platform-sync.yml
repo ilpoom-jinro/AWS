@@ -224,7 +224,7 @@
     - name: Skip NLB wait — observability stack not yet deployed
       ansible.builtin.debug:
         msg: "Observability stack not deployed yet. Skipping NLB DNS configuration. Re-run after Loki and Thanos are up."
-      when: monitoring_svcs_check.rc != 0
+      when: monitoring_svcs_check is not defined or monitoring_svcs_check.rc != 0
 
     - name: Wait for the Loki and Thanos Receive internal NLB DNS names
       ansible.builtin.shell: |
@@ -249,13 +249,17 @@
         exit 1
       register: monitoring_nlb_dns
       changed_when: false
-      when: monitoring_svcs_check.rc == 0
+      when: monitoring_svcs_check is defined and monitoring_svcs_check.rc == 0
 
     - name: Store the discovered internal NLB DNS names
       ansible.builtin.set_fact:
         loki_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[0] }}"
         thanos_receive_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[1] }}"
-      when: monitoring_svcs_check.rc == 0
+      when:
+        - monitoring_svcs_check is defined
+        - monitoring_svcs_check.rc == 0
+        - monitoring_nlb_dns is defined
+        - monitoring_nlb_dns.stdout is defined
 
     - name: Push discovered NLB DNS names into the internal GitOps repository
       ansible.builtin.shell: |
@@ -283,7 +287,11 @@
         git commit -m "Configure Service Alloy monitoring NLB endpoints"
         git push origin main
       no_log: true
-      when: monitoring_svcs_check.rc == 0
+      when:
+        - monitoring_svcs_check is defined
+        - monitoring_svcs_check.rc == 0
+        - loki_nlb_dns is defined
+        - thanos_receive_nlb_dns is defined
       environment:
         LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
         THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"
