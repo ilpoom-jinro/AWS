@@ -1,0 +1,83 @@
+# =============================================================================
+# ClusterPolicy: add-pss-labels
+# 목적: 새 네임스페이스 생성 시 Pod Security Standards (PSS) 레이블을 자동으로 추가합니다.
+#
+# 추가되는 레이블:
+#   pod-security.kubernetes.io/enforce: baseline
+#     → 기준선 미달 Pod 를 즉시 거부 (실제 차단)
+#   pod-security.kubernetes.io/audit: restricted
+#     → 제한 수준 미달 Pod 를 허용하되 감사 로그에 기록
+#   pod-security.kubernetes.io/warn: restricted
+#     → 제한 수준 미달 Pod 배포 시 kubectl 경고 메시지 출력
+#
+# 참고:
+#   PSS 레벨: privileged > baseline > restricted
+#   enforce: baseline — 클러스터 안정성에 영향을 주는 위험 설정 차단
+#   audit/warn: restricted — 보안 강화를 위한 권고 수준 가시화
+#   공식 문서: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+#
+# 예외 네임스페이스:
+#   kube-system   — kube-proxy, aws-node 등 EKS 시스템 컴포넌트 (privileged 필요)
+#   kyverno       — Kyverno 웹훅 컴포넌트 자체
+#   argocd        — ArgoCD 서버/컨트롤러 (privileged 설정 포함)
+#   git           — Gitea 등 내부 Git 서비스
+#   istio-system  — Istio 사이드카 인젝터 및 컨트롤 플레인
+#   observability — Prometheus node-exporter 등 노드 수준 메트릭 수집기
+#   falco         — Falco 런타임 보안 DaemonSet (syscall 감지를 위해 privileged 필요)
+#
+# 동작 확인:
+#   kubectl create ns test-ns
+#   kubectl get ns test-ns --show-labels
+# =============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-pss-labels
+  annotations:
+    policies.kyverno.io/title: Add Pod Security Standards Labels
+    policies.kyverno.io/category: Pod Security Standards
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Namespace
+    policies.kyverno.io/minversion: "1.6.0"
+    policies.kyverno.io/description: >-
+      새 네임스페이스 생성 시 PSS 레이블을 자동으로 추가합니다.
+      enforce: baseline 으로 위험 설정을 차단하고,
+      audit/warn: restricted 로 보안 강화 현황을 가시화합니다.
+      시스템 컴포넌트 네임스페이스(kube-system, kyverno, argocd, git,
+      istio-system, observability, falco)는 예외 처리됩니다.
+spec:
+  # background: false → 기존 네임스페이스는 대상 제외 (신규 생성만 변경)
+  background: false
+
+  rules:
+    - name: add-pss-labels
+      # 네임스페이스 생성 요청만 검사 (UPDATE 제외 — 기존 레이블 덮어쓰기 방지)
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+      # 시스템 컴포넌트 네임스페이스 예외 처리
+      exclude:
+        any:
+          - resources:
+              names:
+                - kube-system   # kube-proxy, aws-node 등 AWS EKS 시스템 컴포넌트
+                - kyverno       # Kyverno 자체 컴포넌트
+                - argocd        # ArgoCD 서버/컨트롤러
+                - git           # 내부 Git 서비스
+                - istio-system  # Istio 컨트롤 플레인 및 사이드카 인젝터
+                - observability # Prometheus node-exporter 등 노드 메트릭 수집기
+                - falco         # Falco 런타임 보안 DaemonSet
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              # enforce: baseline — 기준선 미달 Pod 즉시 거부
+              pod-security.kubernetes.io/enforce: baseline
+              # audit: restricted — 제한 수준 미달 Pod 감사 로그 기록
+              pod-security.kubernetes.io/audit: restricted
+              # warn: restricted — 제한 수준 미달 Pod 배포 시 kubectl 경고
+              pod-security.kubernetes.io/warn: restricted
