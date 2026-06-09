@@ -1,0 +1,10 @@
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: default
+  # istio-system 적용 → mesh 전체 액세스 로그 활성화
+  namespace: istio-system
+spec:
+  accessLogging:
+    - providers:
+        - name: envoy

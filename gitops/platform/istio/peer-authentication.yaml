@@ -1,0 +1,10 @@
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  # istio-system 적용 → mesh 전체 기본 정책
+  # Ambient 모드로 enrolled된 모든 네임스페이스(stock-demo, agents)에 자동 적용
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT

@@ -1,0 +1,26 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-deny-all-authorization-policy
+spec:
+  # generateExisting: true → 정책 설치 시점에 이미 존재하는 네임스페이스(agents, stock-demo)에도 소급 적용
+  generateExisting: true
+  rules:
+    - name: generate-deny-all
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  istio.io/dataplane-mode: ambient
+      generate:
+        apiVersion: security.istio.io/v1
+        kind: AuthorizationPolicy
+        name: deny-all
+        # 생성 대상 네임스페이스 = 레이블이 붙은 Namespace 리소스 자신의 이름
+        namespace: "{{request.object.metadata.name}}"
+        synchronize: true
+        data:
+          spec: {}
