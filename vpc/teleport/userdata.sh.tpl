@@ -44,10 +44,17 @@ users:
         - financial-ops-eks
 KUBEEOF
 chmod 600 /root/.kube/config
+TOKEN="$(curl -sX PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' || true)"
+if [ -n "$TOKEN" ]; then
+  TELEPORT_PRIVATE_IP="$(curl -sH "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)"
+else
+  TELEPORT_PRIVATE_IP="$(hostname -I | awk '{print $1}')"
+fi
+echo "Teleport private IP: $TELEPORT_PRIVATE_IP"
 echo "kubeconfig 생성 완료"
 
 # ── 4. Teleport 설정 ────────────────────────────────────────────────────────
-cat > /etc/teleport.yaml << 'TELEEOF'
+cat > /etc/teleport.yaml << TELEEOF
 version: v3
 teleport:
   nodename: financial-teleport
@@ -65,8 +72,9 @@ proxy_service:
   enabled: yes
   web_listen_addr: 0.0.0.0:3080
   tunnel_listen_addr: 0.0.0.0:3024
-  public_addr: localhost:3080
-  ssh_public_addr: localhost:3080
+  public_addr: $${TELEPORT_PRIVATE_IP}:3080
+  ssh_public_addr: $${TELEPORT_PRIVATE_IP}:3080
+  tunnel_public_addr: $${TELEPORT_PRIVATE_IP}:3024
   kube_listen_addr: 0.0.0.0:3026
 ssh_service:
   enabled: no
