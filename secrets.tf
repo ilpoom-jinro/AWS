@@ -10,6 +10,11 @@ resource "random_password" "service_rds" {
   special = false
 }
 
+resource "random_password" "teleport_app_join_token" {
+  length  = 48
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "service_rds_password" {
   name                    = "financial-service-rds-password"
   description             = "RDS master password for financial-service PostgreSQL"

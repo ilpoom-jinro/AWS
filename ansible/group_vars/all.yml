@@ -51,6 +51,10 @@ internal_git_admin_email: "gitadmin@internal.ops.local"
 internal_git_org: gitops
 internal_git_repo: platform
 
+teleport_app_namespace: teleport-apps
+teleport_app_join_secret_name: teleport-app-service-join-token
+teleport_app_join_token: "{{ lookup('env', 'TELEPORT_APP_JOIN_TOKEN') | default('', true) }}"
+
 gitops_repo_url: "http://internal-git-http.git.svc.cluster.local:3000/{{ internal_git_admin_username }}/{{ internal_git_repo }}.git"
 gitops_repo_name: internal-gitops
 

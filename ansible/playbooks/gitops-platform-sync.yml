@@ -45,6 +45,19 @@
       register: aws_account_id
       changed_when: false
 
+    - name: Read the VPC3 Teleport private IP
+      ansible.builtin.command:
+        cmd: >
+          aws ec2 describe-instances
+          --region {{ aws_region }}
+          --filters
+          Name=tag:Name,Values=financial-vpc3-teleport
+          Name=instance-state-name,Values=running
+          --query Reservations[0].Instances[0].PrivateIpAddress
+          --output text
+      register: teleport_private_ip
+      changed_when: false
+
     - name: Read the Loki internal NLB security group ID
       ansible.builtin.command:
         cmd: >
@@ -76,6 +89,7 @@
         msg: "Failed to discover the Ops VPC ID or monitoring NLB security group IDs."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
+        teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"]
 
@@ -113,6 +127,32 @@
         status_code: [201, 409]
       no_log: true
 
+    - name: Ensure Teleport app-service namespace exists
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ teleport_app_namespace }}"
+
+    - name: Ensure Teleport app-service join token secret exists
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ teleport_app_join_secret_name }}"
+            namespace: "{{ teleport_app_namespace }}"
+          type: Opaque
+          stringData:
+            token: "{{ teleport_app_join_token }}"
+      no_log: true
+      when: teleport_app_join_token | length > 0
+
     - name: Push the platform seed to the internal GitOps repository
       ansible.builtin.shell: |
         set -e
@@ -135,6 +175,7 @@
         replacements = {
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
+            "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
         }
@@ -162,6 +203,7 @@
         AWS_ACCOUNT_ID: "{{ aws_account_id.stdout }}"
         AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
+        TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
 
