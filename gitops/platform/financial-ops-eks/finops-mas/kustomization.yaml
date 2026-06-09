@@ -9,5 +9,5 @@ resources:
 
 images:
   - name: finops-ui-image
-    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops-ui
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/ui
     newTag: latest
