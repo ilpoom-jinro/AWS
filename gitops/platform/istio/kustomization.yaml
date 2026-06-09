@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - peer-authentication.yaml
   - telemetry.yaml
+  - generate-authorization-policy.yaml
