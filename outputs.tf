@@ -98,3 +98,11 @@ output "kms_key_rds_globalservice_arn" {
   description = "RDS CMK ARN for financial-vpc1-service (준호씨 rds.tf에서 참조)"
   value       = aws_kms_key.key_rds_globalservice.arn
 }
+
+
+output "oidc_provider_arn" { 
+  value = aws_iam_openid_connect_provider.ops.arn
+}
+output "oidc_issuer" {
+  value = aws_eks_cluster.ops.identity[0].oidc[0].issuer
+}
