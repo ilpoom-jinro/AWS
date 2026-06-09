@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiops-agent-config
+  namespace: aiops
+data:
+  AWS_REGION:               "ap-northeast-2"
+  OPS_KUBE_CONTEXT:         "financial-ops-eks"
+  SERVICE_KUBE_CONTEXT:     "financial-service-eks"
+  PROMETHEUS_URL:           "http://prometheus-server.monitoring.svc.cluster.local:80"
+  SLACK_CHANNEL:            "#ops-alerts"
+  BEDROCK_MODEL_ID:         "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  SLACK_SECRET_ID:          "aiops/slack-bot-token"
+  SCAN_INTERVAL_SEC:        "30"
+  VERIFY_WAIT_SEC:          "300"
+  APPROVAL_TIMEOUT_SEC:     "1800"
+  CRASH_THRESHOLD:          "3"
+  PENDING_TIMEOUT_SEC:      "600"
+  RCA_CONFIDENCE_MIN:       "0.7"

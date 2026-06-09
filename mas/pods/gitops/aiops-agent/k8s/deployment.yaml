@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-agent
+  namespace: aiops
+  labels:
+    app: aiops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-agent
+  template:
+    metadata:
+      labels:
+        app: aiops-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: aiops-agent
+
+      # ── 모니터링 전용 노드 그룹에 배치 (taint/toleration) ───────
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "monitoring"
+          effect: "NoSchedule"
+      nodeSelector:
+        dedicated: monitoring
+
+      containers:
+        - name: aiops-agent
+          image: 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/aiops-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # ── ConfigMap 환경변수 ─────────────────────────────────
+          envFrom:
+            - configMapRef:
+                name: aiops-agent-config
+
+          # ── Secrets Manager에서 Slack 토큰은 앱 기동 시 직접 조회 ──
+          # (settings.load_secrets()가 기동 시 호출됨)
+
+          # ── Probe ────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          # ── 리소스 ───────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # ── 보안 컨텍스트 ─────────────────────────────────────
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+
+          # ── 임시 쓰기 디렉토리 ─────────────────────────────────
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-agent-svc
+  namespace: aiops
+  labels:
+    app: aiops-agent
+spec:
+  selector:
+    app: aiops-agent
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
