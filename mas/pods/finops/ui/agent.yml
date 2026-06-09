@@ -1,0 +1,13 @@
+name: finops-ui
+scenario: finops
+role: ui
+image_repository: financial/mas/finops/ui
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/finops/ui/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/finops-mas/kustomization.yaml
+target_container: finops-ui-image
+service_account_name: finops-ui
+service_name: finops-ui
+namespace: finops-mas
+target_cluster: financial-ops-eks

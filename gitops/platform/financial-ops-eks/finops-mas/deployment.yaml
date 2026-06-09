@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-ui
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-ui
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-ui
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-ui
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: finops-ui
+          image: finops-ui-image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -29,5 +29,5 @@ output "teleport_ec2_role_name" {
 
 output "efs_id" {
   description = "Teleport 데이터 영속화용 EFS ID"
-  value       = aws_efs_file_system.teleport.id
+  value       = data.aws_efs_file_system.teleport.id
 }

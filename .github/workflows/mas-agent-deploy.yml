@@ -1,0 +1,534 @@
+name: MAS Agent Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Build the base image, create a new agent deployment, update an existing agent, or deploy all agents"
+        required: true
+        default: "update"
+        type: choice
+        options:
+          - new
+          - update
+          - base
+          - all
+      agent:
+        description: "Agent path under mas/pods, for example finops/ui. Ignored when operation is all."
+        required: true
+        default: "finops/ui"
+        type: string
+      deploy_scope:
+        description: "Deployment scope"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - manifests-only
+          - image-only
+      codebuild_project:
+        description: "CodeBuild project that updates the internal Git manifest"
+        required: true
+        default: "financial-manifest-updater"
+        type: string
+      gitops_branch:
+        description: "Internal Git branch to update"
+        required: true
+        default: "main"
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - "mas/**"
+      - "gitops/platform/**"
+      - ".github/workflows/mas-agent-deploy.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  MAS_BASE_REPOSITORY: financial/mas/base
+
+jobs:
+  detect:
+    name: Detect MAS Agents
+    runs-on: ubuntu-latest
+    outputs:
+      agents: ${{ steps.detect.outputs.agents }}
+      build_base: ${{ steps.detect.outputs.build_base }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect agent list
+        id: detect
+        shell: bash
+        env:
+          INPUT_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.agent || 'changed' }}
+          OPERATION: ${{ github.event_name == 'workflow_dispatch' && inputs.operation || 'changed' }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          requested = os.environ["INPUT_AGENT"].strip()
+          operation = os.environ["OPERATION"].strip()
+          pods_dir = Path("mas/pods")
+
+          def agent_id(path):
+              return path.relative_to(pods_dir).parent.as_posix()
+
+          def existing_agents():
+              if not pods_dir.exists():
+                  return []
+              return sorted(
+                  agent_id(path)
+                  for path in pods_dir.glob("*/*/agent.yml")
+                  if (path.parent / "Dockerfile").exists()
+              )
+
+          def normalize_agent(value):
+              value = value.strip().strip("/")
+              if not value:
+                  return value
+              if (pods_dir / value / "agent.yml").exists():
+                  return value
+              if "/" not in value and "-" in value:
+                  scenario, role = value.split("-", 1)
+                  candidate = f"{scenario}/{role}"
+                  if (pods_dir / candidate / "agent.yml").exists():
+                      return candidate
+              return value
+
+          build_base = False
+
+          if operation == "base":
+              agents = []
+              build_base = True
+          elif operation == "all" or requested == "all":
+              agents = existing_agents()
+          elif operation == "new":
+              agents = [normalize_agent(requested)]
+          elif operation == "changed" or requested == "changed":
+              try:
+                  base = subprocess.check_output(
+                      ["git", "rev-parse", "HEAD^"],
+                      text=True,
+                  ).strip()
+                  changed = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, "HEAD"],
+                      text=True,
+                  ).splitlines()
+              except subprocess.CalledProcessError:
+                  changed = []
+
+              candidates = {
+                  f"{parts[2]}/{parts[3]}"
+                  for path in changed
+                  if (parts := Path(path).parts)
+                  and len(parts) >= 4
+                  and parts[0] == "mas"
+                  and parts[1] == "pods"
+              }
+              agents = sorted(
+                  agent
+                  for agent in candidates
+                  if (pods_dir / agent / "agent.yml").exists()
+              )
+          else:
+              agents = [normalize_agent(requested)]
+
+          missing = [agent for agent in agents if not (pods_dir / agent / "agent.yml").exists()]
+          if missing:
+              raise SystemExit(
+                  "Missing agent.yml for: "
+                  f"{', '.join(missing)}. Use the nested path format, for example finops/ui."
+              )
+
+          print(f"agents={json.dumps(agents)}")
+          print(f"build_base={str(build_base).lower()}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"agents={json.dumps(agents)}\n")
+              output.write(f"build_base={str(build_base).lower()}\n")
+          PY
+
+  build_base:
+    name: Build MAS Base Image
+    needs: detect
+    if: ${{ needs.detect.outputs.build_base == 'true' }}
+    runs-on: ubuntu-latest
+    environment: development
+    concurrency:
+      group: mas-base-image-${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Prepare base image metadata
+        id: image
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.MAS_BASE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          image_tag="$(date -u +%Y%m%d)-${short_sha}"
+          image_uri="${REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
+          latest_uri="${REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "uri=${image_uri}" >> "${GITHUB_OUTPUT}"
+          echo "latest_uri=${latest_uri}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure base ECR repository
+        shell: bash
+        env:
+          ECR_REPOSITORY: ${{ env.MAS_BASE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+
+          if aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+            echo "ECR repository exists: ${ECR_REPOSITORY}"
+          else
+            aws ecr create-repository \
+              --repository-name "${ECR_REPOSITORY}" \
+              --image-tag-mutability MUTABLE \
+              --image-scanning-configuration scanOnPush=true \
+              --tags \
+                Key=Name,Value="${ECR_REPOSITORY}" \
+                Key=Purpose,Value=mas-base-runtime \
+                Key=ManagedBy,Value=github-actions
+          fi
+
+          aws ecr put-lifecycle-policy \
+            --repository-name "${ECR_REPOSITORY}" \
+            --lifecycle-policy-text '{
+              "rules": [{
+                "rulePriority": 1,
+                "description": "Keep the last 10 MAS base images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {"type": "expire"}
+              }]
+            }'
+
+      - name: Build base image
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
+        run: |
+          set -euo pipefail
+          docker build \
+            -f mas/base/Dockerfile \
+            -t "${IMAGE_URI}" \
+            -t "${LATEST_IMAGE_URI}" \
+            mas
+
+      - name: Push base image
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
+        run: |
+          set -euo pipefail
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_IMAGE_URI}"
+
+  deploy:
+    name: Build and Deploy ${{ matrix.agent }}
+    needs:
+      - detect
+      - build_base
+    if: ${{ always() && needs.detect.outputs.agents != '[]' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: development
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: ${{ fromJSON(needs.detect.outputs.agents) }}
+    concurrency:
+      group: mas-agent-deploy-${{ matrix.agent }}-${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve agent settings
+        id: agent
+        shell: bash
+        env:
+          AGENT: ${{ matrix.agent }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          agent = os.environ["AGENT"]
+          agent_dir = Path("mas/pods") / agent
+          metadata_path = agent_dir / "agent.yml"
+          parts = Path(agent).parts
+          scenario_from_path = parts[0] if parts else agent.split("-", 1)[0]
+          role_from_path = parts[-1] if parts else agent
+
+          values = {}
+          for raw_line in metadata_path.read_text(encoding="utf-8").splitlines():
+              line = raw_line.strip()
+              if not line or line.startswith("#") or ":" not in line:
+                  continue
+              key, value = line.split(":", 1)
+              values[key.strip()] = value.strip().strip('"').strip("'")
+
+          name = values.get("name", f"{scenario_from_path}-{role_from_path}")
+          scenario = values.get("scenario", scenario_from_path)
+          namespace = values.get("namespace", f"{scenario}-mas")
+          target_cluster = values.get("target_cluster", "financial-ops-eks")
+          image_repository = values.get("image_repository", f"financial/mas/{agent}")
+          base_image_repository = values.get("base_image_repository", "financial/mas/base")
+          dockerfile = values.get("dockerfile", str(agent_dir / "Dockerfile").replace("\\", "/"))
+          build_context = values.get("build_context", "mas")
+          manifest_path = values.get(
+              "manifest_path",
+              f"{target_cluster}/{namespace}/kustomization.yaml",
+          )
+          target_container = values.get("target_container", f"{name}-image")
+          service_account_name = values.get("service_account_name", name)
+          service_name = values.get("service_name", name)
+          container_port = values.get("container_port", "8000")
+          service_port = values.get("service_port", "80")
+          replicas = values.get("replicas", "1")
+
+          required_files = {
+              "agent.yml": metadata_path,
+              "Dockerfile": Path(dockerfile),
+          }
+          for label, path in required_files.items():
+              if not path.exists():
+                  raise SystemExit(f"{label} not found: {path}")
+
+          if not Path("gitops/platform", manifest_path).exists() and not Path(manifest_path).exists():
+              print(
+                  "::warning::Manifest path was not found in this GitHub repo. "
+                  "CodeBuild can create it in internal Git when CREATE_MANIFESTS is true: "
+                  f"{manifest_path}"
+              )
+
+          outputs = {
+              "name": name,
+              "image_repository": image_repository,
+              "base_image_repository": base_image_repository,
+              "dockerfile": dockerfile,
+              "build_context": build_context,
+              "manifest_path": manifest_path,
+              "target_container": target_container,
+              "scenario": scenario,
+              "namespace": namespace,
+              "target_cluster": target_cluster,
+              "service_account_name": service_account_name,
+              "service_name": service_name,
+              "container_port": container_port,
+              "service_port": service_port,
+              "replicas": replicas,
+          }
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in outputs.items():
+                  output.write(f"{key}={value}\n")
+          PY
+
+      - name: Prepare image metadata
+        id: image
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.agent.outputs.image_repository }}
+          BASE_IMAGE_REPOSITORY: ${{ steps.agent.outputs.base_image_repository }}
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          image_tag="$(date -u +%Y%m%d)-${short_sha}"
+          image_uri="${REGISTRY}/${ECR_REPOSITORY}:${image_tag}"
+          latest_uri="${REGISTRY}/${ECR_REPOSITORY}:latest"
+          base_image_uri="${REGISTRY}/${BASE_IMAGE_REPOSITORY}:latest"
+
+          echo "tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "uri=${image_uri}" >> "${GITHUB_OUTPUT}"
+          echo "latest_uri=${latest_uri}" >> "${GITHUB_OUTPUT}"
+          echo "base_uri=${base_image_uri}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure ECR repository
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
+        shell: bash
+        env:
+          ECR_REPOSITORY: ${{ steps.agent.outputs.image_repository }}
+        run: |
+          set -euo pipefail
+
+          if aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+            echo "ECR repository exists: ${ECR_REPOSITORY}"
+          else
+            aws ecr create-repository \
+              --repository-name "${ECR_REPOSITORY}" \
+              --image-tag-mutability MUTABLE \
+              --image-scanning-configuration scanOnPush=true \
+              --tags \
+                Key=Name,Value="${ECR_REPOSITORY}" \
+                Key=Purpose,Value=mas-agent-runtime \
+                Key=ManagedBy,Value=github-actions
+          fi
+
+          aws ecr put-lifecycle-policy \
+            --repository-name "${ECR_REPOSITORY}" \
+            --lifecycle-policy-text '{
+              "rules": [{
+                "rulePriority": 1,
+                "description": "Keep the last 10 MAS agent images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {"type": "expire"}
+              }]
+            }'
+
+      - name: Build image
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
+          MAS_BASE_IMAGE: ${{ steps.image.outputs.base_uri }}
+        run: |
+          set -euo pipefail
+          docker build \
+            -f "${{ steps.agent.outputs.dockerfile }}" \
+            --build-arg "MAS_BASE_IMAGE=${MAS_BASE_IMAGE}" \
+            -t "${IMAGE_URI}" \
+            -t "${LATEST_IMAGE_URI}" \
+            "${{ steps.agent.outputs.build_context }}"
+
+      - name: Push image
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
+        shell: bash
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          LATEST_IMAGE_URI: ${{ steps.image.outputs.latest_uri }}
+        run: |
+          set -euo pipefail
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_IMAGE_URI}"
+
+      - name: Start manifest update CodeBuild
+        id: codebuild
+        shell: bash
+        env:
+          APP_NAME: ${{ steps.agent.outputs.name }}
+          CODEBUILD_PROJECT: ${{ github.event_name == 'workflow_dispatch' && inputs.codebuild_project || 'financial-manifest-updater' }}
+          ECR_REPOSITORY: ${{ steps.agent.outputs.image_repository }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          GITOPS_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          MANIFEST_PATH: ${{ steps.agent.outputs.manifest_path }}
+          TARGET_CONTAINER: ${{ steps.agent.outputs.target_container }}
+          CREATE_MANIFESTS: ${{ github.event_name != 'workflow_dispatch' || (inputs.operation != 'update' && inputs.deploy_scope != 'image-only') }}
+          MANIFESTS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_scope == 'manifests-only' }}
+          K8S_NAMESPACE: ${{ steps.agent.outputs.namespace }}
+          SERVICE_ACCOUNT_NAME: ${{ steps.agent.outputs.service_account_name }}
+          SERVICE_NAME: ${{ steps.agent.outputs.service_name }}
+          TARGET_CLUSTER: ${{ steps.agent.outputs.target_cluster }}
+          CONTAINER_PORT: ${{ steps.agent.outputs.container_port }}
+          SERVICE_PORT: ${{ steps.agent.outputs.service_port }}
+          REPLICAS: ${{ steps.agent.outputs.replicas }}
+        run: |
+          set -euo pipefail
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${CODEBUILD_PROJECT}" \
+              --environment-variables-override \
+                name=APP_NAME,value="${APP_NAME}",type=PLAINTEXT \
+                name=IMAGE_TAG,value="${IMAGE_TAG}",type=PLAINTEXT \
+                name=IMAGE_URI,value="${IMAGE_URI}",type=PLAINTEXT \
+                name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
+                name=ECR_REPOSITORY,value="${ECR_REPOSITORY}",type=PLAINTEXT \
+                name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
+                name=MANIFEST_PATH,value="${MANIFEST_PATH}",type=PLAINTEXT \
+                name=TARGET_CONTAINER,value="${TARGET_CONTAINER}",type=PLAINTEXT \
+                name=CREATE_MANIFESTS,value="${CREATE_MANIFESTS}",type=PLAINTEXT \
+                name=MANIFESTS_ONLY,value="${MANIFESTS_ONLY}",type=PLAINTEXT \
+                name=K8S_NAMESPACE,value="${K8S_NAMESPACE}",type=PLAINTEXT \
+                name=SERVICE_ACCOUNT_NAME,value="${SERVICE_ACCOUNT_NAME}",type=PLAINTEXT \
+                name=SERVICE_NAME,value="${SERVICE_NAME}",type=PLAINTEXT \
+                name=TARGET_CLUSTER,value="${TARGET_CLUSTER}",type=PLAINTEXT \
+                name=CONTAINER_PORT,value="${CONTAINER_PORT}",type=PLAINTEXT \
+                name=SERVICE_PORT,value="${SERVICE_PORT}",type=PLAINTEXT \
+                name=REPLICAS,value="${REPLICAS}",type=PLAINTEXT \
+              --query 'build.id' \
+              --output text
+          )"
+
+          echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "Started CodeBuild: ${build_id}"
+
+      - name: Wait for CodeBuild
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.id }}
+        run: |
+          set -euo pipefail
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                echo "::error::CodeBuild finished with status ${status}."
+                exit 1
+                ;;
+            esac
+
+            sleep 30
+          done
