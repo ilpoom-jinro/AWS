@@ -6,3 +6,4 @@ resources:
   - telemetry.yaml
   - generate-authorization-policy.yaml
   - kyverno-istio-rbac.yaml
+  - add-ambient-label.yaml
