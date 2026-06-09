@@ -7,14 +7,42 @@ phases:
         set -euo pipefail
 
         : "${APP_NAME:?APP_NAME is required}"
-        : "${IMAGE_URI:?IMAGE_URI is required}"
         : "${GITOPS_BRANCH:=main}"
 
         MANIFEST_PATH="${MANIFEST_PATH:-apps/${APP_NAME}/deployment.yaml}"
         TARGET_CONTAINER="${TARGET_CONTAINER:-${APP_NAME}}"
+        CREATE_MANIFESTS="${CREATE_MANIFESTS:-false}"
+        MANIFESTS_ONLY="${MANIFESTS_ONLY:-false}"
+        K8S_NAMESPACE="${K8S_NAMESPACE:-${APP_NAME}}"
+        SERVICE_ACCOUNT_NAME="${SERVICE_ACCOUNT_NAME:-${APP_NAME}}"
+        SERVICE_NAME="${SERVICE_NAME:-${APP_NAME}}"
+        TARGET_CLUSTER="${TARGET_CLUSTER:-financial-ops-eks}"
+        CONTAINER_PORT="${CONTAINER_PORT:-8000}"
+        SERVICE_PORT="${SERVICE_PORT:-80}"
+        REPLICAS="${REPLICAS:-1}"
+        ARGOCD_APPLICATION_NAME="${ARGOCD_APPLICATION_NAME:-${K8S_NAMESPACE}}"
+        IMAGE_URI="${IMAGE_URI:-${ECR_REGISTRY:-REPLACE_WITH_ECR_REGISTRY}/${ECR_REPOSITORY:-${APP_NAME}}:${IMAGE_TAG:-latest}}"
         KUBE_CONTEXT="manifest-updater-${OPS_EKS_CLUSTER_NAME}"
         WORKDIR="/tmp/internal-gitops"
-        export MANIFEST_PATH TARGET_CONTAINER IMAGE_URI
+        export \
+          APP_NAME \
+          ARGOCD_APPLICATION_NAME \
+          CONTAINER_PORT \
+          CREATE_MANIFESTS \
+          ECR_REGISTRY \
+          ECR_REPOSITORY \
+          GITOPS_BRANCH \
+          IMAGE_TAG \
+          IMAGE_URI \
+          K8S_NAMESPACE \
+          MANIFEST_PATH \
+          MANIFESTS_ONLY \
+          REPLICAS \
+          SERVICE_ACCOUNT_NAME \
+          SERVICE_NAME \
+          SERVICE_PORT \
+          TARGET_CLUSTER \
+          TARGET_CONTAINER
 
         git config --global user.name "App Deploy Bot"
         git config --global user.email "app-deploy@internal.ops.local"
@@ -52,10 +80,219 @@ phases:
 
         git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
 
-        if [ ! -f "${MANIFEST_PATH}" ]; then
-          echo "Manifest file not found: ${MANIFEST_PATH}"
-          exit 1
-        fi
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import yaml
+
+        create_manifests = os.environ.get("CREATE_MANIFESTS", "").lower() == "true"
+        manifest_path = Path(os.environ["MANIFEST_PATH"])
+        target_container = os.environ["TARGET_CONTAINER"]
+
+        if not create_manifests:
+          if not manifest_path.exists():
+            raise SystemExit(f"Manifest file not found: {manifest_path}")
+          raise SystemExit(0)
+
+        app_name = os.environ["APP_NAME"]
+        namespace = os.environ["K8S_NAMESPACE"]
+        service_account_name = os.environ["SERVICE_ACCOUNT_NAME"]
+        service_name = os.environ["SERVICE_NAME"]
+        target_cluster = os.environ["TARGET_CLUSTER"]
+        container_port = int(os.environ["CONTAINER_PORT"])
+        service_port = int(os.environ["SERVICE_PORT"])
+        replicas = int(os.environ["REPLICAS"])
+        ecr_registry = os.environ.get("ECR_REGISTRY", "REPLACE_WITH_ECR_REGISTRY")
+        ecr_repository = os.environ.get("ECR_REPOSITORY", f"financial/mas/{app_name}")
+        argocd_application_name = os.environ["ARGOCD_APPLICATION_NAME"]
+
+        app_path = manifest_path.parent
+        app_path.mkdir(parents=True, exist_ok=True)
+
+        def write_yaml_if_missing(path, doc):
+          if path.exists():
+            return False
+          path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+          return True
+
+        def load_kustomization():
+          if not manifest_path.exists():
+            return {
+              "apiVersion": "kustomize.config.k8s.io/v1beta1",
+              "kind": "Kustomization",
+              "resources": [],
+              "images": [],
+            }
+          return yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+
+        def append_unique(items, value):
+          if value not in items:
+            items.append(value)
+            return True
+          return False
+
+        kustomization = load_kustomization()
+        resources = kustomization.setdefault("resources", [])
+        images = kustomization.setdefault("images", [])
+        has_image = any(
+          isinstance(image, dict) and image.get("name") == target_container
+          for image in images
+        )
+        changed = False
+
+        namespace_file = "namespace.yaml"
+        namespace_doc = {
+          "apiVersion": "v1",
+          "kind": "Namespace",
+          "metadata": {"name": namespace},
+        }
+        changed |= write_yaml_if_missing(app_path / namespace_file, namespace_doc)
+        changed |= append_unique(resources, namespace_file)
+
+        if not has_image:
+          serviceaccount_file = f"serviceaccount-{service_account_name}.yaml"
+          deployment_file = f"deployment-{app_name}.yaml"
+          service_file = f"service-{service_name}.yaml"
+
+          serviceaccount_doc = {
+            "apiVersion": "v1",
+            "kind": "ServiceAccount",
+            "metadata": {
+              "name": service_account_name,
+              "namespace": namespace,
+            },
+          }
+          changed |= write_yaml_if_missing(app_path / serviceaccount_file, serviceaccount_doc)
+          changed |= append_unique(resources, serviceaccount_file)
+
+          labels = {
+            "app.kubernetes.io/name": app_name,
+            "app.kubernetes.io/part-of": namespace,
+          }
+          deployment_doc = {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+              "name": app_name,
+              "namespace": namespace,
+              "labels": labels,
+            },
+            "spec": {
+              "replicas": replicas,
+              "selector": {"matchLabels": {"app.kubernetes.io/name": app_name}},
+              "template": {
+                "metadata": {"labels": labels},
+                "spec": {
+                  "serviceAccountName": service_account_name,
+                  "containers": [{
+                    "name": app_name,
+                    "image": target_container,
+                    "imagePullPolicy": "IfNotPresent",
+                    "ports": [{
+                      "name": "http",
+                      "containerPort": container_port,
+                    }],
+                    "readinessProbe": {
+                      "httpGet": {"path": "/health", "port": "http"},
+                      "initialDelaySeconds": 5,
+                      "periodSeconds": 10,
+                    },
+                    "livenessProbe": {
+                      "httpGet": {"path": "/health", "port": "http"},
+                      "initialDelaySeconds": 15,
+                      "periodSeconds": 20,
+                    },
+                    "resources": {
+                      "requests": {"cpu": "100m", "memory": "128Mi"},
+                      "limits": {"cpu": "500m", "memory": "512Mi"},
+                    },
+                  }],
+                },
+              },
+            },
+          }
+          changed |= write_yaml_if_missing(app_path / deployment_file, deployment_doc)
+          changed |= append_unique(resources, deployment_file)
+
+          service_doc = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+              "name": service_name,
+              "namespace": namespace,
+              "labels": labels,
+            },
+            "spec": {
+              "type": "ClusterIP",
+              "selector": {"app.kubernetes.io/name": app_name},
+              "ports": [{
+                "name": "http",
+                "port": service_port,
+                "targetPort": "http",
+              }],
+            },
+          }
+          changed |= write_yaml_if_missing(app_path / service_file, service_doc)
+          changed |= append_unique(resources, service_file)
+
+          images.append({
+            "name": target_container,
+            "newName": f"{ecr_registry}/{ecr_repository}",
+            "newTag": "latest",
+          })
+          changed = True
+
+        manifest_path.write_text(
+          yaml.safe_dump(kustomization, sort_keys=False),
+          encoding="utf-8",
+        )
+
+        applications_dir = Path("applications")
+        applications_dir.mkdir(exist_ok=True)
+        application_file = applications_dir / f"{argocd_application_name}.yaml"
+        if target_cluster == "financial-ops-eks":
+          destination = {
+            "server": "https://kubernetes.default.svc",
+            "namespace": namespace,
+          }
+        else:
+          destination = {
+            "name": target_cluster,
+            "namespace": namespace,
+          }
+
+        application_doc = {
+          "apiVersion": "argoproj.io/v1alpha1",
+          "kind": "Application",
+          "metadata": {
+            "name": argocd_application_name,
+            "namespace": "argocd",
+          },
+          "spec": {
+            "project": "default",
+            "source": {
+              "repoURL": "http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git",
+              "targetRevision": os.environ.get("GITOPS_BRANCH", "main"),
+              "path": str(app_path).replace("\\", "/"),
+              "kustomize": {},
+            },
+            "destination": destination,
+            "syncPolicy": {
+              "automated": {
+                "prune": True,
+                "selfHeal": True,
+              },
+              "syncOptions": ["CreateNamespace=true"],
+            },
+          },
+        }
+        changed |= write_yaml_if_missing(application_file, application_doc)
+
+        if changed:
+          print(f"Created or updated generated manifests for {app_name}")
+        else:
+          print(f"Generated manifests already exist for {app_name}")
+        PY
 
         python3 - <<'PY'
         import os
@@ -63,11 +300,16 @@ phases:
         import yaml
 
         manifest_path = Path(os.environ["MANIFEST_PATH"])
+        manifests_only = os.environ.get("MANIFESTS_ONLY", "").lower() == "true"
         image_uri = os.environ["IMAGE_URI"]
         image_tag = os.environ.get("IMAGE_TAG", "")
         ecr_registry = os.environ.get("ECR_REGISTRY", "")
         ecr_repository = os.environ.get("ECR_REPOSITORY", "")
         target_container = os.environ.get("TARGET_CONTAINER", "")
+
+        if manifests_only:
+          print("Skipping image update because MANIFESTS_ONLY=true.")
+          raise SystemExit(0)
 
         docs = list(yaml.safe_load_all(manifest_path.read_text()))
         changed = False
@@ -121,8 +363,8 @@ phases:
           print(f"Updated {manifest_path} to {image_uri}")
         PY
 
-        git diff -- "${MANIFEST_PATH}"
-        git add "${MANIFEST_PATH}"
+        git diff -- "${MANIFEST_PATH}" applications || true
+        git add "${MANIFEST_PATH}" "$(dirname "${MANIFEST_PATH}")" applications
 
         if git diff --cached --quiet; then
           echo "Internal Git manifest is already up to date."

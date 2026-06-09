@@ -11,7 +11,6 @@ on:
         options:
           - backend
           - frontend
-          - finops-ui
       codebuild_project:
         description: "CodeBuild project that updates the internal Git manifest"
         required: true
@@ -74,14 +73,6 @@ jobs:
               build_context="demo-app/frontend"
               manifest_path="financial-service-eks/kustomization.yaml"
               target_container="stock-web-image"
-              ;;
-            finops-ui)
-              app_name="finops-ui"
-              ecr_repository="financial/mas/finops-ui"
-              dockerfile="mas/pods/finops-ui/Dockerfile"
-              build_context="mas"
-              manifest_path="financial-ops-eks/finops-mas/kustomization.yaml"
-              target_container="finops-ui-image"
               ;;
             *)
               echo "::error::Unsupported component: ${{ inputs.component }}"

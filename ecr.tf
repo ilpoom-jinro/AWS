@@ -470,44 +470,6 @@ resource "aws_ecr_lifecycle_policy" "observability_indexer" {
   })
 }
 
-resource "aws_ecr_repository" "finops_ui" {
-  name                 = "financial/mas/finops-ui"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name      = "financial/mas/finops-ui"
-    Purpose   = "finops-mas-ui-runtime"
-    ManagedBy = "terraform"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "finops_ui" {
-  repository = aws_ecr_repository.finops_ui.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep the last 10 FinOps UI images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
-}
-
 resource "aws_ecr_repository" "kyverno" {
   name                 = "financial/kyverno/kyverno"
   image_tag_mutability = "MUTABLE"
