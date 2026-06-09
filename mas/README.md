@@ -253,11 +253,12 @@ The GitOps manifests live in:
 gitops/platform/financial-ops-eks/teleport-app-service
 ```
 
-This app-service runs inside the Ops EKS cluster and registers MAS dashboard
-apps with the VPC3 Teleport cluster. The first registered app is:
+This app-service runs inside the Ops EKS cluster and registers dashboard apps
+with the VPC3 Teleport cluster. The first registered apps are:
 
 ```text
 finops-ui -> http://finops-ui.finops-mas.svc.cluster.local
+argocd-ui -> https://argocd-server.argocd.svc.cluster.local
 ```
 
 To build and deploy it through the MAS workflow:

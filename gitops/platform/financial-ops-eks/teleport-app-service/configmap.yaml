@@ -30,3 +30,8 @@ data:
           labels:
             type: mas-ui
             scenario: finops
+        - name: argocd-ui
+          uri: https://argocd-server.argocd.svc.cluster.local
+          labels:
+            type: platform-ui
+            app: argocd
