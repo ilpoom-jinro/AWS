@@ -23,7 +23,6 @@ spec:
           image: teleport-app-service-image
           imagePullPolicy: IfNotPresent
           args:
-            - start
             - --config=/etc/teleport/teleport.yaml
           volumeMounts:
             - name: config
