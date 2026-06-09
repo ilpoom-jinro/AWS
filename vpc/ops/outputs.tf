@@ -82,3 +82,7 @@ output "rds_db_name" {
   description = "financial-ops RDS DB 이름"
   value       = aws_db_instance.ops.db_name
 }
+output "tempo_nlb_sg_id" {
+  description = "Security group ID to attach to the Tempo internal NLB"
+  value       = aws_security_group.tempo_nlb.id
+}
