@@ -138,14 +138,29 @@ spec:
 APPROLEEOF
 echo "mas-ui-access role 설정 완료"
 
-# ── 9. Teleport 유저 생성 ───────────────────────────────────────────────────
+# ── 9. Teleport 유저 생성 (없는 유저만 생성) ──────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin     --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 신봉근
-tctl users add junho      --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 백준호
-tctl users add junyounglee --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 이준영
-tctl users add dahyeon    --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 조다현
-tctl users add sangjun    --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 허상준
-tctl users add gyeonghan  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김경한
-tctl users add minsu      --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김민수
+
+create_user_if_not_exists() {
+  local username=$1
+  local comment=$2
+  shift 2
+
+  if tctl users ls 2>/dev/null | awk 'NR>2 {print $1}' | grep -qx "$username"; then
+    echo "유저 이미 존재 (스킵): $username ($comment)"
+  else
+    echo "유저 생성 중: $username ($comment)"
+    tctl users add "$username" "$@" --ttl=48h
+  fi
+}
+
+create_user_if_not_exists bgshin       "신봉근"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists junho        "백준호"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists junyounglee  "이준영"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists dahyeon      "조다현"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists sangjun      "허상준"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists gyeonghan    "김경한"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists minsu        "김민수"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"
