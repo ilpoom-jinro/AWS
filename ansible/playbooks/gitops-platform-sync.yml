@@ -84,6 +84,18 @@
       register: thanos_receive_nlb_sg_id
       changed_when: false
 
+    - name: Read the Tempo internal NLB security group ID
+      ansible.builtin.command:
+        cmd: >
+          aws ec2 describe-security-groups
+          --region {{ aws_region }}
+          --filters
+          Name=vpc-id,Values={{ ops_vpc_id.stdout }}
+          Name=group-name,Values=financial-vpc2-tempo-nlb-sg
+          --query SecurityGroups[0].GroupId
+          --output text
+      register: tempo_nlb_sg_id
+      changed_when: false
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
         msg: "Failed to discover the Ops VPC ID or monitoring NLB security group IDs."
@@ -91,7 +103,8 @@
         ops_vpc_id.stdout in ["", "None"] or
         teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
-        thanos_receive_nlb_sg_id.stdout in ["", "None"]
+        thanos_receive_nlb_sg_id.stdout in ["", "None"] or
+        tempo_nlb_sg_id.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -178,6 +191,7 @@
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
+            "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
         }
 
         for path in Path(".").rglob("*"):
@@ -206,7 +220,8 @@
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
-
+        TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
+        
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
