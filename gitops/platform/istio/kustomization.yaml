@@ -5,3 +5,4 @@ resources:
   - peer-authentication.yaml
   - telemetry.yaml
   - generate-authorization-policy.yaml
+  - kyverno-istio-rbac.yaml
