@@ -17,3 +17,8 @@ output "cloudtrail_logs_locked_bucket_arn" {
   description = "CloudTrail 로그 버킷 ARN"
   value       = aws_s3_bucket.cloudtrail_logs_locked.arn
 }
+
+output "teleport_efs_id" {
+  description = "Teleport 데이터 영속화용 EFS ID"
+  value       = aws_efs_file_system.teleport.id
+}
