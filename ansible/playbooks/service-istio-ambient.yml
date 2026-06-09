@@ -527,6 +527,7 @@
           kubectl --context {{ item.0.kube_context }}
           label namespace {{ item.1 }}
           istio.io/dataplane-mode=ambient
+          mesh.istio.io/enroll=true
           --overwrite
       loop: "{{ istio_clusters | subelements('ambient_namespaces') }}"
       changed_when: false
