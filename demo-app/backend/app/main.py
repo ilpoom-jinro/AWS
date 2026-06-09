@@ -25,6 +25,7 @@ class Recommendation(BaseModel):
     id: int
     name: str
     ticker: str
+    currentPrice: int
     recommendedPrice: int
     recommendationDate: date
 
@@ -142,6 +143,7 @@ def list_recommendations() -> list[Recommendation]:
           id,
           name,
           ticker,
+          current_price,
           recommended_price,
           recommendation_date
         FROM recommendations
@@ -157,8 +159,9 @@ def list_recommendations() -> list[Recommendation]:
             id=row[0],
             name=row[1],
             ticker=row[2],
-            recommendedPrice=row[3],
-            recommendationDate=row[4],
+            currentPrice=row[3],
+            recommendedPrice=row[4],
+            recommendationDate=row[5],
         )
         for row in rows
     ]
