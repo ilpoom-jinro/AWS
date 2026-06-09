@@ -79,8 +79,7 @@ phases:
 
         mkdir -p kyverno/install kyverno/policies
         cp /tmp/kyverno-install.yaml kyverno/install/kyverno.yaml
-        cp /workspace/kyverno/policies/block-host-network.yaml kyverno/policies/
-        cp /workspace/kyverno/policies/add-pss-labels.yaml   kyverno/policies/
+        cp /workspace/kyverno/policies/*.yaml kyverno/policies/
 
         git add kyverno/
         if git diff --cached --quiet; then
