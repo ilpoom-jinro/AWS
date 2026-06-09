@@ -25,6 +25,14 @@ resource "aws_security_group" "teleport" {
     cidr_blocks = [var.vpc2_cidr]
   }
 
+  ingress {
+    description = "Allow Teleport app-service join from VPC 2 (ops)"
+    from_port   = 3080
+    to_port     = 3080
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc2_cidr]
+  }
+
   egress {
     description = "Allow all outbound"
     from_port   = 0

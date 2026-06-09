@@ -231,3 +231,44 @@ build_context: mas
 namespace: finops-mas
 target_cluster: financial-ops-eks
 ```
+
+## Teleport App Service
+
+The Teleport Application Service agent lives in:
+
+```text
+mas/pods/platform/teleport-app-service
+```
+
+It builds a private ECR mirror/wrapper image for the Teleport app-service
+runtime:
+
+```text
+financial/mas/platform/teleport-app-service
+```
+
+The GitOps manifests live in:
+
+```text
+gitops/platform/financial-ops-eks/teleport-app-service
+```
+
+This app-service runs inside the Ops EKS cluster and registers MAS dashboard
+apps with the VPC3 Teleport cluster. The first registered app is:
+
+```text
+finops-ui -> http://finops-ui.finops-mas.svc.cluster.local
+```
+
+To build and deploy it through the MAS workflow:
+
+```text
+operation: new
+agent: platform/teleport-app-service
+deploy_scope: full
+```
+
+After a destroy/apply, `financial-gitops-bootstrap` syncs these manifests into
+the internal GitOps repository. Terraform generates the Teleport app join token,
+VPC3 Teleport accepts that token, and the GitOps bootstrap creates the matching
+Kubernetes Secret in `teleport-apps`.

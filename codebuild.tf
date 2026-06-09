@@ -103,6 +103,7 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
           "ec2:CreateNetworkInterface",
           "ec2:DeleteNetworkInterface",
           "ec2:DescribeDhcpOptions",
+          "ec2:DescribeInstances",
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
@@ -302,6 +303,12 @@ resource "aws_codebuild_project" "gitops_bootstrap" {
     environment_variable {
       name  = "DEMO_FRONTEND_IMAGE"
       value = "${local.demo_frontend_image_repository}:${var.demo_frontend_image_tag}"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_JOIN_TOKEN"
+      value = random_password.teleport_app_join_token.result
+      type  = "PLAINTEXT"
     }
   }
 

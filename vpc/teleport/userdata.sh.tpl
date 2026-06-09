@@ -59,6 +59,8 @@ auth_service:
   enabled: yes
   listen_addr: 0.0.0.0:3025
   cluster_name: financial-teleport
+  tokens:
+    - "app:${teleport_app_join_token}"
 proxy_service:
   enabled: yes
   web_listen_addr: 0.0.0.0:3080
@@ -124,14 +126,26 @@ spec:
 ROLEEOF
 echo "kube-access role 설정 완료"
 
+tctl create -f << 'APPROLEEOF' 2>&1 || echo "mas-ui-access role 이미 존재"
+kind: role
+version: v7
+metadata:
+  name: mas-ui-access
+spec:
+  allow:
+    app_labels:
+      type: mas-ui
+APPROLEEOF
+echo "mas-ui-access role 설정 완료"
+
 # ── 9. Teleport 유저 생성 ───────────────────────────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin     --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 신봉근
-tctl users add junho      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 백준호
-tctl users add junyounglee --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 이준영
-tctl users add dahyeon    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 조다현
-tctl users add sangjun    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 허상준
-tctl users add gyeonghan  --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김경한
-tctl users add minsu      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김민수
+tctl users add bgshin     --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 신봉근
+tctl users add junho      --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 백준호
+tctl users add junyounglee --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 이준영
+tctl users add dahyeon    --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 조다현
+tctl users add sangjun    --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 허상준
+tctl users add gyeonghan  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김경한
+tctl users add minsu      --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김민수
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"

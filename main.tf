@@ -24,8 +24,9 @@ module "vpc2" {
 module "vpc3" {
   source = "./vpc/teleport"
 
-  eks_endpoint = module.vpc2.eks_cluster_endpoint
-  eks_ca_data  = module.vpc2.eks_cluster_ca_data
+  eks_endpoint            = module.vpc2.eks_cluster_endpoint
+  eks_ca_data             = module.vpc2.eks_cluster_ca_data
+  teleport_app_join_token = random_password.teleport_app_join_token.result
 }
 
 module "vpc4" {

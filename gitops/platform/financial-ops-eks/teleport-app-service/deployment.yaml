@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teleport-app-service
+  namespace: teleport-apps
+  labels:
+    app.kubernetes.io/name: teleport-app-service
+    app.kubernetes.io/part-of: teleport-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teleport-app-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teleport-app-service
+        app.kubernetes.io/part-of: teleport-apps
+    spec:
+      serviceAccountName: teleport-app-service
+      containers:
+        - name: teleport-app-service
+          image: teleport-app-service-image
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+            - --config=/etc/teleport/teleport.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/teleport/teleport.yaml
+              subPath: teleport.yaml
+              readOnly: true
+            - name: join-token
+              mountPath: /etc/teleport/token
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/teleport
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: teleport-app-service-config
+        - name: join-token
+          secret:
+            secretName: teleport-app-service-join-token
+        - name: data
+          emptyDir: {}
