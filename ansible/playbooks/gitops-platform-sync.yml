@@ -277,7 +277,7 @@
       ansible.builtin.set_fact:
         loki_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[0] }}"
         thanos_receive_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[1] }}"
-      when: monitoring_svcs_check.rc == 0
+        tempo_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[2] }}"
 
     - name: Push discovered NLB DNS names into the internal GitOps repository
       ansible.builtin.shell: |
@@ -292,6 +292,7 @@
         content = path.read_text()
         content = content.replace("loki-internal-nlb.example.local", os.environ["LOKI_NLB_DNS"])
         content = content.replace("thanos-receive-internal-nlb.example.local", os.environ["THANOS_RECEIVE_NLB_DNS"])
+        content = content.replace("tempo-internal-nlb.example.local", os.environ["TEMPO_NLB_DNS"])
         path.write_text(content)
         PY
 
@@ -309,6 +310,7 @@
       environment:
         LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
         THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"
+        TEMPO_NLB_DNS: "{{ tempo_nlb_dns }}"
 
   post_tasks:
     - name: Stop local internal Git port-forward
