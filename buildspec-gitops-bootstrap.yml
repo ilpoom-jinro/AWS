@@ -64,6 +64,7 @@ phases:
           --set "migration.image.tag=latest" \
           --set "migration.enabled=false" \
           --set "migrationJob.enabled=false" \
+          | python3 -c "import sys, yaml; docs = [d for d in yaml.safe_load_all(sys.stdin) if d is not None and not (d.get('kind') == 'Job' and 'migrate-resources' in d.get('metadata', {}).get('name', ''))]; print('---\n'.join(yaml.dump(d) for d in docs))" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
@@ -79,6 +80,7 @@ phases:
         mkdir -p kyverno/install kyverno/policies
         cp /tmp/kyverno-install.yaml kyverno/install/kyverno.yaml
         cp /workspace/kyverno/policies/block-host-network.yaml kyverno/policies/
+        cp /workspace/kyverno/policies/add-pss-labels.yaml   kyverno/policies/
 
         git add kyverno/
         if git diff --cached --quiet; then
