@@ -144,11 +144,11 @@ build {
   provisioner "file" {
     content = <<-EOF
       mirrors:
-        "218549830271.dkr.ecr.ap-northeast-2.amazonaws.com":
+        "281257473551.dkr.ecr.ap-northeast-2.amazonaws.com":
           endpoint:
-            - "https://218549830271.dkr.ecr.ap-northeast-2.amazonaws.com"
+            - "https://281257473551.dkr.ecr.ap-northeast-2.amazonaws.com"
       configs:
-        "218549830271.dkr.ecr.ap-northeast-2.amazonaws.com":
+        "281257473551.dkr.ecr.ap-northeast-2.amazonaws.com":
           auth:
             username: "AWS"
     EOF

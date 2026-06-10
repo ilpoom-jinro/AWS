@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-218549830271}"
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-281257473551}"
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 

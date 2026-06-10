@@ -82,9 +82,9 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 # CloudTrail Trail - 기존 Trail Terraform 관리
 #
-# 최초 1회 import 필요:
-#   terraform import module.security.aws_cloudtrail.main \
-#     arn:aws:cloudtrail:ap-northeast-2:218549830271:trail/ilpumjinro-trail
+# 신규 계정: 기존 Trail이 없으므로 import 불필요, Terraform이 새로 생성.
+# kms_key_id 미지정 시 버킷의 SSE-S3(AES256) 기본 암호화 적용 (bootstrap/main.tf 참고).
+# 추후 금융권 CMK 정책 적용 시 kms.tf 패턴을 따라 CloudTrail 전용 CMK를 생성해 연결.
 #
 # lifecycle ignore_changes 이유:
 #   기존 Trail에 HasCustomEventSelectors=true 설정 존재.
@@ -93,8 +93,7 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 resource "aws_cloudtrail" "main" {
   name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked"
-  kms_key_id                    = "arn:aws:kms:ap-northeast-2:218549830271:key/52c5e912-c5f9-40fa-a72a-774e05377a4c"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v2"
   include_global_service_events = true
   is_multi_region_trail         = true
   enable_log_file_validation    = true

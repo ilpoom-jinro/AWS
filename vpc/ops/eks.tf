@@ -160,8 +160,8 @@ resource "aws_eks_node_group" "ops" {
   capacity_type   = var.eks_node_capacity_type
 
   scaling_config {
-    desired_size = var.eks_node_desired_size
-    min_size     = var.eks_node_min_size
+    desired_size = var.single_az_mode ? 1 : var.eks_node_desired_size
+    min_size     = var.single_az_mode ? 1 : var.eks_node_min_size
     max_size     = var.eks_node_max_size
   }
 

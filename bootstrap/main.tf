@@ -2,12 +2,12 @@
 # Terraform State S3 버킷
 # ─────────────────────────────────────
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "ilpumjinro-terraform-state"
+  bucket = "ilpumjinro-terraform-state-v2"
   lifecycle {
     prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-terraform-state"
+    Name      = "ilpumjinro-terraform-state-v2"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
     Purpose   = "terraform-state"
@@ -55,13 +55,13 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
 # CloudTrail 로그 S3 버킷 (Object Lock)
 # ─────────────────────────────────────
 resource "aws_s3_bucket" "cloudtrail_logs_locked" {
-  bucket              = "ilpumjinro-cloudtrail-logs-locked"
+  bucket              = "ilpumjinro-cloudtrail-logs-locked-v2"
   object_lock_enabled = true
   lifecycle {
     prevent_destroy = false
   }
   tags = {
-    Name      = "ilpumjinro-cloudtrail-logs-locked"
+    Name      = "ilpumjinro-cloudtrail-logs-locked-v2"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
     Purpose   = "cloudtrail-logs-immutable"
@@ -115,7 +115,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:GetBucketAcl"
-        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked"
+        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v2"
       },
       {
         Sid    = "AWSCloudTrailWrite"
@@ -124,7 +124,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked/AWSLogs/218549830271/*"
+        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v2/AWSLogs/281257473551/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"
