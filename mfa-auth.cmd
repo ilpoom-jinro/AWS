@@ -1,11 +1,12 @@
 @echo off
-set /p MFA_CODE=OTP 6자리 입력: 
+FOR /F "tokens=*" %%i IN ('aws sts get-caller-identity --query Account --output text') DO SET ACCOUNT_ID=%%i
+set /p MFA_CODE=OTP 6자리 입력:
 
 set CREDS_JSON=%TEMP%\aws-mfa-creds.json
 set CREDS_CMD=%TEMP%\aws-mfa-setenv.cmd
 
 aws sts get-session-token ^
-  --serial-number arn:aws:iam::218549830271:mfa/platform ^
+  --serial-number arn:aws:iam::%ACCOUNT_ID%:mfa/platform ^
   --token-code %MFA_CODE% ^
   --duration-seconds 43200 ^
   --output json > "%CREDS_JSON%"

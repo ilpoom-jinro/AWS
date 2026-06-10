@@ -72,6 +72,7 @@ env:
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/monitoring/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
+  KYVERNO_VERSION: "latest"
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
 
@@ -94,6 +95,8 @@ jobs:
             echo "ansible=false" >> "${GITHUB_OUTPUT}"
             echo "workflow=false" >> "${GITHUB_OUTPUT}"
             echo "ecr=false" >> "${GITHUB_OUTPUT}"
+            echo "istio=false" >> "${GITHUB_OUTPUT}"
+            echo "kyverno=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -121,6 +124,18 @@ jobs:
             echo "ecr=true" >> "${GITHUB_OUTPUT}"
           else
             echo "ecr=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+ISTIO_VERSION:'; then
+            echo "istio=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "istio=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+KYVERNO_VERSION:'; then
+            echo "kyverno=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "kyverno=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -168,8 +183,10 @@ jobs:
           -target=aws_ecr_lifecycle_policy.istio_install_cni
           -target=aws_ecr_repository.istio_ztunnel
           -target=aws_ecr_lifecycle_policy.istio_ztunnel
-          -target=aws_ecr_repository.aws_load_balancer_controller
-          -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller
+          -target=aws_ecr_repository.aws_load_balancer_controller_monitoring
+          -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller_monitoring
+          -target=aws_ecr_repository.monitoring_tempo
+          -target=aws_ecr_lifecycle_policy.monitoring_tempo
           -target=aws_ecr_repository.observability_indexer
           -target=aws_ecr_lifecycle_policy.observability_indexer
           -target=aws_ecr_repository.kyverno
@@ -254,7 +271,9 @@ jobs:
           docker push "${IMAGE_URI}:latest"
 
       - name: Mirror Istio ambient images to ECR
-        if: github.event_name == 'workflow_dispatch' && inputs.mirror_istio == true
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.istio == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_istio == true)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
@@ -273,13 +292,15 @@ jobs:
           done
 
       - name: Mirror Kyverno images to ECR
-        if: github.event_name == 'workflow_dispatch' && inputs.mirror_kyverno == true
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.kyverno == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_kyverno == true)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           for component in kyverno kyvernopre background-controller cleanup-controller reports-controller kyverno-cli; do
-            source_image="${KYVERNO_SOURCE_REGISTRY}/${component}:latest"
-            target_image="${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
+            source_image="${KYVERNO_SOURCE_REGISTRY}/${component}:${KYVERNO_VERSION}"
+            target_image="${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:${KYVERNO_VERSION}"
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"

@@ -153,8 +153,10 @@ jobs:
         if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         run: >
           terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=module.iam.aws_iam_role_policy.github_actions_terraform
-          -target=module.iam.aws_iam_role_policy.github_actions_dev_terraform
+          -target=module.iam.aws_iam_role_policy_attachment.github_actions_iam
+          -target=module.iam.aws_iam_role_policy_attachment.github_actions_infra
+          -target=module.iam.aws_iam_role_policy_attachment.github_actions_security
+          -target=module.iam.aws_iam_role_policy_attachment.github_actions_dev_admin
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Wait for IAM permissions to propagate
