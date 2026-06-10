@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # ─────────────────────────────────────
 # Terraform State S3 버킷
 # ─────────────────────────────────────
@@ -124,7 +126,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v2/AWSLogs/281257473551/*"
+        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"

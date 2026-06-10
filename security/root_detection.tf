@@ -22,7 +22,7 @@
 # =============================================
 resource "aws_cloudwatch_log_group" "cloudtrail" {
   name              = "/aws/cloudtrail/ilpumjinro-trail"
-  retention_in_days = 3
+  retention_in_days = 90
 
   tags = {
     Project     = "ilpumjinro"
@@ -85,6 +85,9 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # 신규 계정: 기존 Trail이 없으므로 import 불필요, Terraform이 새로 생성.
 # kms_key_id 미지정 시 버킷의 SSE-S3(AES256) 기본 암호화 적용 (bootstrap/main.tf 참고).
 # 추후 금융권 CMK 정책 적용 시 kms.tf 패턴을 따라 CloudTrail 전용 CMK를 생성해 연결.
+# 최초 1회 import 필요 (기존 계정):
+#   terraform import module.security.aws_cloudtrail.main \
+#     arn:aws:cloudtrail:ap-northeast-2:<ACCOUNT_ID>:trail/ilpumjinro-trail
 #
 # lifecycle ignore_changes 이유:
 #   기존 Trail에 HasCustomEventSelectors=true 설정 존재.
@@ -93,7 +96,8 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 resource "aws_cloudtrail" "main" {
   name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v2"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked"
+  kms_key_id                    = var.kms_key_cloudtrail_arn
   include_global_service_events = true
   is_multi_region_trail         = true
   enable_log_file_validation    = true

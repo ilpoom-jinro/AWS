@@ -4,7 +4,9 @@ module "iam" {
 }
 
 module "security" {
-  source = "./security"
+  source                 = "./security"
+  kms_key_cloudtrail_arn = aws_kms_key.key_cloudtrail.arn
+  depends_on             = [time_sleep.kms_rds_propagation]
 }
 
 module "vpc1" {

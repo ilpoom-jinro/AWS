@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-281257473551}"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-${ACCOUNT_ID}}"
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 

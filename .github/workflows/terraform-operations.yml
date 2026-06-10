@@ -149,12 +149,11 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
-      - name: Apply GitHub Actions role permissions
+      - name: Apply IAM module
         if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         run: >
           terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=module.iam.aws_iam_role_policy.github_actions_terraform
-          -target=module.iam.aws_iam_role_policy.github_actions_dev_terraform
+          -target=module.iam
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Wait for IAM permissions to propagate
