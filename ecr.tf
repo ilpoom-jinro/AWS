@@ -169,6 +169,25 @@ resource "aws_ecr_repository" "monitoring_tempo" {
   }
 }
 
+resource "aws_ecr_lifecycle_policy" "monitoring_tempo" {
+  repository = aws_ecr_repository.monitoring_tempo.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Tempo images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"
@@ -705,6 +724,74 @@ resource "aws_ecr_lifecycle_policy" "kyverno_cli" {
     rules = [{
       rulePriority = 1
       description  = "Keep the last 10 Kyverno images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "demo_app_backend" {
+  name                 = "financial/demo-app-backend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/demo-app-backend"
+    Purpose   = "demo-app-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "demo_app_backend" {
+  repository = aws_ecr_repository.demo_app_backend.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 demo-app-backend images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "demo_app_frontend" {
+  name                 = "financial/demo-app-frontend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/demo-app-frontend"
+    Purpose   = "demo-app-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "demo_app_frontend" {
+  repository = aws_ecr_repository.demo_app_frontend.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 demo-app-frontend images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"

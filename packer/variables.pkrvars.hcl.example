@@ -1,5 +1,6 @@
+aws_account_id   = "xxxxxxxxxxxx"             # AWS 계정 ID (CI에서는 자동 주입, 로컬 빌드 시에만 필요)
 aws_region       = "ap-northeast-2"
 teleport_version = "17.0.0"
 k3s_version      = "v1.31.0+k3s1"
-vpc_id           = "vpc-xxxxxxxxxxxxxxxxx"   # Packer 빌드용 VPC (Public Subnet 있어야 함)
+vpc_id           = "vpc-xxxxxxxxxxxxxxxxx"    # Packer 빌드용 VPC (Public Subnet 있어야 함)
 subnet_id        = "subnet-xxxxxxxxxxxxxxxxx" # Public Subnet ID
