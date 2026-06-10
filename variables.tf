@@ -200,6 +200,12 @@ variable "dev_mode" {
   default     = false
 }
 
+variable "single_az_mode" {
+  description = "개발 단계 비용 절감용 단일 AZ 모드 - true: RDS Multi-AZ 비활성화, EKS 노드 1대로 축소, VPC Endpoint를 단일 AZ로 구성 / 운영 전환 시 false로 변경하여 멀티 AZ 구성 복원"
+  type        = bool
+  default     = true
+}
+
 variable "teleport_image_repository_name" {
   description = "ECR repository name for Teleport image"
   type        = string

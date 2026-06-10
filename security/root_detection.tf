@@ -82,6 +82,9 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 # CloudTrail Trail - 기존 Trail Terraform 관리
 #
+# 신규 계정: 기존 Trail이 없으므로 import 불필요, Terraform이 새로 생성.
+# kms_key_id 미지정 시 버킷의 SSE-S3(AES256) 기본 암호화 적용 (bootstrap/main.tf 참고).
+# 추후 금융권 CMK 정책 적용 시 kms.tf 패턴을 따라 CloudTrail 전용 CMK를 생성해 연결.
 # 최초 1회 import 필요 (기존 계정):
 #   terraform import module.security.aws_cloudtrail.main \
 #     arn:aws:cloudtrail:ap-northeast-2:<ACCOUNT_ID>:trail/ilpumjinro-trail
