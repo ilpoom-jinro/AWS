@@ -8,15 +8,12 @@
 #   - Config 스냅샷은 S3에 저장 (퍼블릭 접근 차단)
 # =============================================
 
-# 계정 ID 조회 (S3 버킷명, IAM Role ARN 구성에 사용)
-data "aws_caller_identity" "current" {}
-
 # =============================================
 # S3 버킷 - Config 스냅샷 저장
 # 버킷명에 계정 ID 포함 → 전역 고유성 보장
 # =============================================
 resource "aws_s3_bucket" "config_snapshot" {
-  bucket = "financial-config-snapshot-${data.aws_caller_identity.current.account_id}"
+  bucket = "financial-config-snapshot-${var.account_id}"
 
   tags = {
     Project     = "ilpumjinro"
@@ -67,7 +64,7 @@ resource "aws_s3_bucket_policy" "config_snapshot" {
           Service = "config.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/Config/*"
+        Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${var.account_id}/Config/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"
@@ -126,7 +123,7 @@ resource "aws_iam_role_policy" "config_s3_delivery" {
       Action = [
         "s3:PutObject"
       ]
-      Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/Config/*"
+      Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${var.account_id}/Config/*"
       Condition = {
         StringEquals = {
           "s3:x-amz-acl" = "bucket-owner-full-control"
