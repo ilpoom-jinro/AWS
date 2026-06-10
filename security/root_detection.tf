@@ -159,7 +159,7 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
         Sid    = "AllowAccountOwner"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+          AWS = "arn:aws:iam::${var.account_id}:root"
         }
         Action = [
           "SNS:GetTopicAttributes",

@@ -6,6 +6,7 @@ module "iam" {
 module "security" {
   source                 = "./security"
   kms_key_cloudtrail_arn = aws_kms_key.key_cloudtrail.arn
+  account_id             = data.aws_caller_identity.current.account_id
   depends_on             = [time_sleep.kms_rds_propagation]
 }
 
