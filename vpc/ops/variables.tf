@@ -55,7 +55,7 @@ variable "eks_enabled_cluster_log_types" {
 variable "eks_node_instance_types" {
   description = "Instance types for the internal ops EKS managed node group"
   type        = list(string)
-  default     = ["c7i-flex.large"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "eks_node_capacity_type" {
