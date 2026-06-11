@@ -39,7 +39,8 @@ jobs:
         id: changes
         shell: bash
         run: |
-          changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...HEAD)
+          git fetch origin ${{ github.base_ref }} --depth=1
+          changed=$(git diff --name-only FETCH_HEAD HEAD)
           echo "${changed}"
           if echo "${changed}" | grep -qE '\.tf$|\.terraform\.lock\.hcl$|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$'; then
             echo "tf=true" >> "${GITHUB_OUTPUT}"
