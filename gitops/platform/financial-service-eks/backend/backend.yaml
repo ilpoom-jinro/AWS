@@ -33,13 +33,13 @@ spec:
               containerPort: 8000
           env:
             - name: DB_HOST
-              value: rds-endpoint.example.ap-northeast-2.rds.amazonaws.com
+              value: REPLACE_WITH_SERVICE_RDS_ENDPOINT
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
-              value: stockdemo
+              value: financial_service
             - name: DB_USER
-              value: stockuser
+              value: financial_admin
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:

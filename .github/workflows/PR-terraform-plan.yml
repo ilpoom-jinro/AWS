@@ -12,7 +12,6 @@ on:
       - "buildspec-ansible.yml"
       - "buildspec-gitops-bootstrap.yml"
       - "tools/**"
-      - ".github/workflows/terraform.yml"
       - ".github/workflows/terraform-operations.yml"
 
 permissions:

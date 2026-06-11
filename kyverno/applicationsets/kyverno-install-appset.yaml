@@ -32,6 +32,10 @@ spec:
     metadata:
       # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
       name: "kyverno-install-{{.name}}"
+      annotations:
+        # ServerSideDiff: 클라이언트 diff 대신 서버 사이드 dry-run으로 실제 변경분만 비교
+        # IncludeMutationWebhook: Kyverno 웹훅이 리소스를 변경해도 OutOfSync로 오탐하지 않음
+        argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
     spec:
       project: default
 

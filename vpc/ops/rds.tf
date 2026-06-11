@@ -37,7 +37,7 @@ resource "aws_db_instance" "ops" {
   engine_version = "16"
 
   instance_class = var.rds_instance_class
-  multi_az       = var.rds_multi_az
+  multi_az       = var.single_az_mode ? false : var.rds_multi_az
 
   db_name  = "financial_ops"
   username = "financial_admin"

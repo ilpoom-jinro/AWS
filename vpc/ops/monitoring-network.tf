@@ -6,7 +6,7 @@ resource "aws_vpc_endpoint" "elasticloadbalancing" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.elasticloadbalancing"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
