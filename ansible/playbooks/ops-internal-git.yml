@@ -200,9 +200,13 @@
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user delete \
             --username "{{ internal_git_admin_username }}" \
-            --config /etc/gitea/app.ini \
-          || true
+            --config /etc/gitea/app.ini 2>&1 || true
       changed_when: false
+      register: gitea_delete_result
+
+    - name: Show Gitea user delete result
+      ansible.builtin.debug:
+        msg: "rc={{ gitea_delete_result.rc }} stdout={{ gitea_delete_result.stdout }} stderr={{ gitea_delete_result.stderr }}"
 
     - name: Create internal Git admin user
       ansible.builtin.shell: |
