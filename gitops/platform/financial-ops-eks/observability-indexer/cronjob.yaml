@@ -40,10 +40,6 @@ spec:
                   value: "5"
                 - name: LOKI_LIMIT
                   value: "100"
-                - name: XRAY_ENABLED
-                  value: "true"
-                - name: XRAY_MIN_DURATION_SECONDS
-                  value: "1.0"
                 # TODO: Replace with the Aurora PostgreSQL writer endpoint after RDS is created.
                 # While this placeholder is present, the Indexer runs in dry-run mode.
                 - name: RDS_HOST

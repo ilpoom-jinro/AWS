@@ -295,6 +295,7 @@
       ansible.builtin.set_fact:
         loki_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[0] }}"
         thanos_receive_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[1] }}"
+        tempo_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[2] }}"
       when:
         - monitoring_svcs_check is defined
         - monitoring_svcs_check.rc == 0
@@ -333,6 +334,7 @@
         - monitoring_svcs_check.rc == 0
         - loki_nlb_dns is defined
         - thanos_receive_nlb_dns is defined
+        - tempo_nlb_dns is defined
       environment:
         LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
         THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"
