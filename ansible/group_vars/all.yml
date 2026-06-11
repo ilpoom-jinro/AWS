@@ -46,7 +46,7 @@ internal_git_demo_local_http_port: 13001
 internal_git_platform_local_http_port: 13002
 internal_git_ssh_port: 2222
 internal_git_admin_username: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_USERNAME') | default('gitadmin', true) }}"
-internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') | default('ChangeMe1234', true) }}"
+internal_git_admin_password: "{{ lookup('env', 'INTERNAL_GIT_ADMIN_PASSWORD') }}"
 internal_git_admin_email: "gitadmin@internal.ops.local"
 internal_git_org: gitops
 internal_git_repo: platform
@@ -69,5 +69,5 @@ demo_frontend_image: "{{ lookup('env', 'DEMO_FRONTEND_IMAGE') | default('public.
 demo_postgres_image: public.ecr.aws/docker/library/postgres:16-alpine
 demo_db_name_value: stockdemo
 demo_db_user: stockuser
-demo_db_password: stockpass
+demo_db_password: "{{ lookup('env', 'DEMO_DB_PASSWORD') | default('CHANGE_ME', true) }}"
 demo_argocd_application_name: service-demo-app

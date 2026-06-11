@@ -112,6 +112,14 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
         Resource = "*"
       },
       {
+        Sid    = "RdsDescribe"
+        Effect = "Allow"
+        Action = [
+          "rds:DescribeDBInstances"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "CodeBuildNetworkInterfacePermission"
         Effect = "Allow"
         Action = [
@@ -237,7 +245,7 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
 
     environment_variable {
       name  = "INTERNAL_GIT_ADMIN_PASSWORD"
-      value = var.internal_git_admin_password
+      value = random_password.internal_git_admin.result
       type  = "PLAINTEXT"
     }
   }
@@ -291,7 +299,7 @@ resource "aws_codebuild_project" "gitops_bootstrap" {
 
     environment_variable {
       name  = "INTERNAL_GIT_ADMIN_PASSWORD"
-      value = var.internal_git_admin_password
+      value = random_password.internal_git_admin.result
       type  = "PLAINTEXT"
     }
 
