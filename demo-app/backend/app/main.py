@@ -43,7 +43,7 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 DATABASE_URL = (
     f"postgresql://{env('DB_USER', 'stockuser')}:"
-    f"{env('DB_PASSWORD', 'stockpass')}@"
+    f"{env('DB_PASSWORD', 'CHANGE_ME')}@"
     f"{env('DB_HOST', 'localhost')}:"
     f"{env('DB_PORT', '5432')}/"
     f"{env('DB_NAME', 'stockdemo')}"

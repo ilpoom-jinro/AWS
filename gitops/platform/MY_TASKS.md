@@ -49,7 +49,7 @@ Kubernetes 내부 DNS `http://backend:8000`으로 Backend를 호출합니다.
 X-Ray Collector 이미지는 이미 아래 값으로 반영되어 있습니다.
 
 ```text
-218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/monitoring/xray-collector:latest
+<ECR_REGISTRY>/financial/monitoring/xray-collector:latest
 ```
 
 하지만 이미지 URI를 YAML에 입력하는 것과 Argo CD Application을 만드는 것은

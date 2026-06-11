@@ -187,13 +187,6 @@ variable "internal_git_admin_username" {
   default     = "gitadmin"
 }
 
-variable "internal_git_admin_password" {
-  description = "Internal Git password used by the manifest updater"
-  type        = string
-  sensitive   = true
-  default     = "ChangeMe1234"
-}
-
 variable "dev_mode" {
   description = "개발 기간 임시 전체 권한 플래그"
   type        = bool
