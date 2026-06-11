@@ -204,16 +204,8 @@
           || true
       changed_when: false
 
-    - name: Ensure internal Git admin user exists
+    - name: Create internal Git admin user
       ansible.builtin.shell: |
-        set -e
-        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
-          exec deploy/{{ internal_git_release_name }} -- \
-          gitea admin user delete \
-            --username "{{ internal_git_admin_username }}" \
-            --purge \
-            --config /etc/gitea/app.ini \
-          || true
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user create \
@@ -223,6 +215,16 @@
             --admin \
             --must-change-password=false \
             --config /etc/gitea/app.ini
+      changed_when: false
+      no_log: true
+      register: gitea_create_result
+
+    - name: Show Gitea user create result
+      ansible.builtin.debug:
+        msg: "rc={{ gitea_create_result.rc }} stdout={{ gitea_create_result.stdout }} stderr={{ gitea_create_result.stderr }}"
+
+    - name: Sync internal Git admin password
+      ansible.builtin.shell: |
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user change-password \
