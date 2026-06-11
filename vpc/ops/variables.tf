@@ -4,6 +4,11 @@ variable "aws_region" {
   default     = "ap-northeast-2"
 }
 
+variable "account_id" {
+  description = "AWS 계정 ID (root에서 전달, depends_on으로 인한 apply-time 평가 회피)"
+  type        = string
+}
+
 variable "vpc_cidr" {
   description = "VPC 2 CIDR"
   type        = string
