@@ -14,11 +14,6 @@ argocd_image_tag: "{{ lookup('env', 'ARGOCD_IMAGE_TAG') | default('latest', true
 argocd_redis_image_repository: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_REPOSITORY') }}"
 argocd_redis_image_tag: "{{ lookup('env', 'ARGOCD_REDIS_IMAGE_TAG') | default('latest', true) }}"
 
-prometheus_namespace: monitoring
-prometheus_release_name: prometheus
-prometheus_chart_ref: /opt/helm-charts/prometheus
-prometheus_image_repository: "{{ lookup('env', 'PROMETHEUS_IMAGE_REPOSITORY') }}"
-prometheus_image_tag: "{{ lookup('env', 'PROMETHEUS_IMAGE_TAG') | default('v3.7.3', true) }}"
 
 istio_namespace: istio-system
 istio_base_chart_ref: /opt/helm-charts/base
