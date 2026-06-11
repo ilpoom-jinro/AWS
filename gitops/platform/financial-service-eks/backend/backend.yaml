@@ -33,7 +33,7 @@ spec:
               containerPort: 8000
           env:
             - name: DB_HOST
-              value: financial-service-db.czsmqag04fdj.ap-northeast-2.rds.amazonaws.com
+              value: financial-service-db.cp42k0yew1h9.ap-northeast-2.rds.amazonaws.com
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
