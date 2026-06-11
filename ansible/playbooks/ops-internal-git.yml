@@ -217,11 +217,17 @@
             --config /etc/gitea/app.ini
       changed_when: false
       no_log: true
+      ignore_errors: true
       register: gitea_create_result
 
     - name: Show Gitea user create result
       ansible.builtin.debug:
         msg: "rc={{ gitea_create_result.rc }} stdout={{ gitea_create_result.stdout }} stderr={{ gitea_create_result.stderr }}"
+
+    - name: Fail if Gitea user create failed
+      ansible.builtin.fail:
+        msg: "gitea admin user create failed (rc={{ gitea_create_result.rc }})"
+      when: gitea_create_result.rc != 0
 
     - name: Sync internal Git admin password
       ansible.builtin.shell: |
