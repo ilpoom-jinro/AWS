@@ -194,16 +194,19 @@
           --timeout={{ rollout_timeout }}
       changed_when: false
 
-    - name: Ensure internal Git admin user exists
+    - name: Delete internal Git admin user for recreation
       ansible.builtin.shell: |
-        set -e
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user delete \
             --username "{{ internal_git_admin_username }}" \
-            --purge \
             --config /etc/gitea/app.ini \
           || true
+      changed_when: false
+
+    - name: Ensure internal Git admin user exists
+      ansible.builtin.shell: |
+        set -e
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user create \
