@@ -148,6 +148,8 @@
                         value: sqlite3
                       - name: GITEA__security__INSTALL_LOCK
                         value: "true"
+                      - name: GITEA__api__ENABLE_BASIC_AUTHENTICATION
+                        value: "true"
                     volumeMounts:
                       - name: gitea-data
                         mountPath: /var/lib/gitea
