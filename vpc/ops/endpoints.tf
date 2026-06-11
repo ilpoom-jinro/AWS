@@ -246,6 +246,20 @@ resource "aws_vpc_endpoint" "ec2" {
   }
 }
 
+# RDS API endpoint for private CodeBuild jobs that discover DB endpoints.
+resource "aws_vpc_endpoint" "rds" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.rds"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-rds"
+  }
+}
+
 # CodeCommit API endpoint for repository metadata and auth flows.
 resource "aws_vpc_endpoint" "codecommit" {
   vpc_id              = aws_vpc.this.id
