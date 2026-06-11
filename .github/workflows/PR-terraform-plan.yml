@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload Terraform Plan
         if: steps.changes.outputs.tf == 'true' && (steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tfplan-${{ github.sha }}
           path: tfplan
