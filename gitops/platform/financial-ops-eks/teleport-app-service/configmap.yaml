@@ -27,11 +27,14 @@ data:
       apps:
         - name: finops-ui
           uri: http://finops-ui.finops-mas.svc.cluster.local
+          public_addr: finops-ui.REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX
           labels:
             type: mas-ui
             scenario: finops
         - name: argocd-ui
           uri: https://argocd-server.argocd.svc.cluster.local
+          public_addr: argocd-ui.REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX
+          insecure_skip_verify: true
           labels:
             type: platform-ui
             app: argocd

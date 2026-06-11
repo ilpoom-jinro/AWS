@@ -202,6 +202,7 @@
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
+            "REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX": os.environ["TELEPORT_APP_PUBLIC_SUFFIX"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
@@ -232,6 +233,7 @@
         AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
+        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.{{ teleport_private_ip.stdout }}.nip.io"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
