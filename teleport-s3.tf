@@ -18,8 +18,8 @@ resource "aws_iam_role_policy" "teleport_s3" {
         "s3:ListBucket"
       ]
       Resource = [
-        "arn:aws:s3:::ilpumjinro-teleport",
-        "arn:aws:s3:::ilpumjinro-teleport/*"
+        "arn:aws:s3:::ilpumjinro-teleport-v2",
+        "arn:aws:s3:::ilpumjinro-teleport-v2/*"
       ]
     }]
   })

@@ -115,6 +115,12 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
+variable "mas_status_codebuild_project_name" {
+  description = "CodeBuild project name for checking MAS and Teleport app-service status"
+  type        = string
+  default     = "financial-mas-status"
+}
+
 variable "service_cluster_status_codebuild_project_name" {
   description = "CodeBuild project name for checking Service EKS workload status from inside the Service VPC"
   type        = string
@@ -192,6 +198,12 @@ variable "dev_mode" {
   description = "개발 기간 임시 전체 권한 플래그"
   type        = bool
   default     = false
+}
+
+variable "single_az_mode" {
+  description = "개발 단계 비용 절감용 단일 AZ 모드 - true: RDS Multi-AZ 비활성화, EKS 노드 1대로 축소, VPC Endpoint를 단일 AZ로 구성 / 운영 전환 시 false로 변경하여 멀티 AZ 구성 복원"
+  type        = bool
+  default     = true
 }
 
 variable "teleport_image_repository_name" {

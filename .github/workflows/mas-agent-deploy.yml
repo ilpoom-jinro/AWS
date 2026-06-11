@@ -60,6 +60,7 @@ jobs:
     outputs:
       agents: ${{ steps.detect.outputs.agents }}
       build_base: ${{ steps.detect.outputs.build_base }}
+      should_deploy: ${{ steps.detect.outputs.should_deploy }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -155,11 +156,15 @@ jobs:
                   f"{', '.join(missing)}. Use the nested path format, for example finops/ui."
               )
 
+          should_deploy = operation != "base" and bool(agents)
+
           print(f"agents={json.dumps(agents)}")
           print(f"build_base={str(build_base).lower()}")
+          print(f"should_deploy={str(should_deploy).lower()}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"agents={json.dumps(agents)}\n")
               output.write(f"build_base={str(build_base).lower()}\n")
+              output.write(f"should_deploy={str(should_deploy).lower()}\n")
           PY
 
   build_base:
@@ -266,7 +271,7 @@ jobs:
     needs:
       - detect
       - build_base
-    if: ${{ always() && needs.detect.outputs.agents != '[]' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
+    if: ${{ always() && needs.detect.outputs.should_deploy == 'true' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: development
     strategy:

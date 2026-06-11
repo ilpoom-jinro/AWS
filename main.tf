@@ -4,28 +4,34 @@ module "iam" {
 }
 
 module "security" {
-  source = "./security"
+  source                 = "./security"
+  kms_key_cloudtrail_arn = aws_kms_key.key_cloudtrail.arn
+  account_id             = data.aws_caller_identity.current.account_id
+  depends_on             = [time_sleep.kms_rds_propagation]
 }
 
 module "vpc1" {
   source          = "./vpc/globalservice"
   rds_password    = random_password.service_rds.result
   kms_key_rds_arn = aws_kms_key.key_rds_globalservice.arn # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
-  depends_on      = [time_sleep.kms_rds_propagation]      # KMS 전파 완료 후 VPC 모듈 실행
+  single_az_mode  = var.single_az_mode
+  depends_on      = [time_sleep.kms_rds_propagation] # KMS 전파 완료 후 VPC 모듈 실행
 }
 
 module "vpc2" {
   source          = "./vpc/ops"
   rds_password    = random_password.ops_rds.result
-  kms_key_rds_arn = aws_kms_key.key_rds_ops.arn      # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
+  kms_key_rds_arn = aws_kms_key.key_rds_ops.arn # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
+  single_az_mode  = var.single_az_mode
   depends_on      = [time_sleep.kms_rds_propagation] # KMS 전파 완료 후 VPC 모듈 실행
 }
 
 module "vpc3" {
   source = "./vpc/teleport"
 
-  eks_endpoint = module.vpc2.eks_cluster_endpoint
-  eks_ca_data  = module.vpc2.eks_cluster_ca_data
+  eks_endpoint            = module.vpc2.eks_cluster_endpoint
+  eks_ca_data             = module.vpc2.eks_cluster_ca_data
+  teleport_app_join_token = random_password.teleport_app_join_token.result
 }
 
 module "vpc4" {

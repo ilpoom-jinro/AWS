@@ -24,3 +24,8 @@ cleanupController:
 # Reports Controller — PolicyReport / ClusterPolicyReport 생성·관리
 reportsController:
   replicas: 2
+
+# config.preserve: false — Kyverno ConfigMap을 ArgoCD가 덮어쓸 수 있도록 허용
+# true(기본값)이면 Kyverno가 ConfigMap을 자체 관리하여 ArgoCD sync 시 충돌 발생
+config:
+  preserve: false

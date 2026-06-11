@@ -26,6 +26,11 @@ variable "k3s_version" {
   default = "v1.31.0+k3s1"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "AWS 계정 ID (ECR 레지스트리 URL 생성에 사용)"
+}
+
 variable "vpc_id" {
   type        = string
   description = "Packer 빌드용 VPC ID (임시 EC2 생성 위치)"
@@ -144,11 +149,11 @@ build {
   provisioner "file" {
     content = <<-EOF
       mirrors:
-        "218549830271.dkr.ecr.ap-northeast-2.amazonaws.com":
+        "${var.aws_account_id}.dkr.ecr.ap-northeast-2.amazonaws.com":
           endpoint:
-            - "https://218549830271.dkr.ecr.ap-northeast-2.amazonaws.com"
+            - "https://${var.aws_account_id}.dkr.ecr.ap-northeast-2.amazonaws.com"
       configs:
-        "218549830271.dkr.ecr.ap-northeast-2.amazonaws.com":
+        "${var.aws_account_id}.dkr.ecr.ap-northeast-2.amazonaws.com":
           auth:
             username: "AWS"
     EOF

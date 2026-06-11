@@ -1,0 +1,79 @@
+name: Build Packer AMI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packer/**"
+  workflow_dispatch:
+    inputs:
+      teleport_version:
+        description: "Teleport version (비우면 pkr.hcl 기본값 사용)"
+        required: false
+        default: ""
+      k3s_version:
+        description: "K3s version (비우면 pkr.hcl 기본값 사용)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: packer-ami-build
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+
+jobs:
+  build:
+    name: Build Teleport K3s AMI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Packer Init
+        run: packer init packer/teleport-k3s.pkr.hcl
+
+      - name: Build AMI
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=financial-vpc1-service" \
+            --query "Vpcs[0].VpcId" \
+            --output text)
+
+          SUBNET_ID=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=tag:Name,Values=financial-vpc1-public-a" \
+            --query "Subnets[0].SubnetId" \
+            --output text)
+
+          packer_vars=(
+            -var "aws_account_id=${ACCOUNT_ID}"
+            -var "vpc_id=${VPC_ID}"
+            -var "subnet_id=${SUBNET_ID}"
+          )
+
+          if [ -n "${{ inputs.teleport_version }}" ]; then
+            packer_vars+=(-var "teleport_version=${{ inputs.teleport_version }}")
+          fi
+          if [ -n "${{ inputs.k3s_version }}" ]; then
+            packer_vars+=(-var "k3s_version=${{ inputs.k3s_version }}")
+          fi
+
+          packer build "${packer_vars[@]}" packer/teleport-k3s.pkr.hcl

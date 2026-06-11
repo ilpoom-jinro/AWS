@@ -1,0 +1,38 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-ambient-label
+spec:
+  rules:
+    - name: add-ambient-label
+      # mesh.istio.io/enroll: "true" 레이블이 붙은 Namespace 생성·수정 시 트리거
+      # → kubectl label namespace <ns> mesh.istio.io/enroll=true 하면 자동 등록
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              operations:
+                - CREATE
+                - UPDATE
+              selector:
+                matchLabels:
+                  mesh.istio.io/enroll: "true"
+      # Istio 컨트롤 플레인 및 시스템 네임스페이스는 ambient 등록 제외
+      exclude:
+        any:
+          - resources:
+              names:
+                - kube-system
+                - kyverno
+                - argocd
+                - git
+                - istio-system
+                - observability
+                - falco
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              # Istio Ambient Mesh 등록 레이블
+              istio.io/dataplane-mode: ambient

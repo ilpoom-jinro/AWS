@@ -7,7 +7,6 @@ type Recommendation = {
   id: number;
   name: string;
   ticker: string;
-  reason: string;
   currentPrice: number;
   recommendedPrice: number;
   recommendationDate: string;
@@ -20,8 +19,9 @@ function formatCurrency(value: number) {
 }
 
 function formatGain(item: Recommendation) {
-  const diff = item.currentPrice - item.recommendedPrice;
-  const rate = (diff / item.recommendedPrice) * 100;
+  const diff = item.recommendedPrice - item.currentPrice;
+  const rate = (diff / item.currentPrice) * 100;
+
   return {
     diff,
     rate: rate.toFixed(2),
@@ -63,8 +63,7 @@ function App() {
     return items.filter((item) => {
       return (
         item.name.toLowerCase().includes(keyword) ||
-        item.ticker.toLowerCase().includes(keyword) ||
-        item.reason.toLowerCase().includes(keyword)
+        item.ticker.toLowerCase().includes(keyword)
       );
     });
   }, [items, query]);
@@ -103,7 +102,7 @@ function App() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by name, ticker, or reason"
+              placeholder="Search by name or ticker"
             />
           </label>
         </div>
@@ -128,7 +127,6 @@ function App() {
               <thead>
                 <tr>
                   <th>Stock</th>
-                  <th>Reason</th>
                   <th>Current Price</th>
                   <th>Recommended Price</th>
                   <th>Upside</th>
@@ -138,18 +136,18 @@ function App() {
               <tbody>
                 {filteredItems.map((item) => {
                   const gain = formatGain(item);
+
                   return (
                     <tr key={item.id}>
                       <td>
                         <div className="stockName">{item.name}</div>
                         <div className="ticker">({item.ticker})</div>
                       </td>
-                      <td>{item.reason}</td>
-                      <td>{formatCurrency(item.currentPrice)}</td>
-                      <td>{formatCurrency(item.recommendedPrice)}</td>
+                      <td>{formatCurrency(item.currentPrice)}원</td>
+                      <td>{formatCurrency(item.recommendedPrice)}원</td>
                       <td className="gain">
                         <TrendingUp size={15} />
-                        {formatCurrency(gain.diff)} ({gain.rate}%)
+                        {formatCurrency(gain.diff)}원 ({gain.rate}%)
                       </td>
                       <td>{item.recommendationDate}</td>
                     </tr>
