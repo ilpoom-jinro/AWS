@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import uuid4
 
@@ -26,6 +26,19 @@ class ChatResponse(BaseModel):
     plan_preview: dict[str, object]
 
 
+class BusinessCalendarEvent(BaseModel):
+    id: str
+    title: str
+    starts_at: str
+    expected_users: str
+    push_channel: str
+    warmup_minutes_before: int
+    grace_minutes_after: int
+    warm_pool_nodes: int
+    status: Literal["scheduled", "warming", "awaiting_signal", "released", "cancelled"]
+    guardrail: str
+
+
 MESSAGES: list[ChatMessage] = [
     ChatMessage(
         id=str(uuid4()),
@@ -38,9 +51,79 @@ MESSAGES: list[ChatMessage] = [
     )
 ]
 
+CALENDAR_EVENTS: list[BusinessCalendarEvent] = []
+
 
 def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def seed_calendar_events() -> list[BusinessCalendarEvent]:
+    if CALENDAR_EVENTS:
+        return CALENDAR_EVENTS
+
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    CALENDAR_EVENTS.extend(
+        [
+            BusinessCalendarEvent(
+                id="push-fomc-briefing",
+                title="FOMC report push notification",
+                starts_at=(now + timedelta(hours=3)).isoformat(),
+                expected_users="350k users",
+                push_channel="mobile-push",
+                warmup_minutes_before=30,
+                grace_minutes_after=45,
+                warm_pool_nodes=20,
+                status="scheduled",
+                guardrail="Release warm pool if DB signal is not received by T+45m.",
+            ),
+            BusinessCalendarEvent(
+                id="push-market-open",
+                title="Market open portfolio digest",
+                starts_at=(now + timedelta(days=1, hours=1)).isoformat(),
+                expected_users="180k users",
+                push_channel="mobile-push",
+                warmup_minutes_before=20,
+                grace_minutes_after=30,
+                warm_pool_nodes=10,
+                status="scheduled",
+                guardrail="Cancel workflow when the business calendar event is cancelled.",
+            ),
+            BusinessCalendarEvent(
+                id="push-earnings-summary",
+                title="Earnings summary campaign",
+                starts_at=(now - timedelta(minutes=15)).isoformat(),
+                expected_users="90k users",
+                push_channel="email-and-push",
+                warmup_minutes_before=15,
+                grace_minutes_after=30,
+                warm_pool_nodes=6,
+                status="awaiting_signal",
+                guardrail="Auto-scale down at the cleanup deadline unless a DB signal arrives.",
+            ),
+        ]
+    )
+    return CALENDAR_EVENTS
+
+
+def event_schedule_view(event: BusinessCalendarEvent) -> dict[str, object]:
+    starts_at = datetime.fromisoformat(event.starts_at)
+    warmup_at = starts_at - timedelta(minutes=event.warmup_minutes_before)
+    cleanup_at = starts_at + timedelta(minutes=event.grace_minutes_after)
+    return {
+        **event.model_dump(),
+        "warmup_at": warmup_at.isoformat(),
+        "cleanup_at": cleanup_at.isoformat(),
+        "workflow_id": f"calendar-warmup-{event.id}",
+        "timeout_policy": {
+            "await_db_signal_until": cleanup_at.isoformat(),
+            "on_timeout": [
+                "scale warm pool back to baseline",
+                "mark workflow released",
+                "emit cost-control audit event",
+            ],
+        },
+    }
 
 
 @app.get("/health")
@@ -59,11 +142,16 @@ def dashboard() -> dict[str, object]:
             {"name": "Monthly budget used", "value": "83%", "status": "ok"},
             {"name": "RDS read IOPS", "value": "78%", "status": "watch"},
             {"name": "Warm pool", "value": "20 nodes ready", "status": "ok"},
+            {"name": "Next push warmup", "value": "T-30m", "status": "watch"},
         ],
         "recommendation": {
-            "summary": "Prepare scale-out plan and require human approval.",
+            "summary": "Use business-calendar warmup, then release capacity automatically if the DB signal never arrives.",
             "actions": [
-                "Start warm pool capacity",
+                "Poll the business calendar every hour",
+                "Create one workflow per push notification event",
+                "Start warm pool capacity at T-30m",
+                "Wait for the DB signal before pod scale-out",
+                "Garbage-collect unused capacity at T+45m",
                 "Add on-demand nodes if queue pressure rises",
                 "Prepare one read replica",
                 "Throttle push notification rate by 30%",
@@ -72,6 +160,16 @@ def dashboard() -> dict[str, object]:
             "estimated_extra_cost_usd": 420,
             "estimated_failure_risk": "12% -> 3%",
         },
+    }
+
+
+@app.get("/api/calendar")
+def calendar() -> dict[str, object]:
+    events = [event_schedule_view(event) for event in seed_calendar_events()]
+    return {
+        "polling_interval": "1 hour",
+        "source": "business-calendar-api",
+        "events": events,
     }
 
 
@@ -123,6 +221,12 @@ def build_mock_finops_response(prompt: str) -> str:
     elif any(word in lowered for word in ["rds", "db", "database", "iops"]):
         focus = "DB Agent"
         finding = "Read pressure is elevated. Prepare one read replica before peak traffic."
+    elif any(word in lowered for word in ["calendar", "schedule", "push", "timeout", "gc", "garbage"]):
+        focus = "Business Calendar Agent"
+        finding = (
+            "Create a durable workflow per calendar event, warm nodes before the push, "
+            "then use a signal timeout to release unused capacity."
+        )
     elif any(word in lowered for word in ["traffic", "user", "spike", "fomc"]):
         focus = "Traffic Agent"
         finding = "Traffic concentration is likely. Use staged scale-out and push throttling."
@@ -290,6 +394,60 @@ HTML = """
         margin: 8px 0;
       }
 
+      .calendar {
+        margin-top: 16px;
+      }
+
+      .event-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .event {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .event-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: flex-start;
+      }
+
+      .event-title {
+        font-weight: 800;
+      }
+
+      .event-meta {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 6px;
+      }
+
+      .workflow {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .workflow span {
+        background: #f6f7f9;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+        font-size: 13px;
+      }
+
+      .guardrail {
+        margin-top: 10px;
+        color: var(--accent-strong);
+        font-weight: 700;
+        font-size: 13px;
+      }
+
       .impact {
         display: flex;
         gap: 10px;
@@ -430,6 +588,14 @@ HTML = """
             <span id="risk"></span>
           </div>
         </div>
+
+        <div class="calendar">
+          <div class="section-title">
+            <h2>Business Calendar</h2>
+            <span class="subtle" id="polling">polling</span>
+          </div>
+          <div class="event-list" id="calendar-events"></div>
+        </div>
       </section>
 
       <section class="panel chat">
@@ -447,10 +613,20 @@ HTML = """
 
     <script>
       const signalsEl = document.querySelector("#signals");
+      const calendarEventsEl = document.querySelector("#calendar-events");
       const messagesEl = document.querySelector("#messages");
       const form = document.querySelector("#chat-form");
       const promptEl = document.querySelector("#prompt");
       const sendEl = document.querySelector("#send");
+
+      function formatDate(value) {
+        return new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(value));
+      }
 
       function renderMessage(message) {
         const node = document.createElement("div");
@@ -494,6 +670,43 @@ HTML = """
         });
       }
 
+      async function loadCalendar() {
+        const response = await fetch("/api/calendar");
+        const data = await response.json();
+        document.querySelector("#polling").textContent = `${data.source} / ${data.polling_interval}`;
+        calendarEventsEl.innerHTML = "";
+
+        data.events.forEach((event) => {
+          const node = document.createElement("div");
+          node.className = "event";
+          node.innerHTML = `
+            <div class="event-head">
+              <div>
+                <div class="event-title"></div>
+                <div class="event-meta"></div>
+              </div>
+              <span class="badge"></span>
+            </div>
+            <div class="workflow">
+              <span class="warmup"></span>
+              <span class="signal"></span>
+              <span class="cleanup"></span>
+            </div>
+            <div class="guardrail"></div>
+          `;
+
+          node.querySelector(".event-title").textContent = event.title;
+          node.querySelector(".event-meta").textContent =
+            `${event.expected_users} / ${event.push_channel} / ${event.warm_pool_nodes} warm nodes`;
+          node.querySelector(".badge").textContent = event.status.replace("_", " ");
+          node.querySelector(".warmup").textContent = `Warmup: ${formatDate(event.warmup_at)}`;
+          node.querySelector(".signal").textContent = `Signal: DB event`;
+          node.querySelector(".cleanup").textContent = `GC: ${formatDate(event.cleanup_at)}`;
+          node.querySelector(".guardrail").textContent = event.guardrail;
+          calendarEventsEl.appendChild(node);
+        });
+      }
+
       async function loadMessages() {
         const response = await fetch("/api/chat");
         const messages = await response.json();
@@ -528,6 +741,7 @@ HTML = """
       });
 
       loadDashboard();
+      loadCalendar();
       loadMessages();
     </script>
   </body>
