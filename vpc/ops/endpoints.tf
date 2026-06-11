@@ -150,20 +150,6 @@ resource "aws_vpc_endpoint" "monitoring" {
   }
 }
 
-# AWS X-Ray — Observability Indexer trace lookup
-resource "aws_vpc_endpoint" "xray" {
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.aws_region}.xray"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "financial-vpc2-endpoint-xray"
-  }
-}
-
 # SSM — Systems Manager (노드 관리)
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = aws_vpc.this.id

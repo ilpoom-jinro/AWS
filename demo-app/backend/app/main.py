@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from contextlib import contextmanager
@@ -5,19 +6,15 @@ from datetime import date
 from typing import Generator
 
 import psycopg
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.propagate import set_global_textmap
-from opentelemetry.propagators.aws import AwsXRayPropagator
-from opentelemetry.sdk.extension.aws.trace import AwsXRayIdGenerator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic import BaseModel, ConfigDict
-
 
 class Recommendation(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -51,6 +48,9 @@ DATABASE_URL = (
 
 app = FastAPI(title="Stock Recommendation Demo API")
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("stock-demo-api")
+
 if env_bool("OTEL_TRACING_ENABLED"):
     resource = Resource.create(
         {
@@ -60,18 +60,49 @@ if env_bool("OTEL_TRACING_ENABLED"):
     )
 
     trace.set_tracer_provider(
-        TracerProvider(
-            id_generator=AwsXRayIdGenerator(),
-            resource=resource,
-        )
+        TracerProvider(resource=resource)
     )
     trace.get_tracer_provider().add_span_processor(
         BatchSpanProcessor(OTLPSpanExporter())
     )
-    set_global_textmap(AwsXRayPropagator())
     FastAPIInstrumentor.instrument_app(app)
 
 tracer = trace.get_tracer("stock-demo-api")
+
+@app.middleware("http")
+async def log_request_with_trace_id(request: Request, call_next):
+    started_at = time.perf_counter()
+    status_code = 500
+    error = None
+
+    with tracer.start_as_current_span("HTTP request log") as span:
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            span_context = span.get_span_context()
+            if span_context and span_context.is_valid:
+                trace_id = format(span_context.trace_id, "032x")
+                span_id = format(span_context.span_id, "016x")
+            else:
+                trace_id = "-"
+                span_id = "-"
+
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "request_completed method=%s path=%s status_code=%s duration_ms=%.2f trace_id=%s span_id=%s error=%s",
+                request.method,
+                request.url.path,
+                status_code,
+                duration_ms,
+                trace_id,
+                span_id,
+                type(error).__name__ if error else "-",
+            )
 
 cors_origins = [
     origin.strip()

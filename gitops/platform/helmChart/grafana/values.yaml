@@ -34,21 +34,25 @@ datasources:
     apiVersion: 1
     datasources:
       - name: Thanos
+        uid: Thanos
         type: prometheus
         access: proxy
         url: http://observability-thanos-query.observability.svc.cluster.local:9090
         isDefault: true
       - name: Loki
+        uid: Loki
         type: loki
         access: proxy
         url: http://observability-loki.observability.svc.cluster.local:3100
       - name: CloudWatch
+        uid: CloudWatch
         type: cloudwatch
         access: proxy
         jsonData:
           authType: default
           defaultRegion: ap-northeast-2
       - name: Tempo
+        uid: Tempo
         type: tempo
         access: proxy
         url: http://observability-tempo.observability.svc.cluster.local:3200
