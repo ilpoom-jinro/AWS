@@ -199,14 +199,20 @@
         set -e
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user delete \
+            --username "{{ internal_git_admin_username }}" \
+            --purge \
+            --config /etc/gitea/app.ini \
+          || true
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user create \
             --username "{{ internal_git_admin_username }}" \
             --password "{{ internal_git_admin_password }}" \
             --email "{{ internal_git_admin_email }}" \
             --admin \
             --must-change-password=false \
-            --config /etc/gitea/app.ini \
-          || true
+            --config /etc/gitea/app.ini
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user change-password \
