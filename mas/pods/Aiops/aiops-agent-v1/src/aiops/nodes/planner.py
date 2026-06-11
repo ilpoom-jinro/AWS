@@ -1,9 +1,10 @@
 """
 nodes/planner.py — PLAN 노드
-RCA 결과의 recommended_strategy와 confidence를 기반으로
-구체적인 kubectl/helm 복구 명령어를 담은 RecoveryPlan 목록을 생성한다.
 
-우선순위: restart(1) > scale_out(2) > rollback(3) > investigate(4)
+[v0.2 수정사항]
+- _extract_deploy_name: ReplicaSet 해시 정규식을 [0-9a-f]{5,10}으로 보정
+  (실제 RS 해시는 5~10자 가변) + fallback 로직 단순화
+- _context_for 내부 중복 import 제거
 """
 from __future__ import annotations
 
@@ -23,20 +24,31 @@ STRATEGY_PRIORITY = {
     "investigate": 4,
 }
 
+# ReplicaSet pod-template-hash: 영숫자 5~10자 (소문자/숫자)
+_RS_HASH_RE = re.compile(r"^[0-9a-z]{5,10}$")
+# 파드 suffix: 영숫자 5자
+_POD_SUFFIX_RE = re.compile(r"^[0-9a-z]{5}$")
+
 
 def _extract_deploy_name(pod_name: str) -> str:
     """
     파드 이름에서 Deployment 이름 추출.
-    예: backend-6d4f7c8b9-xkj2p → backend
-        demo-app-backend-7f9d-abc12 → demo-app-backend
+      backend-6d4f7c8b9-xkj2p      → backend
+      demo-app-backend-7f9d5-ab12c → demo-app-backend
+      standalone-pod               → standalone-pod (그대로)
     """
-    # ReplicaSet suffix (10진수 해시 5자리 + 랜덤 5자리) 제거
     parts = pod_name.rsplit("-", 2)
-    if len(parts) == 3 and re.fullmatch(r"[0-9a-f]{7,10}", parts[1]):
+    if len(parts) == 3 and _RS_HASH_RE.match(parts[1]) and _POD_SUFFIX_RE.match(parts[2]):
         return parts[0]
-    if len(parts) >= 2:
-        return "-".join(parts[:-2]) if len(parts) > 2 else parts[0]
+    # StatefulSet (name-0) 또는 비표준 이름 → 마지막 토큰만 제거 시도
+    parts2 = pod_name.rsplit("-", 1)
+    if len(parts2) == 2 and parts2[1].isdigit():
+        return parts2[0]
     return pod_name
+
+
+def _context_for(vpc: str) -> str:
+    return settings.OPS_KUBE_CONTEXT if vpc == "vpc2" else settings.SERVICE_KUBE_CONTEXT
 
 
 def _build_restart_plan(event: IncidentEvent) -> RecoveryPlan:
@@ -81,10 +93,10 @@ def _build_scale_plan(event: IncidentEvent, current_replicas: int = 2) -> Recove
 def _build_rollback_plan(event: IncidentEvent, release: str = "") -> RecoveryPlan:
     ns, pod = event["pod"].split("/", 1)
     deploy = _extract_deploy_name(pod)
-    helm_release = release or deploy  # Helm release 이름 (없으면 deploy 이름 사용)
+    helm_release = release or deploy
     return RecoveryPlan(
         strategy="rollback",
-        target=f"deployment/{deploy}",
+        target=f"helm/{helm_release}",
         command=[
             "helm", "--kube-context", _context_for(event["vpc"]),
             "rollback", helm_release, "--wait",
@@ -99,7 +111,7 @@ def _build_investigate_plan(event: IncidentEvent, confidence: float) -> Recovery
     return RecoveryPlan(
         strategy="investigate",
         target=event["pod"],
-        command=[],  # 자동 실행 없음
+        command=[],
         priority=4,
         reason=(
             f"RCA 신뢰도 낮음 ({confidence:.0%}) — "
@@ -108,20 +120,19 @@ def _build_investigate_plan(event: IncidentEvent, confidence: float) -> Recovery
     )
 
 
-def _context_for(vpc: str) -> str:
-    from ..config import settings
-    return settings.OPS_KUBE_CONTEXT if vpc == "vpc2" else settings.SERVICE_KUBE_CONTEXT
-
-
 async def run(state: AgentState) -> AgentState:
     """PLAN 노드 진입점"""
     try:
         rca = json.loads(state["rca_report"])
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError, TypeError):
         rca = {"recommended_strategy": "investigate", "confidence": 0.0}
 
     strategy = rca.get("recommended_strategy", "investigate")
-    confidence = float(rca.get("confidence", 0.0))
+    try:
+        confidence = float(rca.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
     plans: list[RecoveryPlan] = []
 
     for event in state["events"]:
@@ -138,7 +149,6 @@ async def run(state: AgentState) -> AgentState:
         else:
             plans.append(_build_investigate_plan(event, confidence))
 
-    # 우선순위 정렬 (낮을수록 먼저)
     plans.sort(key=lambda p: STRATEGY_PRIORITY.get(p["strategy"], 99))
 
     logger.info("복구 계획 수립 완료: %d개", len(plans))

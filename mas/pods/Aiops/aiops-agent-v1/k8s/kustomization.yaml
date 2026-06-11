@@ -10,3 +10,4 @@ resources:
   - rbac.yaml
   - configmap.yaml
   - deployment.yaml
+  # - ingress.yaml   # Slack WebHook 수신 시 cert ARN 교체 후 주석 해제

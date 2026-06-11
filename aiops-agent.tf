@@ -1,7 +1,17 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# terraform/aiops-agent.tf
-# AIOps Bedrock Agent 전용 인프라
-# 기존 AWS-main main.tf에서 이 파일을 import하거나 동일 디렉토리에 추가
+# terraform/aiops-agent.tf — AIOps Bedrock Agent 인프라
+#
+# [v0.2 수정사항]
+# - 기존: module.vpc2.oidc_provider_arn / oidc_issuer 참조
+#   → 기존 vpc2 모듈에 해당 output이 없어 terraform plan 즉시 실패
+# - 수정: EKS Pod Identity 방식으로 전환.
+#   기존 인프라가 EBS CSI Driver를 Pod Identity로 운영 중이고
+#   eks-pod-identity-agent 애드온이 이미 설치되어 있으므로
+#   OIDC Provider 없이 동작한다. ServiceAccount annotation도 불필요.
+#
+# 필요 모듈 output (기존에 이미 존재):
+#   module.vpc1.eks_cluster_name, module.vpc2.eks_cluster_name
+#   module.vpc2.vpc_id, module.vpc2.vpc_cidr, module.vpc2.private_subnet_ids
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── 변수 ────────────────────────────────────────────────────────────────────
@@ -11,40 +21,33 @@ variable "slack_bot_token" {
   sensitive   = true
 }
 
-# ── 1. IRSA IAM Role ─────────────────────────────────────────────────────────
-# EKS Ops 클러스터의 OIDC Provider ARN / Issuer는 vpc2 모듈에서 출력 필요
-# vpc2 모듈 outputs.tf에 아래 항목 추가 후 참조:
-#   output "oidc_provider_arn" { value = aws_iam_openid_connect_provider.ops.arn }
-#   output "oidc_issuer"       { value = aws_eks_cluster.ops.identity[0].oidc[0].issuer }
-
-data "aws_iam_policy_document" "aiops_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [module.vpc2.oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(module.vpc2.oidc_issuer, "https://", "")}:sub"
-      values   = ["system:serviceaccount:aiops:aiops-agent"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(module.vpc2.oidc_issuer, "https://", "")}:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-  }
+variable "slack_signing_secret" {
+  description = "Slack App Signing Secret (WebHook 서명 검증용)"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
+data "aws_caller_identity" "aiops" {}
+
+# ── 1. IAM Role — EKS Pod Identity 신뢰 정책 ─────────────────────────────────
 resource "aws_iam_role" "aiops_agent" {
-  name               = "financial-aiops-agent-role"
-  description        = "AIOps Bedrock Agent IRSA Role — VPC2 Ops EKS 상주"
-  assume_role_policy = data.aws_iam_policy_document.aiops_assume.json
+  name        = "financial-aiops-agent-role"
+  description = "AIOps Bedrock Agent Pod Identity Role — VPC2 Ops EKS 상주"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "pods.eks.amazonaws.com"
+      }
+      Action = [
+        "sts:AssumeRole",
+        "sts:TagSession",
+      ]
+    }]
+  })
 
   tags = {
     Project   = "ilpumjinro"
@@ -70,7 +73,7 @@ resource "aws_iam_role_policy" "aiops_agent" {
           "arn:aws:bedrock:${var.aws_region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
         ]
       },
-      # CloudWatch Logs 조회 (EKS 컨트롤 플레인 로그)
+      # CloudWatch Logs 조회
       {
         Sid    = "CWLogsRead"
         Effect = "Allow"
@@ -82,7 +85,7 @@ resource "aws_iam_role_policy" "aiops_agent" {
         ]
         Resource = "*"
       },
-      # CloudWatch Metrics 조회 (Container Insights)
+      # CloudWatch Metrics 조회
       {
         Sid    = "CWMetricsRead"
         Effect = "Allow"
@@ -93,7 +96,7 @@ resource "aws_iam_role_policy" "aiops_agent" {
         ]
         Resource = "*"
       },
-      # EKS 클러스터 정보 조회
+      # EKS 클러스터 정보 조회 + 토큰 발급 (aws eks get-token / update-kubeconfig)
       {
         Sid    = "EKSRead"
         Effect = "Allow"
@@ -105,20 +108,32 @@ resource "aws_iam_role_policy" "aiops_agent" {
         Sid    = "SecretsManagerRead"
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:aiops/*"
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.aiops.account_id}:secret:aiops/*"
       },
     ]
   })
 }
 
-# ── 2. Bedrock Runtime VPC Interface Endpoint (VPC2) ─────────────────────────
+# ── 2. EKS Pod Identity Association ──────────────────────────────────────────
+# eks-pod-identity-agent 애드온이 Ops EKS에 이미 설치되어 있어야 함
+# (기존 eks.tf에서 EBS CSI용으로 이미 설치됨)
+resource "aws_eks_pod_identity_association" "aiops" {
+  cluster_name    = module.vpc2.eks_cluster_name
+  namespace       = "aiops"
+  service_account = "aiops-agent"
+  role_arn        = aws_iam_role.aiops_agent.arn
+
+  tags = { Name = "aiops-agent-pod-identity" }
+}
+
+# ── 3. Bedrock Runtime VPC Interface Endpoint (VPC2) ─────────────────────────
 resource "aws_security_group" "bedrock_endpoint" {
   name        = "financial-vpc2-bedrock-endpoint-sg"
   description = "Bedrock Runtime VPC Endpoint SG — VPC2 내부 443만 허용"
   vpc_id      = module.vpc2.vpc_id
 
   ingress {
-    description = "Allow HTTPS from VPC2 (aiops-agent → Bedrock)"
+    description = "Allow HTTPS from VPC2 (aiops-agent to Bedrock)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -146,7 +161,7 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
   tags = { Name = "financial-vpc2-endpoint-bedrock-runtime" }
 }
 
-# ── 3. EKS Access Entry — aiops-agent가 Ops + Service EKS Admin ──────────────
+# ── 4. EKS Access Entry — Role이 두 클러스터 모두 Admin 접근 ──────────────────
 resource "aws_eks_access_entry" "aiops_ops" {
   cluster_name  = module.vpc2.eks_cluster_name
   principal_arn = aws_iam_role.aiops_agent.arn
@@ -159,7 +174,7 @@ resource "aws_eks_access_policy_association" "aiops_ops" {
   principal_arn = aws_iam_role.aiops_agent.arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
-  depends_on    = [aws_eks_access_entry.aiops_ops]
+  depends_on = [aws_eks_access_entry.aiops_ops]
 }
 
 resource "aws_eks_access_entry" "aiops_svc" {
@@ -174,13 +189,13 @@ resource "aws_eks_access_policy_association" "aiops_svc" {
   principal_arn = aws_iam_role.aiops_agent.arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
-  depends_on    = [aws_eks_access_entry.aiops_svc]
+  depends_on = [aws_eks_access_entry.aiops_svc]
 }
 
-# ── 4. Secrets Manager — Slack Bot Token ─────────────────────────────────────
+# ── 5. Secrets Manager — Slack 자격증명 ──────────────────────────────────────
 resource "aws_secretsmanager_secret" "slack_bot_token" {
   name                    = "aiops/slack-bot-token"
-  description             = "AIOps Agent Slack Bot OAuth Token"
+  description             = "AIOps Agent Slack Bot Token + Signing Secret"
   recovery_window_in_days = 7
 
   tags = {
@@ -190,11 +205,14 @@ resource "aws_secretsmanager_secret" "slack_bot_token" {
 }
 
 resource "aws_secretsmanager_secret_version" "slack_bot_token" {
-  secret_id     = aws_secretsmanager_secret.slack_bot_token.id
-  secret_string = jsonencode({ token = var.slack_bot_token })
+  secret_id = aws_secretsmanager_secret.slack_bot_token.id
+  secret_string = jsonencode({
+    token          = var.slack_bot_token
+    signing_secret = var.slack_signing_secret
+  })
 }
 
-# ── 5. ECR Repository — aiops-agent 이미지 ───────────────────────────────────
+# ── 6. ECR Repository ─────────────────────────────────────────────────────────
 resource "aws_ecr_repository" "aiops_agent" {
   name                 = "financial/aiops-agent"
   image_tag_mutability = "MUTABLE"
@@ -229,11 +247,21 @@ resource "aws_ecr_lifecycle_policy" "aiops_agent" {
 
 # ── Outputs ───────────────────────────────────────────────────────────────────
 output "aiops_agent_role_arn" {
-  description = "AIOps Agent IRSA Role ARN (k8s/serviceaccount.yaml annotation에 사용)"
+  description = "AIOps Agent Pod Identity Role ARN"
   value       = aws_iam_role.aiops_agent.arn
 }
 
 output "aiops_agent_ecr_url" {
   description = "AIOps Agent ECR Repository URL"
   value       = aws_ecr_repository.aiops_agent.repository_url
+}
+
+output "aiops_ops_cluster_name" {
+  description = "ConfigMap OPS_EKS_CLUSTER_NAME에 설정할 값"
+  value       = module.vpc2.eks_cluster_name
+}
+
+output "aiops_service_cluster_name" {
+  description = "ConfigMap SERVICE_EKS_CLUSTER_NAME에 설정할 값"
+  value       = module.vpc1.eks_cluster_name
 }

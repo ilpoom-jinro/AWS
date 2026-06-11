@@ -1,7 +1,8 @@
 """
 nodes/executor.py — EXECUTE 노드
-승인된 RecoveryPlan의 command를 비동기 subprocess로 실행한다.
-실행 결과(stdout/stderr)를 Slack에 알리고 state에 저장한다.
+
+[v0.2 수정사항]
+- Slack 클라이언트 lazy 초기화 (get_slack)
 """
 from __future__ import annotations
 
@@ -10,21 +11,22 @@ import logging
 from ..config import settings
 from ..state import AgentState
 from ..tools.k8s_client import _run_cmd
-from ..tools.slack import SlackClient
+from ..tools.slack import get_slack
 
 logger = logging.getLogger(__name__)
-_slack = SlackClient(settings.SLACK_BOT_TOKEN)
 
 
 async def run(state: AgentState) -> AgentState:
     """EXECUTE 노드 진입점"""
+    slack = get_slack()
     plan = state["approved_plan"]
+
     if not plan or not plan.get("command"):
         logger.warning("실행할 명령어 없음 — 스킵")
         return {**state, "exec_result": "명령어 없음"}
 
     cmd_str = " ".join(plan["command"])
-    await _slack.post_message(
+    await slack.post_message(
         settings.SLACK_CHANNEL,
         f"🔧 *복구 실행 시작*\n전략: `{plan['strategy'].upper()}`\n명령어: `{cmd_str}`",
     )
@@ -33,7 +35,7 @@ async def run(state: AgentState) -> AgentState:
     ok = returncode == 0
     status_emoji = "✅" if ok else "❌"
 
-    await _slack.post_message(
+    await slack.post_message(
         settings.SLACK_CHANNEL,
         (
             f"{status_emoji} 복구 명령 완료 (exitcode={returncode})\n"

@@ -14,21 +14,19 @@ spec:
     metadata:
       labels:
         app: aiops-agent
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: aiops-agent
 
-      # ── 모니터링 전용 노드 그룹에 배치 (taint/toleration) ───────
+      # [v0.2 수정] nodeSelector 제거 — 모니터링 노드 그룹에 dedicated 레이블이
+      # 설정되어 있지 않으면 영구 Pending이 되므로 toleration만 유지.
+      # 레이블이 확인되면 nodeSelector를 다시 활성화할 것.
       tolerations:
         - key: "dedicated"
           operator: "Equal"
           value: "monitoring"
           effect: "NoSchedule"
-      nodeSelector:
-        dedicated: monitoring
+      # nodeSelector:
+      #   dedicated: monitoring
 
       containers:
         - name: aiops-agent
@@ -39,30 +37,31 @@ spec:
               containerPort: 8080
               protocol: TCP
 
-          # ── ConfigMap 환경변수 ─────────────────────────────────
           envFrom:
             - configMapRef:
                 name: aiops-agent-config
 
-          # ── Secrets Manager에서 Slack 토큰은 앱 기동 시 직접 조회 ──
-          # (settings.load_secrets()가 기동 시 호출됨)
+          # [v0.2 추가] kubeconfig 경로 (entrypoint.sh가 생성, K8sClient가 사용)
+          env:
+            - name: KUBECONFIG
+              value: /tmp/kubeconfig
+            - name: HOME
+              value: /tmp
 
-          # ── Probe ────────────────────────────────────────────
           livenessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60   # kubeconfig 생성 시간 고려
             periodSeconds: 30
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 15
+            initialDelaySeconds: 20
             periodSeconds: 10
 
-          # ── 리소스 ───────────────────────────────────────────
           resources:
             requests:
               cpu: "100m"
@@ -71,14 +70,12 @@ spec:
               cpu: "500m"
               memory: "512Mi"
 
-          # ── 보안 컨텍스트 ─────────────────────────────────────
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
 
-          # ── 임시 쓰기 디렉토리 ─────────────────────────────────
           volumeMounts:
             - name: tmp
               mountPath: /tmp

@@ -1,9 +1,8 @@
 """
 nodes/rollback.py — ROLLBACK 노드
-VERIFY에서 이상이 재감지됐을 때 자동으로 롤백을 수행한다.
 
-Helm release가 있으면 helm rollback, 없으면 kubectl rollout undo.
-롤백 완료 후 Slack에 결과 + 수동 조사 권고를 알린다.
+[v0.2 수정사항]
+- Slack 클라이언트 lazy 초기화 (get_slack)
 """
 from __future__ import annotations
 
@@ -12,14 +11,14 @@ import logging
 from ..config import settings
 from ..state import AgentState
 from ..tools.k8s_client import _run_cmd
-from ..tools.slack import SlackClient
+from ..tools.slack import get_slack
 
 logger = logging.getLogger(__name__)
-_slack = SlackClient(settings.SLACK_BOT_TOKEN)
 
 
 async def run(state: AgentState) -> AgentState:
-    """ROLLBACK 노드 진입점"""
+    """ROLLBACK 노드 진입점 — 자동 롤백 실행"""
+    slack = get_slack()
     plan = state.get("approved_plan")
     events = state.get("events", [])
 
@@ -29,11 +28,15 @@ async def run(state: AgentState) -> AgentState:
 
     event = events[0]
     ns, pod_name = event["pod"].split("/", 1)
-    context = settings.OPS_KUBE_CONTEXT if event["vpc"] == "vpc2" else settings.SERVICE_KUBE_CONTEXT
+    context = (
+        settings.OPS_KUBE_CONTEXT
+        if event["vpc"] == "vpc2"
+        else settings.SERVICE_KUBE_CONTEXT
+    )
 
     # 대상 리소스 결정
-    if plan and "helm/" in plan.get("target", ""):
-        # Helm 롤백
+    if plan and plan.get("strategy") == "rollback":
+        # Helm 롤백 (planner가 helm 명령을 만들었던 경우)
         release = plan["target"].split("/")[-1]
         cmd = [
             "helm", "--kube-context", context,
@@ -52,7 +55,7 @@ async def run(state: AgentState) -> AgentState:
         ]
         rollback_type = f"deployment/{deploy}"
 
-    await _slack.post_message(
+    await slack.post_message(
         settings.SLACK_CHANNEL,
         f"🔄 *자동 롤백 시작*\n대상: `{rollback_type}` (namespace: `{ns}`)",
     )
@@ -61,7 +64,7 @@ async def run(state: AgentState) -> AgentState:
     ok = returncode == 0
     status_emoji = "✅" if ok else "❌"
 
-    await _slack.post_message(
+    await slack.post_message(
         settings.SLACK_CHANNEL,
         (
             f"{status_emoji} 롤백 {'완료' if ok else '실패'} (exitcode={returncode})\n"

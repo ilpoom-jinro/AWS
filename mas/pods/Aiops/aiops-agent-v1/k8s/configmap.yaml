@@ -5,8 +5,16 @@ metadata:
   namespace: aiops
 data:
   AWS_REGION:               "ap-northeast-2"
+
+  # 컨텍스트 별칭 (entrypoint.sh의 --alias와 일치)
   OPS_KUBE_CONTEXT:         "financial-ops-eks"
   SERVICE_KUBE_CONTEXT:     "financial-service-eks"
+
+  # [v0.2 추가] 실제 EKS 클러스터 이름 — 반드시 교체!
+  # terraform output aiops_ops_cluster_name / aiops_service_cluster_name 값으로 설정
+  OPS_EKS_CLUSTER_NAME:     "REPLACE_WITH_OPS_CLUSTER_NAME"
+  SERVICE_EKS_CLUSTER_NAME: "REPLACE_WITH_SERVICE_CLUSTER_NAME"
+
   PROMETHEUS_URL:           "http://prometheus-server.monitoring.svc.cluster.local:80"
   SLACK_CHANNEL:            "#ops-alerts"
   BEDROCK_MODEL_ID:         "anthropic.claude-3-5-sonnet-20241022-v2:0"
