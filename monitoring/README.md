@@ -14,8 +14,6 @@ Default ECR repositories:
 - `financial/monitoring/thanos`
 - `financial/monitoring/alloy`
 - `financial/monitoring/alertmanager`
-- `financial/monitoring/xray-collector`
-- `financial/monitoring/prometheus`
 
 GitOps manifests for the future monitoring runtime are intentionally not stored
 here yet. The monitoring control plane may move to a separate k3s runtime on the

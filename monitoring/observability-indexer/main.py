@@ -4,7 +4,6 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
-import boto3
 import psycopg2
 import psycopg2.extras
 import requests
@@ -124,49 +123,6 @@ def collect_thanos_documents():
     return documents
 
 
-def collect_xray_documents(start, end):
-    if env("XRAY_ENABLED", "true").lower() != "true":
-        return []
-
-    client = boto3.client("xray", region_name=env("AWS_REGION", "ap-northeast-2"))
-    response = client.get_trace_summaries(
-        StartTime=start,
-        EndTime=end,
-        TimeRangeType="TraceId",
-    )
-
-    documents = []
-    for summary in response.get("TraceSummaries", []):
-        trace_id = summary.get("Id")
-        duration = summary.get("Duration")
-        has_error = summary.get("HasError") or summary.get("HasFault") or summary.get("HasThrottle")
-        if not has_error and duration is not None and duration < float(env("XRAY_MIN_DURATION_SECONDS", "1.0")):
-            continue
-
-        observed_at = summary.get("StartTime") or end
-        title = f"X-Ray trace {trace_id}"
-        content = (
-            f"Trace {trace_id} duration={duration}s "
-            f"response_time={summary.get('ResponseTime')} "
-            f"error={summary.get('HasError')} fault={summary.get('HasFault')} throttle={summary.get('HasThrottle')}"
-        )
-        documents.append({
-            "source_type": "trace",
-            "source_system": "xray",
-            "source_id": fingerprint("xray", trace_id),
-            "cluster_name": "financial-service-eks",
-            "namespace": None,
-            "pod_name": None,
-            "service_name": None,
-            "severity": "warning" if has_error else "info",
-            "observed_at": observed_at,
-            "title": title,
-            "content": content,
-            "metadata": summary,
-        })
-    return documents
-
-
 def connect_db():
     host = env("RDS_HOST")
     if is_placeholder(host):
@@ -249,7 +205,7 @@ def main():
     start = end - timedelta(minutes=int(env("LOOKBACK_MINUTES", "5")))
 
     documents = []
-    for collector in (collect_loki_documents, collect_thanos_documents, collect_xray_documents):
+    for collector in (collect_loki_documents, collect_thanos_documents):
         try:
             if collector is collect_thanos_documents:
                 collected = collector()

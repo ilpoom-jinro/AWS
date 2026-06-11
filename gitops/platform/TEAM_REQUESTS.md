@@ -106,7 +106,6 @@ Ops VPC ID와 NLB SG ID는 GitOps bootstrap이 AWS API에서 자동 조회합니
 
 | 상태 | 전달받을 값 | 사용 목적 |
 |---|---|---|
-| [ ] | X-Ray Collector IAM Role과 Pod Identity 적용 완료 여부 | Terraform 코드 작성 완료. 백엔드 트레이싱 전송 |
 | [ ] | Grafana CloudWatch IAM Role과 Pod Identity 적용 완료 여부 | Terraform 코드 작성 완료. Grafana CloudWatch 조회 |
 | [ ] | 서비스 VPC RDS Endpoint | 백엔드 DB 연결 |
 | [ ] | RDS Secret 관리 방식 | 백엔드 DB 비밀번호 주입 |

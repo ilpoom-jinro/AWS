@@ -6,7 +6,7 @@ This cluster should run:
 
 - Public-facing frontend
 - Backend API
-- X-Ray Collector for backend tracing
+- OpenTelemetry trace export through the Service VPC Alloy agent
 - Service VPC observability agent
 
 The frontend and backend run in the same `stock-demo` namespace. The frontend
