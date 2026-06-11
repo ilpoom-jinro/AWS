@@ -228,6 +228,16 @@
       changed_when: false
       no_log: true
 
+    - name: Clear must-change-password flag on Gitea admin user
+      ansible.builtin.shell: |
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user edit \
+            --username "{{ internal_git_admin_username }}" \
+            --must-change-password=false \
+            --config /etc/gitea/app.ini 2>&1
+      changed_when: false
+
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |
         set -e
