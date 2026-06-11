@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "**.tf"
+      - "**.tpl"
       - ".terraform.lock.hcl"
       - "ansible/**"
       - "gitops/**"
