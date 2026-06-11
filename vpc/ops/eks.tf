@@ -204,7 +204,7 @@ resource "aws_eks_node_group" "ops" {
 
 resource "aws_eks_access_entry" "teleport" {
   cluster_name  = aws_eks_cluster.ops.name
-  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-vpc3-teleport-ec2-role"
+  principal_arn = "arn:aws:iam::${var.account_id}:role/financial-vpc3-teleport-ec2-role"
   type          = "STANDARD"
 
   tags = {
@@ -214,7 +214,7 @@ resource "aws_eks_access_entry" "teleport" {
 
 resource "aws_eks_access_policy_association" "teleport_admin" {
   cluster_name  = aws_eks_cluster.ops.name
-  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-vpc3-teleport-ec2-role"
+  principal_arn = "arn:aws:iam::${var.account_id}:role/financial-vpc3-teleport-ec2-role"
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {
