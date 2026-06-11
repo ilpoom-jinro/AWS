@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     SERVICE_EKS_CLUSTER_NAME: str = Field(default="")
 
     # ── Prometheus ────────────────────────────────────────────────
+    # [v0.3] Thanos Query (Prometheus 호환 API) — 모니터링 스택 전환 반영
     PROMETHEUS_URL: str = Field(
-        default="http://prometheus-server.monitoring.svc.cluster.local:80"
+        default="http://observability-thanos-query.observability.svc.cluster.local:9090"
     )
 
     # ── Bedrock ───────────────────────────────────────────────────

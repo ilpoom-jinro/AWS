@@ -20,10 +20,16 @@ from ..tools.prometheus import PrometheusClient
 logger = logging.getLogger(__name__)
 
 PROM_QUERIES = [
-    "kube_pod_container_status_restarts_total",
-    "kube_pod_container_status_last_terminated_reason",
+    # [v0.3] 모니터링 스택 전환 반영 (Prometheus 단일 서버 → Thanos 스택):
+    # - Alloy가 kubelet/cadvisor/annotated-pods만 스크랩하고 kube-state-metrics가
+    #   없으므로 kube_pod_* 시리즈는 존재하지 않아 제거.
+    #   (파드 상태 탐지는 detector.py가 K8s API를 직접 조회하므로 영향 없음)
+    # - cadvisor 제공 메트릭으로 CPU/메모리 추이를 RCA 보조 자료로 수집.
+    # - Thanos Query 한 곳에서 ops/service 양쪽 클러스터 메트릭 조회 가능
+    #   (Alloy remote_write external_labels: cluster=<클러스터명>)
     "rate(container_cpu_usage_seconds_total[5m])",
     "container_memory_usage_bytes",
+    "container_memory_working_set_bytes",
 ]
 
 

@@ -15,7 +15,10 @@ data:
   OPS_EKS_CLUSTER_NAME:     "REPLACE_WITH_OPS_CLUSTER_NAME"
   SERVICE_EKS_CLUSTER_NAME: "REPLACE_WITH_SERVICE_CLUSTER_NAME"
 
-  PROMETHEUS_URL:           "http://prometheus-server.monitoring.svc.cluster.local:80"
+  # [v0.3] 모니터링 스택 전환: Prometheus 단일 서버 → Thanos 스택 (GitOps/ArgoCD)
+  # Thanos Query는 Prometheus 호환 API 제공. Service EKS 메트릭도 Thanos Receive로
+  # 모이므로 이 한 곳에서 양쪽 클러스터 메트릭 조회 가능 (external_labels: cluster)
+  PROMETHEUS_URL:           "http://observability-thanos-query.observability.svc.cluster.local:9090"
   SLACK_CHANNEL:            "#ops-alerts"
   BEDROCK_MODEL_ID:         "anthropic.claude-3-5-sonnet-20241022-v2:0"
   SLACK_SECRET_ID:          "aiops/slack-bot-token"

@@ -69,18 +69,22 @@ class PrometheusClient:
     # ── 장애 파드 전용 메트릭 수집 ───────────────────────────────
 
     async def get_pod_metrics(self, namespace: str, pod_name: str) -> dict[str, Any]:
-        """특정 파드의 재시작 횟수·CPU·메모리 요약 반환"""
+        """특정 파드의 CPU·메모리 요약 반환.
+
+        [v0.3] kube-state-metrics 부재(Alloy 스택)로 restarts 쿼리 제거.
+        재시작 횟수는 detector가 K8s API의 restartCount에서 직접 획득한다.
+        """
         queries = {
-            "restarts": (
-                f'kube_pod_container_status_restarts_total'
-                f'{{namespace="{namespace}",pod="{pod_name}"}}'
-            ),
             "cpu": (
                 f'rate(container_cpu_usage_seconds_total'
                 f'{{namespace="{namespace}",pod="{pod_name}"}}[5m])'
             ),
             "memory_bytes": (
                 f'container_memory_usage_bytes'
+                f'{{namespace="{namespace}",pod="{pod_name}"}}'
+            ),
+            "memory_working_set": (
+                f'container_memory_working_set_bytes'
                 f'{{namespace="{namespace}",pod="{pod_name}"}}'
             ),
         }

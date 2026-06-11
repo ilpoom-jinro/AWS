@@ -38,9 +38,11 @@ terraform output aiops_ops_cluster_name
 terraform output aiops_service_cluster_name
 
 # 3. ECR 이미지 빌드 & 푸시
-aws ecr get-login-password | docker login --username AWS --password-stdin 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com
-docker build -t 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/aiops-agent:latest .
-docker push 218549830271.dkr.ecr.ap-northeast-2.amazonaws.com/financial/aiops-agent:latest
+# ECR_REGISTRY는 terraform output aiops_agent_ecr_url에서 확인 (계정 이관 대응으로 하드코딩 제거)
+ECR_REGISTRY=$(terraform output -raw aiops_agent_ecr_url | cut -d/ -f1)
+aws ecr get-login-password | docker login --username AWS --password-stdin $ECR_REGISTRY
+docker build -t $ECR_REGISTRY/financial/aiops-agent:latest .
+docker push $ECR_REGISTRY/financial/aiops-agent:latest
 
 # 4. EKS 배포
 kubectl apply -k k8s/
@@ -65,3 +67,16 @@ kubectl set env deployment/backend -n service-apps CRASH_ON_START=true
 - [ ] configmap.yaml의 `REPLACE_WITH_*` 클러스터 이름 교체
 - [ ] Slack App: Bot Token Scopes `chat:write`, `chat:write.public`
 - [ ] Slack Interactivity Request URL 등록 (ingress.yaml 또는 ngrok)
+
+## v0.3 — 계정 이관 + 신규 인프라(AWS-feature-Aiops) 대응
+
+팀 인프라가 새 AWS 계정으로 이관되고 모니터링 스택이 교체됨에 따라 다음을 반영:
+
+| 항목 | 변경 |
+|------|------|
+| 메트릭 엔드포인트 | `prometheus-server.monitoring:80` → **`observability-thanos-query.observability:9090`** (Thanos Query, Prometheus 호환 API) |
+| PromQL 쿼리 | kube-state-metrics 부재로 `kube_pod_*` 시리즈 제거, cadvisor 기반(`container_*`)으로 정리 — 파드 상태 탐지는 K8s API 직접 조회라 영향 없음 |
+| 멀티클러스터 메트릭 | Service EKS 메트릭도 Alloy→NLB→Thanos Receive로 모이므로 Thanos Query 한 곳에서 양쪽 조회 가능 (`cluster` 레이블로 구분) |
+| 이미지 레지스트리 | 계정 ID 하드코딩 제거 → `REPLACE_WITH_ECR_REGISTRY` 플레이스홀더 (terraform output으로 교체) |
+| 노드 배치 | 모니터링 노드 레이블 `role=monitoring` 확정. 단 single_az_mode에서는 nodeSelector 해제 비권장 (toleration만 유지) |
+| 배치 경로 | 팀 레포 기준 `mas/pods/Aiops/aiops-agent-v1/` 에 위치, Terraform은 루트 `aiops-agent.tf` |
