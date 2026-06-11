@@ -291,11 +291,12 @@
         force_basic_auth: true
         status_code: [200]
       no_log: true
+      ignore_errors: true
       register: gitea_auth_check
 
     - name: Show Gitea auth check result
       ansible.builtin.debug:
-        msg: "login={{ gitea_auth_check.json.login }} is_admin={{ gitea_auth_check.json.is_admin }} status={{ gitea_auth_check.status }}"
+        msg: "status={{ gitea_auth_check.status }} failed={{ gitea_auth_check.failed }} is_admin={{ gitea_auth_check.json.is_admin | default('N/A') }}"
 
     - name: Create platform repository under admin user in Gitea
       ansible.builtin.uri:
