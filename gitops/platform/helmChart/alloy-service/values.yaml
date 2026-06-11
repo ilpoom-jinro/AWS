@@ -170,9 +170,7 @@ alloy:
 
       otelcol.exporter.otlp "tempo" {
         client {
-          // TODO: Tempo internal NLB DNS로 교체하세요.
           endpoint = "tempo-internal-nlb.example.local:4317"
-
           tls {
             insecure = true
           }

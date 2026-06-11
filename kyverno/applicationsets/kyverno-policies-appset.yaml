@@ -53,3 +53,12 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
+      # Kyverno 가 ClusterPolicy 에 자동으로 추가하는 필드로 인한 false-positive OutOfSync 방지
+      # /status: Kyverno 컨트롤러가 정책 평가 결과를 기록
+      # autogen annotation: Pod 외 워크로드(Deployment 등)에 규칙을 자동 확장할 때 추가
+      ignoreDifferences:
+        - group: kyverno.io
+          kind: ClusterPolicy
+          jsonPointers:
+            - /status
+            - /metadata/annotations/autogen.kyverno.io~1pod-controllers

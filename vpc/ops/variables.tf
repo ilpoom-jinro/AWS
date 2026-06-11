@@ -55,7 +55,7 @@ variable "eks_enabled_cluster_log_types" {
 variable "eks_node_instance_types" {
   description = "Instance types for the internal ops EKS managed node group"
   type        = list(string)
-  default     = ["c7i-flex.large"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "eks_node_capacity_type" {
@@ -124,6 +124,12 @@ variable "rds_instance_class" {
   description = "RDS instance class "
   type        = string
   default     = "db.t3.micro"
+}
+
+variable "single_az_mode" {
+  description = "개발 단계 비용 절감용 단일 AZ 모드 - true: RDS Multi-AZ 비활성화, EKS 노드 1대로 축소, VPC Endpoint를 단일 AZ로 구성 / 운영 전환 시 false"
+  type        = bool
+  default     = false
 }
 
 variable "rds_multi_az" {

@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno-istio-generate
+  # Kyverno 기본 설치는 Kubernetes 표준 리소스 권한만 포함
+  # Istio CRD(AuthorizationPolicy)를 generate하려면 별도 권한 필요
+rules:
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kyverno-istio-generate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kyverno-istio-generate
+subjects:
+  # admission-controller: ClusterPolicy 생성 시 리소스 접근 권한 검증
+  - kind: ServiceAccount
+    name: kyverno-admission-controller
+    namespace: kyverno
+  # background-controller: generate 규칙의 실제 AuthorizationPolicy 생성 담당
+  - kind: ServiceAccount
+    name: kyverno-background-controller
+    namespace: kyverno

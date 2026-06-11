@@ -1,0 +1,113 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+
+        : "${AWS_REGION:?AWS_REGION is required}"
+        : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
+
+        OPS_CONTEXT="mas-status-${OPS_EKS_CLUSTER_NAME}"
+        FINOPS_NAMESPACE="${FINOPS_NAMESPACE:-finops-mas}"
+        TELEPORT_APP_NAMESPACE="${TELEPORT_APP_NAMESPACE:-teleport-apps}"
+        TELEPORT_APP_DEPLOYMENT="${TELEPORT_APP_DEPLOYMENT:-teleport-app-service}"
+
+        export OPS_CONTEXT
+        export FINOPS_NAMESPACE
+        export TELEPORT_APP_NAMESPACE
+        export TELEPORT_APP_DEPLOYMENT
+
+        section() {
+          printf '\n===== %s =====\n' "$1"
+        }
+
+        run_check() {
+          local title="$1"
+          shift
+          section "${title}"
+          "$@" || true
+        }
+
+        aws eks update-kubeconfig \
+          --region "${AWS_REGION}" \
+          --name "${OPS_EKS_CLUSTER_NAME}" \
+          --alias "${OPS_CONTEXT}"
+
+        if [ -n "${TELEPORT_APP_JOIN_TOKEN:-}" ]; then
+          section "Apply Teleport app join token"
+          kubectl --context "${OPS_CONTEXT}" create namespace "${TELEPORT_APP_NAMESPACE}" \
+            --dry-run=client -o yaml | kubectl --context "${OPS_CONTEXT}" apply -f -
+
+          kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" create secret generic teleport-app-service-join-token \
+            --from-literal=token="${TELEPORT_APP_JOIN_TOKEN}" \
+            --dry-run=client -o yaml | kubectl --context "${OPS_CONTEXT}" apply -f -
+
+          if kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" get deployment "${TELEPORT_APP_DEPLOYMENT}" >/dev/null 2>&1; then
+            kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" rollout restart deployment/"${TELEPORT_APP_DEPLOYMENT}"
+          else
+            echo "${TELEPORT_APP_DEPLOYMENT} deployment is not present yet"
+          fi
+        else
+          section "Apply Teleport app join token"
+          echo "TELEPORT_APP_JOIN_TOKEN is empty; skipping secret update"
+        fi
+
+        run_check "Argo CD MAS applications" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n argocd get applications.argoproj.io \
+              finops-mas teleport-app-service platform-applications -o wide
+          '
+
+        run_check "FinOps MAS resources" \
+          kubectl --context "${OPS_CONTEXT}" -n "${FINOPS_NAMESPACE}" get deploy,svc,pods -o wide
+
+        run_check "FinOps MAS images" \
+          kubectl --context "${OPS_CONTEXT}" -n "${FINOPS_NAMESPACE}" get deploy \
+            -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[*].image'
+
+        run_check "Teleport app-service resources" \
+          kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" get deploy,svc,pods,cm,secret -o wide
+
+        run_check "Teleport app-service config proxy server" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" get cm teleport-app-service-config \
+              -o jsonpath="{.data.teleport\\.yaml}" 2>/dev/null | grep "proxy_server" || true
+          '
+
+        run_check "Teleport app-service rollout" \
+          kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" rollout status deployment/"${TELEPORT_APP_DEPLOYMENT}" --timeout=180s
+
+        run_check "Teleport app-service describe pods" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" describe pod \
+              -l app.kubernetes.io/name=teleport-app-service
+          '
+
+        run_check "Teleport app-service logs" \
+          bash -c '
+            pods=$(kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" get pod \
+              -l app.kubernetes.io/name=teleport-app-service \
+              -o jsonpath="{.items[*].metadata.name}" 2>/dev/null || true)
+
+            if [ -z "$pods" ]; then
+              echo "No teleport-app-service pods found"
+              exit 0
+            fi
+
+            for pod in $pods; do
+              echo
+              echo "----- current logs: $pod -----"
+              kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" logs "$pod" --tail=200 || true
+              echo
+              echo "----- previous logs: $pod -----"
+              kubectl --context "${OPS_CONTEXT}" -n "${TELEPORT_APP_NAMESPACE}" logs "$pod" --previous --tail=200 || true
+            done
+          '
+
+        run_check "MAS and Teleport warning events" \
+          bash -c '
+            kubectl --context "${OPS_CONTEXT}" get events -A --field-selector type=Warning --sort-by=.lastTimestamp |
+              grep -E "finops-mas|teleport-apps|finops-ui|teleport-app-service" || true
+          '

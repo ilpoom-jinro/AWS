@@ -53,7 +53,7 @@ datasources:
         access: proxy
         url: http://observability-tempo.observability.svc.cluster.local:3200
         jsonData:
-            tracesToLogsV2:
-              datasourceUid: Loki
+          tracesToLogsV2:
+            datasourceUid: Loki
           serviceMap:
-              datasourceUid: Thanos
+            datasourceUid: Thanos

@@ -32,6 +32,10 @@ spec:
     metadata:
       # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
       name: "kyverno-install-{{.name}}"
+      annotations:
+        # ServerSideDiff: 클라이언트 diff 대신 서버 사이드 dry-run으로 실제 변경분만 비교
+        # IncludeMutationWebhook: Kyverno 웹훅이 리소스를 변경해도 OutOfSync로 오탐하지 않음
+        argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
     spec:
       project: default
 
@@ -64,3 +68,11 @@ spec:
             pod-security.kubernetes.io/enforce: baseline
             pod-security.kubernetes.io/audit: restricted
             pod-security.kubernetes.io/warn: restricted
+      # Kyverno Helm 차트가 Job 생성 시 selector/labels를 자동 주입하여
+      # Git 상태와 실제 클러스터 상태가 항상 달라 보이는 false-positive OutOfSync 방지
+      ignoreDifferences:
+        - group: batch
+          kind: Job
+          jsonPointers:
+            - /spec/selector
+            - /spec/template/metadata/labels

@@ -1,0 +1,15 @@
+name: teleport-app-service
+scenario: platform
+role: teleport-app-service
+image_repository: financial/mas/platform/teleport-app-service
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/platform/teleport-app-service/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/teleport-app-service/kustomization.yaml
+target_container: teleport-app-service-image
+service_account_name: teleport-app-service
+service_name: teleport-app-service
+namespace: teleport-apps
+target_cluster: financial-ops-eks
+container_port: "3022"
+service_port: "3022"

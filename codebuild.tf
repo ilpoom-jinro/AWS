@@ -103,6 +103,7 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
           "ec2:CreateNetworkInterface",
           "ec2:DeleteNetworkInterface",
           "ec2:DescribeDhcpOptions",
+          "ec2:DescribeInstances",
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
@@ -303,6 +304,12 @@ resource "aws_codebuild_project" "gitops_bootstrap" {
       name  = "DEMO_FRONTEND_IMAGE"
       value = "${local.demo_frontend_image_repository}:${var.demo_frontend_image_tag}"
     }
+
+    environment_variable {
+      name  = "TELEPORT_APP_JOIN_TOKEN"
+      value = random_password.teleport_app_join_token.result
+      type  = "PLAINTEXT"
+    }
   }
 
   source {
@@ -380,6 +387,76 @@ resource "aws_codebuild_project" "cluster_status" {
     aws_iam_role_policy.ansible_codebuild,
     aws_eks_access_policy_association.ansible_codebuild_ops_admin,
     aws_eks_access_policy_association.ansible_codebuild_service_admin
+  ]
+}
+
+resource "aws_codebuild_project" "mas_status" {
+  name          = var.mas_status_codebuild_project_name
+  description   = "Prints MAS UI and Teleport app-service status from inside the Ops VPC"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 10
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    }
+
+    environment_variable {
+      name  = "OPS_EKS_CLUSTER_NAME"
+      value = module.vpc2.eks_cluster_name
+    }
+
+    environment_variable {
+      name  = "FINOPS_NAMESPACE"
+      value = "finops-mas"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_NAMESPACE"
+      value = "teleport-apps"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_DEPLOYMENT"
+      value = "teleport-app-service"
+    }
+
+    environment_variable {
+      name  = "TELEPORT_APP_JOIN_TOKEN"
+      value = ""
+      type  = "PLAINTEXT"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-mas-status.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc2.vpc_id
+    subnets            = module.vpc2.private_subnet_ids
+    security_group_ids = [aws_security_group.ansible_codebuild.id, module.vpc2.eks_node_sg_id]
+  }
+
+  tags = {
+    Name      = var.mas_status_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_ops_admin
   ]
 }
 
