@@ -194,20 +194,6 @@
           --timeout={{ rollout_timeout }}
       changed_when: false
 
-    - name: Delete internal Git admin user for recreation
-      ansible.builtin.shell: |
-        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
-          exec deploy/{{ internal_git_release_name }} -- \
-          gitea admin user delete \
-            --username "{{ internal_git_admin_username }}" \
-            --config /etc/gitea/app.ini 2>&1 || true
-      changed_when: false
-      register: gitea_delete_result
-
-    - name: Show Gitea user delete result
-      ansible.builtin.debug:
-        msg: "rc={{ gitea_delete_result.rc }} stdout={{ gitea_delete_result.stdout }} stderr={{ gitea_delete_result.stderr }}"
-
     - name: Create internal Git admin user
       ansible.builtin.shell: |
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
@@ -218,20 +204,18 @@
             --email "{{ internal_git_admin_email }}" \
             --admin \
             --must-change-password=false \
-            --config /etc/gitea/app.ini
+            --config /etc/gitea/app.ini 2>&1
       changed_when: false
       no_log: true
       ignore_errors: true
       register: gitea_create_result
 
-    - name: Show Gitea user create result
-      ansible.builtin.debug:
-        msg: "rc={{ gitea_create_result.rc }} stdout={{ gitea_create_result.stdout }} stderr={{ gitea_create_result.stderr }}"
-
-    - name: Fail if Gitea user create failed
+    - name: Fail if Gitea user create failed for unexpected reason
       ansible.builtin.fail:
         msg: "gitea admin user create failed (rc={{ gitea_create_result.rc }})"
-      when: gitea_create_result.rc != 0
+      when:
+        - gitea_create_result.rc != 0
+        - "'already exists' not in gitea_create_result.stdout"
 
     - name: Sync internal Git admin password
       ansible.builtin.shell: |
