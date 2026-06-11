@@ -72,7 +72,7 @@ proxy_service:
   enabled: yes
   web_listen_addr: 0.0.0.0:3080
   tunnel_listen_addr: 0.0.0.0:3024
-  public_addr: $${TELEPORT_PRIVATE_IP}:3080
+  public_addr: teleport.127.0.0.1.nip.io:3080
   ssh_public_addr: $${TELEPORT_PRIVATE_IP}:3080
   tunnel_public_addr: $${TELEPORT_PRIVATE_IP}:3024
   kube_listen_addr: 0.0.0.0:3026
