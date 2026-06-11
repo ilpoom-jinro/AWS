@@ -3,16 +3,6 @@ name: PR 후 자동 Terraform Plan
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "**.tf"
-      - "**.tpl"
-      - ".terraform.lock.hcl"
-      - "ansible/**"
-      - "gitops/**"
-      - "buildspec-ansible.yml"
-      - "buildspec-gitops-bootstrap.yml"
-      - "tools/**"
-      - ".github/workflows/terraform-operations.yml"
 
 permissions:
   id-token: write
@@ -45,21 +35,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check for Terraform-related changes
+        id: changes
+        shell: bash
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          changed=$(git diff --name-only FETCH_HEAD HEAD)
+          echo "${changed}"
+          if echo "${changed}" | grep -qE '\.tf$|\.terraform\.lock\.hcl$|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$'; then
+            echo "tf=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tf=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Skip — no Terraform changes
+        if: steps.changes.outputs.tf == 'false'
+        run: echo "No Terraform-related files changed. Skipping plan."
+
       - name: Configure AWS credentials
+        if: steps.changes.outputs.tf == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup Terraform
+        if: steps.changes.outputs.tf == 'true'
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
+        if: steps.changes.outputs.tf == 'true'
         run: terraform init -reconfigure
 
       - name: Remove legacy CodeCommit state
+        if: steps.changes.outputs.tf == 'true'
         shell: bash
         run: |
           mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
@@ -68,12 +79,15 @@ jobs:
           fi
 
       - name: Terraform Format Check
+        if: steps.changes.outputs.tf == 'true'
         run: terraform fmt -check -recursive
 
       - name: Terraform Validate
+        if: steps.changes.outputs.tf == 'true'
         run: terraform validate -no-color
 
       - name: Terraform Plan
+        if: steps.changes.outputs.tf == 'true'
         id: plan
         shell: bash
         run: |
@@ -90,7 +104,7 @@ jobs:
           exit 0
 
       - name: Upload Terraform Plan
-        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
+        if: steps.changes.outputs.tf == 'true' && (steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2')
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.sha }}
