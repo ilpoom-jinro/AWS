@@ -207,6 +207,12 @@
             --must-change-password=false \
             --config /etc/gitea/app.ini \
           || true
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user change-password \
+            --username "{{ internal_git_admin_username }}" \
+            --password "{{ internal_git_admin_password }}" \
+            --config /etc/gitea/app.ini
       changed_when: false
       no_log: true
 
