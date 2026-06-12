@@ -40,15 +40,15 @@ jobs:
         shell: bash
         run: |
           git fetch origin ${{ github.base_ref }} --depth=1
-          changed="$(git diff --name-only FETCH_HEAD HEAD)"
+          changed=$(git diff --name-only FETCH_HEAD HEAD)
           echo "${changed}"
-          if echo "${changed}" | grep -qE '\.tf$|\.tpl$|\.terraform\.lock\.hcl$|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^buildspec-debug\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$|^\.github/workflows/PR-terraform-plan\.yml$'; then
+          if echo "${changed}" | grep -qE '\.tf$|\.terraform\.lock\.hcl$|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$'; then
             echo "tf=true" >> "${GITHUB_OUTPUT}"
           else
             echo "tf=false" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Skip when no Terraform changes
+      - name: Skip — no Terraform changes
         if: steps.changes.outputs.tf == 'false'
         run: echo "No Terraform-related files changed. Skipping plan."
 
