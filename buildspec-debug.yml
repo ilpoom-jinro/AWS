@@ -10,7 +10,7 @@ phases:
         : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
         : "${OPS_VPC_COMMAND:?OPS_VPC_COMMAND is required}"
 
-        OPS_CONTEXT="ops-command-${OPS_EKS_CLUSTER_NAME}"
+        OPS_CONTEXT="debug-${OPS_EKS_CLUSTER_NAME}"
         export OPS_CONTEXT
 
         section() {
