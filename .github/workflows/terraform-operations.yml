@@ -187,6 +187,7 @@ jobs:
           -target=aws_codebuild_project.ansible_bootstrap
           -target=aws_codebuild_project.gitops_bootstrap
           -target=aws_codebuild_project.cluster_status
+          -target=aws_codebuild_project.gitea_auth_debug
           -target=aws_codebuild_project.debug
           -target=aws_codebuild_project.service_cluster_status
           -target=aws_codebuild_project.manifest_updater
@@ -358,6 +359,7 @@ jobs:
           -target=aws_codebuild_project.ansible_bootstrap
           -target=aws_codebuild_project.gitops_bootstrap
           -target=aws_codebuild_project.cluster_status
+          -target=aws_codebuild_project.gitea_auth_debug
           -target=aws_codebuild_project.debug
           -target=aws_security_group.service_cluster_status_codebuild
           -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
@@ -503,6 +505,7 @@ jobs:
             -target=aws_iam_role_policy.ansible_codebuild \
             -target=aws_eks_access_entry.ansible_codebuild_ops \
             -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin \
+            -target=aws_codebuild_project.gitea_auth_debug \
             -target=aws_codebuild_project.debug \
             $TF_MOVED_RESOURCE_TARGETS
           exitcode=$?
