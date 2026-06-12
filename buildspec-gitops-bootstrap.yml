@@ -15,15 +15,15 @@ phases:
         if ! kubectl --context financial-ops-eks -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
           echo "Kyverno service is missing; removing stale Kyverno webhook configurations before GitOps sync."
 
-          kubectl --context financial-ops-eks get validatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
+          for webhook in $(kubectl --context financial-ops-eks get validatingwebhookconfigurations \
+            -o name 2>/dev/null | grep kyverno || true); do
+            kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
+          done
 
-          kubectl --context financial-ops-eks get mutatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
+          for webhook in $(kubectl --context financial-ops-eks get mutatingwebhookconfigurations \
+            -o name 2>/dev/null | grep kyverno || true); do
+            kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
+          done
         fi
       - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
