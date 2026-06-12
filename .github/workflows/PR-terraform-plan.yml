@@ -11,6 +11,8 @@ on:
       - "gitops/**"
       - "buildspec-ansible.yml"
       - "buildspec-gitops-bootstrap.yml"
+      - "buildspec-gitea-auth-debug.yml"
+      - "buildspec-ops-command.yml"
       - "tools/**"
       - ".github/workflows/terraform-operations.yml"
 
