@@ -234,10 +234,9 @@
       ansible.builtin.shell: |
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
-          gitea admin user edit \
-            --username "{{ internal_git_admin_username }}" \
-            --must-change-password=false \
-            --config /etc/gitea/app.ini 2>&1
+          gitea admin user must-change-password \
+            --config /etc/gitea/app.ini \
+            --unset "{{ internal_git_admin_username }}"
       changed_when: false
 
     - name: Start local port-forward to internal Git service
@@ -294,22 +293,6 @@
         msg: "Internal Git API did not respond through 127.0.0.1:{{ internal_git_local_http_port }}. Check the port-forward log above."
       when: internal_git_api_probe.failed | default(false)
 
-    - name: Check Gitea API authentication and admin status
-      ansible.builtin.uri:
-        url: "http://127.0.0.1:{{ internal_git_local_http_port }}/api/v1/user"
-        method: GET
-        user: "{{ internal_git_admin_username }}"
-        password: "{{ internal_git_admin_password }}"
-        force_basic_auth: true
-        status_code: [200]
-      no_log: true
-      ignore_errors: true
-      register: gitea_auth_check
-
-    - name: Show Gitea auth check result
-      ansible.builtin.debug:
-        msg: "status={{ gitea_auth_check.status }} failed={{ gitea_auth_check.failed }} is_admin={{ gitea_auth_check.json.is_admin | default('N/A') }}"
-
     - name: Create platform repository under admin user in Gitea
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ internal_git_local_http_port }}/api/v1/user/repos"
@@ -325,17 +308,6 @@
           default_branch: main
         status_code: [201, 409]
       no_log: true
-      ignore_errors: true
-      register: gitea_repo_result
-
-    - name: Show Gitea repo create result
-      ansible.builtin.debug:
-        msg: "status={{ gitea_repo_result.status }} msg={{ gitea_repo_result.msg | default('') }}"
-
-    - name: Fail if Gitea repo create failed
-      ansible.builtin.fail:
-        msg: "Gitea platform repo create failed (status={{ gitea_repo_result.status }})"
-      when: gitea_repo_result.status not in [201, 409]
 
     - name: Stop internal Git bootstrap port-forward
       ansible.builtin.shell: |
