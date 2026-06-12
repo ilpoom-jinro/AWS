@@ -117,8 +117,11 @@ jobs:
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
+            const hasTerraformChanges = '${{ steps.changes.outputs.tf }}' === 'true';
             const exitCode = '${{ steps.plan.outputs.exitcode }}';
-            const status = exitCode === '0'
+            const status = !hasTerraformChanges
+              ? 'Skipped - no Terraform changes'
+              : exitCode === '0'
               ? 'No changes'
               : exitCode === '2'
                 ? 'Changes pending'
