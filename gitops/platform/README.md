@@ -9,7 +9,7 @@ stored in ECR, while these YAML files should live in Git and be applied by Argo 
 
 | Cluster | VPC | Purpose |
 |---|---|---|
-| `financial-service-eks` | service/globalservice VPC | Frontend, backend, X-Ray Collector, and service VPC Alloy |
+| `financial-service-eks` | service/globalservice VPC | Frontend, backend, and service VPC Alloy |
 | `financial-ops-eks` | ops/internal VPC | Grafana, Loki, Thanos, Alertmanager, and ops VPC Alloy |
 
 ## Values Injected Automatically Into Internal Gitea

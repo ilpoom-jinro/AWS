@@ -54,3 +54,15 @@ packer/*.pkrvars.hcl
 # Python cache files
 __pycache__/
 *.pyc
+
+# Local SSM/port-forward parameter files (contain instance IDs)
+input.json
+params.json
+
+# Packer lock files
+packer/manifest.json.lock
+
+# Environment variable files
+.env
+.env.*
+!.env.example

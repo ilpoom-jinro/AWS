@@ -5,6 +5,27 @@ phases:
     commands:
       - cd /workspace/ansible
       - |
+        set -euo pipefail
+
+        aws eks update-kubeconfig \
+          --region ap-northeast-2 \
+          --name financial-ops-eks \
+          --alias financial-ops-eks
+
+        if ! kubectl --context financial-ops-eks -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
+          echo "Kyverno service is missing; removing stale Kyverno webhook configurations before GitOps sync."
+
+          kubectl --context financial-ops-eks get validatingwebhookconfigurations \
+            -o name | grep kyverno | while read -r webhook; do
+              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
+            done
+
+          kubectl --context financial-ops-eks get mutatingwebhookconfigurations \
+            -o name | grep kyverno | while read -r webhook; do
+              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
+            done
+        fi
+      - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
           aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true

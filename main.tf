@@ -22,6 +22,7 @@ module "vpc2" {
   source          = "./vpc/ops"
   rds_password    = random_password.ops_rds.result
   kms_key_rds_arn = aws_kms_key.key_rds_ops.arn # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
+  account_id      = data.aws_caller_identity.current.account_id
   single_az_mode  = var.single_az_mode
   depends_on      = [time_sleep.kms_rds_propagation] # KMS 전파 완료 후 VPC 모듈 실행
 }

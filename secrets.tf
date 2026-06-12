@@ -15,6 +15,13 @@ resource "random_password" "teleport_app_join_token" {
   special = false
 }
 
+# ── 내부 Git(Gitea) 관리자 비밀번호 ────────────────────────────────────────────
+
+resource "random_password" "internal_git_admin" {
+  length  = 24
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "service_rds_password" {
   name                    = "financial-service-rds-password"
   description             = "RDS master password for financial-service PostgreSQL"

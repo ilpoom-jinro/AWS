@@ -5,7 +5,6 @@ resources:
   - frontend/namespace.yaml
   - frontend/frontend.yaml
   - backend/backend.yaml
-  - xray/xray-collector.yaml
 
 images:
   - name: stock-api-image
@@ -13,7 +12,4 @@ images:
     newTag: latest
   - name: stock-web-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/demo-app-frontend
-    newTag: latest
-  - name: xray-collector-image
-    newName: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/xray-collector
     newTag: latest
