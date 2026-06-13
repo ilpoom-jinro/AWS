@@ -59,6 +59,7 @@ phases:
 
         # ── ECR 레지스트리 URL 구성 ──
         ECR_REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-northeast-2.amazonaws.com"
+        echo "Injecting ECR registry: ${ECR_REGISTRY}"
 
         # ── Kyverno 설치 매니페스트 렌더링 (이미지 내 차트 사용 — 외부 네트워크 불필요) ──
         helm template kyverno /opt/helm-charts/kyverno \
@@ -85,6 +86,8 @@ phases:
           --set "migration.image.tag=latest" \
           --set "migration.enabled=false" \
           --set "migrationJob.enabled=false" \
+          --set "cleanupJobs.admissionReports.image.registry=${ECR_REGISTRY}" \
+          --set "cleanupJobs.clusterAdmissionReports.image.registry=${ECR_REGISTRY}" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──

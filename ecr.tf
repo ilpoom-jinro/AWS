@@ -931,6 +931,44 @@ resource "aws_ecr_lifecycle_policy" "kyverno_cli" {
   })
 }
 
+resource "aws_ecr_repository" "kyverno_kubectl" {
+  name                 = "financial/kyverno/kubectl"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/kyverno/kubectl"
+    Purpose   = "kyverno-cleanup-jobs-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "kyverno_kubectl" {
+  repository = aws_ecr_repository.kyverno_kubectl.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Kyverno kubectl images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "demo_app_backend" {
   name                 = "financial/demo-app-backend"
   image_tag_mutability = "MUTABLE"
