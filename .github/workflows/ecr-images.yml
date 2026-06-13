@@ -187,6 +187,16 @@ jobs:
           -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller_monitoring
           -target=aws_ecr_repository.monitoring_tempo
           -target=aws_ecr_lifecycle_policy.monitoring_tempo
+          -target=aws_ecr_repository.monitoring_grafana
+          -target=aws_ecr_lifecycle_policy.monitoring_grafana
+          -target=aws_ecr_repository.monitoring_loki
+          -target=aws_ecr_lifecycle_policy.monitoring_loki
+          -target=aws_ecr_repository.monitoring_thanos
+          -target=aws_ecr_lifecycle_policy.monitoring_thanos
+          -target=aws_ecr_repository.monitoring_alertmanager
+          -target=aws_ecr_lifecycle_policy.monitoring_alertmanager
+          -target=aws_ecr_repository.monitoring_alloy
+          -target=aws_ecr_lifecycle_policy.monitoring_alloy
           -target=aws_ecr_repository.observability_indexer
           -target=aws_ecr_lifecycle_policy.observability_indexer
           -target=aws_ecr_repository.kyverno

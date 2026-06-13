@@ -188,6 +188,201 @@ resource "aws_ecr_lifecycle_policy" "monitoring_tempo" {
   })
 }
 
+resource "aws_ecr_repository" "monitoring_grafana" {
+  name                 = "financial/monitoring/grafana"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "grafana"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_grafana" {
+  repository = aws_ecr_repository.monitoring_grafana.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Grafana images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "monitoring_loki" {
+  name                 = "financial/monitoring/loki"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "loki"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_loki" {
+  repository = aws_ecr_repository.monitoring_loki.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Loki images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "monitoring_thanos" {
+  name                 = "financial/monitoring/thanos"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "thanos"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_thanos" {
+  repository = aws_ecr_repository.monitoring_thanos.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Thanos images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "monitoring_alertmanager" {
+  name                 = "financial/monitoring/alertmanager"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "alertmanager"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_alertmanager" {
+  repository = aws_ecr_repository.monitoring_alertmanager.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Alertmanager images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "monitoring_alloy" {
+  name                 = "financial/monitoring/alloy"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "alloy"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_alloy" {
+  repository = aws_ecr_repository.monitoring_alloy.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Alloy images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "istio_pilot" {
   name                 = "${var.istio_image_repository_prefix}/pilot"
   image_tag_mutability = "MUTABLE"
