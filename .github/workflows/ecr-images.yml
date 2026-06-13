@@ -70,7 +70,7 @@ env:
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/monitoring/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
-  KYVERNO_VERSION: "v3.3.4"  # Note: keep in sync with helm chart version in Packer AMI (/opt/helm-charts/kyverno)
+  KYVERNO_VERSION: "v1.13.2"  # Note: Helm chart 3.3.4 appVersion. Keep in sync with helm chart version in Packer AMI (/opt/helm-charts/kyverno)
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
