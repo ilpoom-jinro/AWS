@@ -4,13 +4,11 @@ on:
   push:
     branches:
       - main
-      - feature/eks
     paths:
       - "ansible/**"
       - "gitops/**"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
-      - "kyverno/**"
       - ".github/workflows/ecr-images.yml"
   workflow_dispatch:
     inputs:
@@ -72,7 +70,7 @@ env:
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/monitoring/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
-  KYVERNO_VERSION: "latest"
+  KYVERNO_VERSION: "v3.3.4"  # Note: keep in sync with helm chart version in Packer AMI (/opt/helm-charts/kyverno)
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
@@ -249,6 +247,8 @@ jobs:
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/background-controller"
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/cleanup-controller"
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/reports-controller"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/kyverno-cli"
+          aws ecr describe-repositories --repository-names "${KUBECTL_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -325,7 +325,9 @@ jobs:
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
+            docker tag "${source_image}" "${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
             docker push "${target_image}"
+            docker push "${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
           done
 
       - name: Mirror Kyverno kubectl image to ECR
