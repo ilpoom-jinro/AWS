@@ -50,14 +50,25 @@ reportsController:
 config:
   preserve: false
 
-# kyverno-clean-reports CronJob은 bitnami/kubectl 이미지를 사용합니다.
+# kubectl 이미지 (registry.k8s.io/kubectl)를 사용하는 3개 섹션.
 # registry는 buildspec-gitops-bootstrap.yml의 --set 플래그로 런타임에 주입됩니다.
+# tag는 KUBECTL_VERSION (.github/workflows/ecr-images.yml)과 동기화 필요.
 cleanupJobs:
   admissionReports:
     image:
       repository: financial/kyverno/kubectl
-      tag: "1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
+      tag: "v1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
   clusterAdmissionReports:
     image:
       repository: financial/kyverno/kubectl
-      tag: "1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
+      tag: "v1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
+
+webhooksCleanup:
+  image:
+    repository: financial/kyverno/kubectl
+    tag: "v1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
+
+policyReportsCleanup:
+  image:
+    repository: financial/kyverno/kubectl
+    tag: "v1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml

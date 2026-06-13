@@ -75,7 +75,7 @@ env:
   KYVERNO_VERSION: "latest"
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
-  KUBECTL_VERSION: "1.30.2"  # Note: keep in sync with cleanupJobs.*.image.tag in kyverno/helm/values.yaml
+  KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
 
 jobs:
@@ -335,7 +335,7 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          source_image="docker.io/bitnami/kubectl:${KUBECTL_VERSION}"
+          source_image="registry.k8s.io/kubectl:${KUBECTL_VERSION}"
           target_image="${REGISTRY}/${KUBECTL_REPOSITORY}:${KUBECTL_VERSION}"
 
           docker pull "${source_image}"
