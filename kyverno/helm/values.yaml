@@ -49,3 +49,15 @@ reportsController:
 # true(기본값)이면 Kyverno가 ConfigMap을 자체 관리하여 ArgoCD sync 시 충돌 발생
 config:
   preserve: false
+
+# kyverno-clean-reports CronJob은 bitnami/kubectl 이미지를 사용합니다.
+# registry는 buildspec-gitops-bootstrap.yml의 --set 플래그로 런타임에 주입됩니다.
+cleanupJobs:
+  admissionReports:
+    image:
+      repository: financial/kyverno/kubectl
+      tag: "1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml
+  clusterAdmissionReports:
+    image:
+      repository: financial/kyverno/kubectl
+      tag: "1.30.2"  # Note: keep in sync with KUBECTL_VERSION in .github/workflows/ecr-images.yml

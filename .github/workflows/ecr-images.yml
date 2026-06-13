@@ -75,6 +75,8 @@ env:
   KYVERNO_VERSION: "latest"
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
+  KUBECTL_VERSION: "1.30.2"  # Note: keep in sync with cleanupJobs.*.image.tag in kyverno/helm/values.yaml
+  KUBECTL_REPOSITORY: financial/kyverno/kubectl
 
 jobs:
   images:
@@ -97,6 +99,7 @@ jobs:
             echo "ecr=false" >> "${GITHUB_OUTPUT}"
             echo "istio=false" >> "${GITHUB_OUTPUT}"
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
+            echo "kubectl=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -136,6 +139,12 @@ jobs:
             echo "kyverno=true" >> "${GITHUB_OUTPUT}"
           else
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+KUBECTL_VERSION:'; then
+            echo "kubectl=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "kubectl=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -211,6 +220,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.kyverno_reports_controller
           -target=aws_ecr_repository.kyverno_cli
           -target=aws_ecr_lifecycle_policy.kyverno_cli
+          -target=aws_ecr_repository.kyverno_kubectl
+          -target=aws_ecr_lifecycle_policy.kyverno_kubectl
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -316,6 +327,20 @@ jobs:
             docker tag "${source_image}" "${target_image}"
             docker push "${target_image}"
           done
+
+      - name: Mirror Kyverno kubectl image to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.kubectl == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_kyverno == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          source_image="docker.io/bitnami/kubectl:${KUBECTL_VERSION}"
+          target_image="${REGISTRY}/${KUBECTL_REPOSITORY}:${KUBECTL_VERSION}"
+
+          docker pull "${source_image}"
+          docker tag "${source_image}" "${target_image}"
+          docker push "${target_image}"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true
