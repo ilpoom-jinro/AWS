@@ -5,9 +5,10 @@ resource "aws_subnet" "private_a" {
   map_public_ip_on_launch = false
 
   tags = {
-    Name                              = "financial-vpc2-private-a"
-    Type                              = "private"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                      = "financial-vpc2-private-a"
+    Type                                      = "private"
+    "kubernetes.io/role/internal-elb"         = "1"
+    "kubernetes.io/cluster/financial-ops-eks" = "owned"
   }
 }
 
@@ -18,9 +19,10 @@ resource "aws_subnet" "private_b" {
   map_public_ip_on_launch = false
 
   tags = {
-    Name                              = "financial-vpc2-private-b"
-    Type                              = "private"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                      = "financial-vpc2-private-b"
+    Type                                      = "private"
+    "kubernetes.io/role/internal-elb"         = "1"
+    "kubernetes.io/cluster/financial-ops-eks" = "owned"
   }
 }
 
@@ -60,8 +62,9 @@ resource "aws_subnet" "monitor_a" {
   map_public_ip_on_launch = false
 
   tags = {
-    Name                              = "financial-vpc2-monitor-a"
-    Type                              = "private"
-    "kubernetes.io/role/internal-elb" = "1"
+    Name                                      = "financial-vpc2-monitor-a"
+    Type                                      = "private"
+    "kubernetes.io/role/internal-elb"         = "1"
+    "kubernetes.io/cluster/financial-ops-eks" = "owned"
   }
 }

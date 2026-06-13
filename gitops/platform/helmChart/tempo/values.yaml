@@ -45,6 +45,7 @@ service:
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-security-groups: REPLACE_WITH_OPS_TEMPO_NLB_SG_ID
+    service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
   additionalPorts:
     - name: otlp-grpc
       port: 4317
