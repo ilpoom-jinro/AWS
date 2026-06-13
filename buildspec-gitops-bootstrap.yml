@@ -88,6 +88,8 @@ phases:
           --set "migrationJob.enabled=false" \
           --set "cleanupJobs.admissionReports.image.registry=${ECR_REGISTRY}" \
           --set "cleanupJobs.clusterAdmissionReports.image.registry=${ECR_REGISTRY}" \
+          --set "webhooksCleanup.image.registry=${ECR_REGISTRY}" \
+          --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
