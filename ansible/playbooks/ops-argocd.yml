@@ -120,7 +120,6 @@
           --query SecretString
           --output text
       register: argocd_passwords_raw
-      no_log: true
       changed_when: false
 
     # bcrypt 해시를 생성해 argocd-secret에 직접 패치.
