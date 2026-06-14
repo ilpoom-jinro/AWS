@@ -129,27 +129,24 @@
     - name: ArgoCD 계정 비밀번호 bcrypt 해시 생성 및 argocd-secret 패치
       ansible.builtin.shell: |
         python3 - <<'PY'
-        import json, subprocess, os, sys
+        import json, os
         import bcrypt
+        from kubernetes import client, config
 
         accounts = ["dahyeon", "bgshin", "junho", "sangjun", "junyounglee"]
         passwords = json.loads(os.environ["ARGOCD_PASSWORDS"])
 
-        patch = {"stringData": {}}
+        config.load_kube_config(context=os.environ["KUBE_CONTEXT"])
+        v1 = client.CoreV1Api()
+
+        string_data = {}
         for account in accounts:
             pw = passwords[account]
             hashed = bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
-            patch["stringData"][f"accounts.{account}.password"] = hashed
-            patch["stringData"][f"accounts.{account}.passwordMtime"] = "1970-01-01T00:00:00Z"
+            string_data[f"accounts.{account}.password"] = hashed
+            string_data[f"accounts.{account}.passwordMtime"] = "1970-01-01T00:00:00Z"
 
-        result = subprocess.run(
-            ["kubectl", "--context", os.environ["KUBE_CONTEXT"],
-             "-n", "argocd", "patch", "secret", "argocd-secret",
-             "--type=merge", "-p", json.dumps(patch)],
-            capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            sys.exit(result.stderr)
+        v1.patch_namespaced_secret("argocd-secret", "argocd", {"stringData": string_data})
         print("argocd-secret 비밀번호 패치 완료")
         PY
       environment:
