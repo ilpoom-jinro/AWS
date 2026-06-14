@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-rbac-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # 명시적 권한 없는 계정은 읽기 전용으로 fallback
+  policy.default: role:readonly
+
+  policy.csv: |
+    # ── devops ────────────────────────────────────────────────────────────────
+    # 애플리케이션 전체 관리 (모든 프로젝트)
+    p, role:devops, applications, get,      */*, allow
+    p, role:devops, applications, create,   */*, allow
+    p, role:devops, applications, update,   */*, allow
+    p, role:devops, applications, delete,   */*, allow
+    p, role:devops, applications, sync,     */*, allow
+    p, role:devops, applications, override, */*, allow
+
+    # 레포지토리 관리
+    p, role:devops, repositories, get,    *, allow
+    p, role:devops, repositories, create, *, allow
+    p, role:devops, repositories, update, *, allow
+    p, role:devops, repositories, delete, *, allow
+
+    # 로그 조회
+    p, role:devops, logs, get, */*, allow
+
+    # 클러스터 조회 전용 (등록·수정 불가)
+    p, role:devops, clusters, get, *, allow
+
+    # exec — 미부여 (암묵적 거부)
+    # accounts / gpgkeys / settings — 미부여 (RBAC 수정 불가)
+
+    # ── secops ────────────────────────────────────────────────────────────────
+    # 빌트인 role:admin 상속 → 전체 권한
+    g, role:secops, role:admin
+
+    # ── 사용자-역할 매핑 ───────────────────────────────────────────────────────
+    g, dahyeon,     role:secops
+    g, bgshin,      role:devops
+    g, junho,       role:devops
+    g, sangjun,     role:devops
+    g, junyounglee, role:devops

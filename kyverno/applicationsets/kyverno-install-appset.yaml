@@ -37,7 +37,7 @@ spec:
         # IncludeMutationWebhook: Kyverno 웹훅이 리소스를 변경해도 OutOfSync로 오탐하지 않음
         argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
     spec:
-      project: default
+      project: ops-infra-project
 
       source:
         # 내부 Gitea — 네트워크 격리 환경에서 접근 가능

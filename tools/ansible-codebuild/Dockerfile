@@ -21,6 +21,7 @@ RUN dnf install -y \
 
 RUN pip3 install --no-cache-dir \
       ansible \
+      bcrypt \
       boto3 \
       botocore \
       kubernetes \
