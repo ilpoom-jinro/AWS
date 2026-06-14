@@ -32,7 +32,7 @@ spec:
     metadata:
       name: "kyverno-policies-{{.name}}"
     spec:
-      project: default
+      project: ops-infra-project
 
       source:
         repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git

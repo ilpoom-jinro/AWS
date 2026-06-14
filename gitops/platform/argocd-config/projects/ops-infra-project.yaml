@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ops-infra-project
+  namespace: argocd
+spec:
+  description: 플랫폼 인프라 — 옵저버빌리티, 네트워킹, 정책 (ops + service 클러스터)
+  sourceRepos:
+    - http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+  destinations:
+    # Ops 클러스터 (in-cluster)
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: observability
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    - server: https://kubernetes.default.svc
+      namespace: istio-system
+    - server: https://kubernetes.default.svc
+      namespace: teleport-apps
+    - server: https://kubernetes.default.svc
+      namespace: kyverno
+    # Service 클러스터 (서버 URL이 동적이므로 등록 이름으로 참조)
+    - name: financial-service-eks
+      namespace: observability
+    - name: financial-service-eks
+      namespace: istio-system
+    - name: financial-service-eks
+      namespace: kyverno
+    # 모든 등록 클러스터 → kyverno 네임스페이스 (ApplicationSet cluster generator 와일드카드 대응)
+    - server: "*"
+      namespace: kyverno
+  clusterResourceWhitelist:
+    # applications/namespace-observability.yaml 등 raw Namespace 매니페스트를
+    # platform-applications App-of-Apps가 직접 배포하므로 필수
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    # kyverno ApplicationSet이 배포하는 ClusterPolicy는 클러스터 스코프 리소스
+    - group: kyverno.io
+      kind: ClusterPolicy
+  namespaceResourceWhitelist:
+    # 인프라 Helm 차트는 ServiceMonitor, PDB, MutatingWebhookConfiguration 등
+    # 다양한 extension 리소스를 배포하므로 네임스페이스 수준은 와일드카드 허용
+    - group: "*"
+      kind: "*"

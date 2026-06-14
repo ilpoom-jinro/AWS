@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: service-project
+  namespace: argocd
+spec:
+  description: 서비스 애플리케이션 — stock-demo (금융 컴플라이언스 배포 윈도우 적용)
+  sourceRepos:
+    - http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+  destinations:
+    # Service 클러스터 내 서비스
+    - name: financial-service-eks
+      namespace: stock-demo
+  # 서비스 프로젝트에서는 클러스터 스코프 리소스 배포 금지
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: ServiceAccount
+    - group: networking.k8s.io
+      kind: Ingress
+  syncWindows:
+    # 금융 컴플라이언스 요건: 평일 업무시간(KST 09:00–18:00)에만 자동 배포 허용
+    # KST = UTC+9이므로 UTC 00:00 시작, 9시간 윈도우
+    - kind: allow
+      schedule: "0 0 * * 1-5"
+      duration: 9h
+      applications:
+        - "*"
+      manualSync: true  # 윈도우 외 긴급 배포는 수동 Sync로 허용

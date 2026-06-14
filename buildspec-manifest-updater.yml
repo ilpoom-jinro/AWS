@@ -269,7 +269,7 @@ phases:
             "namespace": "argocd",
           },
           "spec": {
-            "project": "default",
+            "project": "mas-project",
             "source": {
               "repoURL": "http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git",
               "targetRevision": os.environ.get("GITOPS_BRANCH", "main"),
