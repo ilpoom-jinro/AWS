@@ -46,8 +46,9 @@
     # 구조:
     #   ClusterRole argocd-manager-cluster-reader  → 전체 read + Namespace CRUD
     #   ClusterRole argocd-manager-namespace-writer → 네임스페이스 리소스 CRUD
+    #   ClusterRole argocd-manager-cluster-writer  → CRD / ClusterRole / Webhook / IngressClass CRUD
     #   ClusterRole argocd-manager-kyverno-writer   → ClusterPolicy CRUD (클러스터 스코프)
-    #   ClusterRoleBinding × 2  → cluster-reader, kyverno-writer 전역 바인딩
+    #   ClusterRoleBinding × 3  → cluster-reader, cluster-writer, kyverno-writer 전역 바인딩
     #   RoleBinding × 4         → namespace-writer를 네임스페이스별로 바인딩
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,32 @@
               resources: [poddisruptionbudgets]
               verbs: [get, list, watch, create, update, patch, delete]
 
+    - name: ClusterRole 생성 — argocd-manager-cluster-writer
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: argocd-manager-cluster-writer
+          rules:
+            - apiGroups: [apiextensions.k8s.io]
+              resources: [customresourcedefinitions]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [rbac.authorization.k8s.io]
+              resources: [clusterroles, clusterrolebindings]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [admissionregistration.k8s.io]
+              resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [networking.k8s.io]
+              resources: [ingressclasses]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [elbv2.k8s.aws]
+              resources: [ingressclassparams]
+              verbs: [get, list, watch, create, update, patch, delete]
+
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
         context: "{{ service_kube_context }}"
@@ -140,6 +167,24 @@
             apiGroup: rbac.authorization.k8s.io
             kind: ClusterRole
             name: argocd-manager-cluster-reader
+          subjects:
+            - kind: ServiceAccount
+              name: argocd-manager
+              namespace: kube-system
+
+    - name: ClusterRoleBinding 생성 — argocd-manager-cluster-writer
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: argocd-manager-cluster-writer
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: argocd-manager-cluster-writer
           subjects:
             - kind: ServiceAccount
               name: argocd-manager
