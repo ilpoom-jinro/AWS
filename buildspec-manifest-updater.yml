@@ -115,6 +115,13 @@ phases:
           path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
           return True
 
+        def write_yaml_if_changed(path, doc):
+          content = yaml.safe_dump(doc, sort_keys=False)
+          if path.exists() and path.read_text(encoding="utf-8") == content:
+            return False
+          path.write_text(content, encoding="utf-8")
+          return True
+
         def load_kustomization():
           if not manifest_path.exists():
             return {
@@ -249,6 +256,38 @@ phases:
 
         applications_dir = Path("applications")
         applications_dir.mkdir(exist_ok=True)
+        mas_project_file = applications_dir / "mas-workloads-project.yaml"
+        mas_project_doc = {
+          "apiVersion": "argoproj.io/v1alpha1",
+          "kind": "AppProject",
+          "metadata": {
+            "name": "mas-workloads-project",
+            "namespace": "argocd",
+          },
+          "spec": {
+            "description": "MAS application workloads",
+            "sourceRepos": [
+              "http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git",
+            ],
+            "destinations": [{
+              "namespace": "*mas*",
+              "server": "https://kubernetes.default.svc",
+            }],
+            "clusterResourceWhitelist": [{
+              "group": "",
+              "kind": "Namespace",
+            }],
+            "namespaceResourceWhitelist": [
+              {"group": "apps", "kind": "Deployment"},
+              {"group": "", "kind": "Service"},
+              {"group": "", "kind": "ConfigMap"},
+              {"group": "", "kind": "Secret"},
+              {"group": "", "kind": "ServiceAccount"},
+            ],
+          },
+        }
+        changed |= write_yaml_if_changed(mas_project_file, mas_project_doc)
+
         application_file = applications_dir / f"{argocd_application_name}.yaml"
         if target_cluster == "financial-ops-eks":
           destination = {
@@ -269,7 +308,7 @@ phases:
             "namespace": "argocd",
           },
           "spec": {
-            "project": "mas-project",
+            "project": "mas-workloads-project",
             "source": {
               "repoURL": "http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git",
               "targetRevision": os.environ.get("GITOPS_BRANCH", "main"),

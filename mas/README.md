@@ -273,3 +273,18 @@ After a destroy/apply, `financial-gitops-bootstrap` syncs these manifests into
 the internal GitOps repository. Terraform generates the Teleport app join token,
 VPC3 Teleport accepts that token, and the GitOps bootstrap creates the matching
 Kubernetes Secret in `teleport-apps`.
+
+Operators access Teleport through local port forwarding, so their workstation
+hosts file must map the fixed Teleport app domains to localhost:
+
+```text
+127.0.0.1 teleport.local
+127.0.0.1 finops-ui.teleport.local
+127.0.0.1 argocd-ui.teleport.local
+```
+
+Open the proxy with:
+
+```text
+https://teleport.local:3080
+```
