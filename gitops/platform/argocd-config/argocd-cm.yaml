@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  # 빌트인 admin 계정 비활성화 — 모든 접근은 로컬 명명 계정으로만 허용
+  admin.enabled: "false"
+
+  # 로컬 계정 정의
+  # 비밀번호는 AWS Secrets Manager(argocd/local-account-passwords)에서
+  # ops-argocd.yml Ansible 태스크가 읽어 argocd-secret에 bcrypt 해시로 패치함
+  accounts.dahyeon:    apiKey, login
+  accounts.bgshin:     apiKey, login
+  accounts.junho:      apiKey, login
+  accounts.sangjun:    apiKey, login
+  accounts.junyounglee: apiKey, login

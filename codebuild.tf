@@ -131,6 +131,14 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
             "ec2:AuthorizedService" = "codebuild.amazonaws.com"
           }
         }
+      },
+      {
+        Sid    = "SecretsManagerArgocd"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = aws_secretsmanager_secret.argocd_local_account_passwords.arn
       }
     ]
   })

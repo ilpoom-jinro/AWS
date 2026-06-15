@@ -148,6 +148,8 @@
                         value: sqlite3
                       - name: GITEA__security__INSTALL_LOCK
                         value: "true"
+                      - name: GITEA__api__ENABLE_BASIC_AUTHENTICATION
+                        value: "true"
                     volumeMounts:
                       - name: gitea-data
                         mountPath: /var/lib/gitea
@@ -194,9 +196,8 @@
           --timeout={{ rollout_timeout }}
       changed_when: false
 
-    - name: Ensure internal Git admin user exists
+    - name: Create internal Git admin user
       ansible.builtin.shell: |
-        set -e
         kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
           exec deploy/{{ internal_git_release_name }} -- \
           gitea admin user create \
@@ -205,10 +206,38 @@
             --email "{{ internal_git_admin_email }}" \
             --admin \
             --must-change-password=false \
-            --config /etc/gitea/app.ini \
-          || true
+            --config /etc/gitea/app.ini 2>&1
       changed_when: false
       no_log: true
+      ignore_errors: true
+      register: gitea_create_result
+
+    - name: Fail if Gitea user create failed for unexpected reason
+      ansible.builtin.fail:
+        msg: "gitea admin user create failed (rc={{ gitea_create_result.rc }})"
+      when:
+        - gitea_create_result.rc != 0
+        - "'already exists' not in gitea_create_result.stdout"
+
+    - name: Sync internal Git admin password
+      ansible.builtin.shell: |
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user change-password \
+            --username "{{ internal_git_admin_username }}" \
+            --password "{{ internal_git_admin_password }}" \
+            --config /etc/gitea/app.ini
+      changed_when: false
+      no_log: true
+
+    - name: Clear must-change-password flag on Gitea admin user
+      ansible.builtin.shell: |
+        kubectl --context {{ ops_kube_context }} -n {{ internal_git_namespace }} \
+          exec deploy/{{ internal_git_release_name }} -- \
+          gitea admin user must-change-password \
+            --config /etc/gitea/app.ini \
+            --unset "{{ internal_git_admin_username }}"
+      changed_when: false
 
     - name: Start local port-forward to internal Git service
       ansible.builtin.shell: |
