@@ -120,6 +120,7 @@
           --query SecretString
           --output text
       register: argocd_passwords_raw
+      no_log: true
       changed_when: false
 
     # bcrypt 해시를 생성해 argocd-secret에 직접 패치.
@@ -181,4 +182,5 @@
             # project: default 를 두면 default 잠금 후 모든 프로젝트가 레포 접근 불가.
             username: "{{ internal_git_admin_username }}"
             password: "{{ internal_git_admin_password }}"
+      no_log: true
       when: gitops_repo_url | length > 0
