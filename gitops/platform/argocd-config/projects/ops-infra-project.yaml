@@ -45,6 +45,14 @@ spec:
     # kyverno ApplicationSet이 배포하는 ClusterPolicy는 클러스터 스코프 리소스
     - group: kyverno.io
       kind: ClusterPolicy
+    # admission webhook — kyverno, istio, aws-load-balancer-controller 공통
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    # aws-load-balancer-controller 가 생성하는 alb IngressClass
+    - group: networking.k8s.io
+      kind: IngressClass
   namespaceResourceWhitelist:
     # 인프라 Helm 차트는 ServiceMonitor, PDB, MutatingWebhookConfiguration 등
     # 다양한 extension 리소스를 배포하므로 네임스페이스 수준은 와일드카드 허용
