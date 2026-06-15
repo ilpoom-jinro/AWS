@@ -112,6 +112,14 @@
             - apiGroups: [policy]
               resources: [poddisruptionbudgets]
               verbs: [get, list, watch, create, update, patch, delete]
+            # Istio CRD 리소스 (istio-system RoleBinding에서 사용)
+            - apiGroups: ["security.istio.io", "telemetry.istio.io"]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
+            # 네임스페이스 스코프 RBAC (kyverno RoleBinding에서 사용 — Helm 차트가 생성)
+            - apiGroups: [rbac.authorization.k8s.io]
+              resources: [roles, rolebindings]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-cluster-writer
       kubernetes.core.k8s:
