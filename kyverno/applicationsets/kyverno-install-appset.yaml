@@ -43,7 +43,8 @@ spec:
         # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
         repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
         targetRevision: main
-        # helm template --include-crds 로 렌더링된 Kyverno 전체 매니페스트
+        # buildspec-gitops-bootstrap에서 CRD 제외 후 렌더링된 Kyverno 매니페스트
+        # CRD는 buildspec에서 양 클러스터에 직접 kubectl apply로 관리
         path: kyverno/install
 
       destination:
@@ -68,11 +69,19 @@ spec:
             pod-security.kubernetes.io/enforce: baseline
             pod-security.kubernetes.io/audit: restricted
             pod-security.kubernetes.io/warn: restricted
-      # Kyverno Helm 차트가 Job 생성 시 selector/labels를 자동 주입하여
-      # Git 상태와 실제 클러스터 상태가 항상 달라 보이는 false-positive OutOfSync 방지
       ignoreDifferences:
+        # Kyverno Helm 차트가 Job 생성 시 selector/labels를 자동 주입
         - group: batch
           kind: Job
           jsonPointers:
             - /spec/selector
             - /spec/template/metadata/labels
+        # Kyverno cert-manager가 caBundle을 동적으로 갱신 — SSA field 충돌 방지
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jsonPointers:
+            - /webhooks/*/clientConfig/caBundle
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jsonPointers:
+            - /webhooks/*/clientConfig/caBundle
