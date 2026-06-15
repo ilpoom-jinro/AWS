@@ -12,19 +12,26 @@ phases:
           --name financial-ops-eks \
           --alias financial-ops-eks
 
-        if ! kubectl --context financial-ops-eks -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
-          echo "Kyverno service is missing; removing stale Kyverno webhook configurations before GitOps sync."
+        aws eks update-kubeconfig \
+          --region ap-northeast-2 \
+          --name financial-service-eks \
+          --alias financial-service-eks
 
-          kubectl --context financial-ops-eks get validatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
+        for CONTEXT in financial-ops-eks financial-service-eks; do
+          if ! kubectl --context "${CONTEXT}" -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
+            echo "Kyverno service is missing on ${CONTEXT}; removing stale webhook configurations."
 
-          kubectl --context financial-ops-eks get mutatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
-        fi
+            kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
+              -o name | grep kyverno | while read -r webhook; do
+                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+              done
+
+            kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
+              -o name | grep kyverno | while read -r webhook; do
+                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+              done
+          fi
+        done
       - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
@@ -61,7 +68,7 @@ phases:
         ECR_REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-northeast-2.amazonaws.com"
         echo "Injecting ECR registry: ${ECR_REGISTRY}"
 
-        # ── Kyverno 설치 매니페스트 렌더링 (이미지 내 차트 사용 — 외부 네트워크 불필요) ──
+        # ── Kyverno 전체 매니페스트 렌더링 (CRD 포함) ──
         helm template kyverno /opt/helm-charts/kyverno \
           --namespace kyverno \
           --include-crds \
@@ -90,7 +97,29 @@ phases:
           --set "cleanupJobs.clusterAdmissionReports.image.registry=${ECR_REGISTRY}" \
           --set "webhooksCleanup.image.registry=${ECR_REGISTRY}" \
           --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}" \
-          > /tmp/kyverno-install.yaml
+          > /tmp/kyverno-all.yaml
+
+        # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
+        python3 - <<'PY' > /tmp/kyverno-crds.yaml
+import sys, yaml
+with open("/tmp/kyverno-all.yaml") as f:
+    for doc in yaml.safe_load_all(f):
+        if doc and doc.get("kind") == "CustomResourceDefinition":
+            print("---")
+            sys.stdout.write(yaml.dump(doc, default_flow_style=False))
+PY
+        kubectl --context financial-ops-eks apply --server-side -f /tmp/kyverno-crds.yaml
+        kubectl --context financial-service-eks apply --server-side -f /tmp/kyverno-crds.yaml
+
+        # ── Gitea용 매니페스트 — CRD 제외 ──
+        python3 - <<'PY' > /tmp/kyverno-install.yaml
+import sys, yaml
+with open("/tmp/kyverno-all.yaml") as f:
+    for doc in yaml.safe_load_all(f):
+        if doc and doc.get("kind") != "CustomResourceDefinition":
+            print("---")
+            sys.stdout.write(yaml.dump(doc, default_flow_style=False))
+PY
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
         rm -rf /tmp/kyverno-gitops
