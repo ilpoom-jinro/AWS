@@ -146,6 +146,12 @@
             - apiGroups: [elbv2.k8s.aws]
               resources: [ingressclassparams]
               verbs: [get, list, watch, create, update, patch, delete]
+            # Argo CD creates a ClusterRole that grants Kyverno permission to
+            # generate Istio AuthorizationPolicy resources. Kubernetes requires
+            # the caller to already hold the permissions it grants.
+            - apiGroups: [security.istio.io]
+              resources: [authorizationpolicies]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
