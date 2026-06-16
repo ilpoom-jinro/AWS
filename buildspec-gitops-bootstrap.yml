@@ -33,6 +33,20 @@ phases:
           fi
         done
       - |
+        set -euo pipefail
+
+        aws eks update-kubeconfig \
+          --region ap-northeast-2 \
+          --name financial-ops-eks \
+          --alias financial-ops-eks
+
+        # ── AWS Load Balancer Controller CRDs — ArgoCD CRD exclusion으로 sync 제외됨.
+        # ansible-playbook이 app-of-apps를 등록하면 ArgoCD가 즉시 sync를 시작하므로
+        # IngressClassParams apply 전에 CRD가 반드시 먼저 설치되어야 함. ──
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/aws-load-balancer-controller/crds/crds.yaml \
+          -f /workspace/gitops/platform/helmChart/charts/aws-load-balancer-controller/crds/gateway-crds.yaml
+      - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
           aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true
