@@ -97,6 +97,12 @@ phases:
           --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}"
         )
 
+        # ── kyverno 네임스페이스 사전 생성 (없으면 namespace-scoped 리소스 apply 실패) ──
+        kubectl --context financial-ops-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-ops-eks apply -f -
+        kubectl --context financial-service-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-service-eks apply -f -
+
         # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
           | kubectl --context financial-ops-eks apply --server-side -f -
