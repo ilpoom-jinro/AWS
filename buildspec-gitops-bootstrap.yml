@@ -21,15 +21,15 @@ phases:
           if ! kubectl --context "${CONTEXT}" -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
             echo "Kyverno service is missing on ${CONTEXT}; removing stale webhook configurations."
 
-            kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
-                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
-              done
+            for webhook in $(kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
+              -o name 2>/dev/null | grep kyverno || true); do
+              kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+            done
 
-            kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
-                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
-              done
+            for webhook in $(kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
+              -o name 2>/dev/null | grep kyverno || true); do
+              kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+            done
           fi
         done
       - |
@@ -96,6 +96,12 @@ phases:
           --set "webhooksCleanup.image.registry=${ECR_REGISTRY}"
           --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}"
         )
+
+        # ── kyverno 네임스페이스 사전 생성 (없으면 namespace-scoped 리소스 apply 실패) ──
+        kubectl --context financial-ops-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-ops-eks apply -f -
+        kubectl --context financial-service-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-service-eks apply -f -
 
         # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
