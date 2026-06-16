@@ -146,6 +146,12 @@
             - apiGroups: [elbv2.k8s.aws]
               resources: [ingressclassparams]
               verbs: [get, list, watch, create, update, patch, delete]
+            # Kyverno가 kyverno-istio-generate ClusterRole을 생성할 때 privilege escalation 방지:
+            # argocd-manager가 security.istio.io 권한 없이 해당 권한을 부여하는 ClusterRole을
+            # 생성하려 하면 Kubernetes가 차단함.
+            - apiGroups: ["security.istio.io", "telemetry.istio.io"]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
