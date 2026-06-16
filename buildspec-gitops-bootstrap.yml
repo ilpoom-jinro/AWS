@@ -12,19 +12,26 @@ phases:
           --name financial-ops-eks \
           --alias financial-ops-eks
 
-        if ! kubectl --context financial-ops-eks -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
-          echo "Kyverno service is missing; removing stale Kyverno webhook configurations before GitOps sync."
+        aws eks update-kubeconfig \
+          --region ap-northeast-2 \
+          --name financial-service-eks \
+          --alias financial-service-eks
 
-          kubectl --context financial-ops-eks get validatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
+        for CONTEXT in financial-ops-eks financial-service-eks; do
+          if ! kubectl --context "${CONTEXT}" -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
+            echo "Kyverno service is missing on ${CONTEXT}; removing stale webhook configurations."
 
-          kubectl --context financial-ops-eks get mutatingwebhookconfigurations \
-            -o name | grep kyverno | while read -r webhook; do
-              kubectl --context financial-ops-eks delete "${webhook}" --ignore-not-found
-            done
-        fi
+            kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
+              -o name | grep kyverno | while read -r webhook; do
+                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+              done
+
+            kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
+              -o name | grep kyverno | while read -r webhook; do
+                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+              done
+          fi
+        done
       - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
@@ -59,33 +66,45 @@ phases:
 
         # ── ECR 레지스트리 URL 구성 ──
         ECR_REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-northeast-2.amazonaws.com"
+        echo "Injecting ECR registry: ${ECR_REGISTRY}"
 
-        # ── Kyverno 설치 매니페스트 렌더링 (이미지 내 차트 사용 — 외부 네트워크 불필요) ──
-        helm template kyverno /opt/helm-charts/kyverno \
-          --namespace kyverno \
-          --include-crds \
-          -f /workspace/kyverno/helm/values.yaml \
-          --set "admissionController.initContainer.image.registry=${ECR_REGISTRY}" \
-          --set "admissionController.initContainer.image.repository=financial/kyverno/kyvernopre" \
-          --set "admissionController.initContainer.image.tag=latest" \
-          --set "admissionController.container.image.registry=${ECR_REGISTRY}" \
-          --set "admissionController.container.image.repository=financial/kyverno/kyverno" \
-          --set "admissionController.container.image.tag=latest" \
-          --set "backgroundController.image.registry=${ECR_REGISTRY}" \
-          --set "backgroundController.image.repository=financial/kyverno/background-controller" \
-          --set "backgroundController.image.tag=latest" \
-          --set "cleanupController.image.registry=${ECR_REGISTRY}" \
-          --set "cleanupController.image.repository=financial/kyverno/cleanup-controller" \
-          --set "cleanupController.image.tag=latest" \
-          --set "reportsController.image.registry=${ECR_REGISTRY}" \
-          --set "reportsController.image.repository=financial/kyverno/reports-controller" \
-          --set "reportsController.image.tag=latest" \
-          --set "migration.image.registry=${ECR_REGISTRY}" \
-          --set "migration.image.repository=financial/kyverno/kyverno-cli" \
-          --set "migration.image.tag=latest" \
-          --set "migration.enabled=false" \
-          --set "migrationJob.enabled=false" \
-          | python3 -c "import sys, yaml; docs = [d for d in yaml.safe_load_all(sys.stdin) if d is not None and not (d.get('kind') == 'Job' and 'migrate-resources' in d.get('metadata', {}).get('name', ''))]; print('---\n'.join(yaml.dump(d) for d in docs))" \
+        HELM_FLAGS=(
+          --namespace kyverno
+          -f /workspace/kyverno/helm/values.yaml
+          --set "admissionController.initContainer.image.registry=${ECR_REGISTRY}"
+          --set "admissionController.initContainer.image.repository=financial/kyverno/kyvernopre"
+          --set "admissionController.initContainer.image.tag=latest"
+          --set "admissionController.container.image.registry=${ECR_REGISTRY}"
+          --set "admissionController.container.image.repository=financial/kyverno/kyverno"
+          --set "admissionController.container.image.tag=latest"
+          --set "backgroundController.image.registry=${ECR_REGISTRY}"
+          --set "backgroundController.image.repository=financial/kyverno/background-controller"
+          --set "backgroundController.image.tag=latest"
+          --set "cleanupController.image.registry=${ECR_REGISTRY}"
+          --set "cleanupController.image.repository=financial/kyverno/cleanup-controller"
+          --set "cleanupController.image.tag=latest"
+          --set "reportsController.image.registry=${ECR_REGISTRY}"
+          --set "reportsController.image.repository=financial/kyverno/reports-controller"
+          --set "reportsController.image.tag=latest"
+          --set "migration.image.registry=${ECR_REGISTRY}"
+          --set "migration.image.repository=financial/kyverno/kyverno-cli"
+          --set "migration.image.tag=latest"
+          --set "migration.enabled=false"
+          --set "migrationJob.enabled=false"
+          --set "cleanupJobs.admissionReports.image.registry=${ECR_REGISTRY}"
+          --set "cleanupJobs.clusterAdmissionReports.image.registry=${ECR_REGISTRY}"
+          --set "webhooksCleanup.image.registry=${ECR_REGISTRY}"
+          --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}"
+        )
+
+        # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
+        helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | kubectl --context financial-ops-eks apply --server-side -f -
+        helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | kubectl --context financial-service-eks apply --server-side -f -
+
+        # ── Gitea용 매니페스트 — CRD 제외 (ArgoCD가 관리하는 non-CRD 리소스만) ──
+        helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──

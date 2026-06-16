@@ -51,7 +51,7 @@ else
   TELEPORT_PRIVATE_IP="$(hostname -I | awk '{print $1}')"
 fi
 echo "Teleport private IP: $TELEPORT_PRIVATE_IP"
-TELEPORT_PUBLIC_ADDR="teleport.$${TELEPORT_PRIVATE_IP}.nip.io"
+TELEPORT_PUBLIC_ADDR="teleport.local"
 echo "Teleport public addr: $TELEPORT_PUBLIC_ADDR:3080"
 echo "kubeconfig 생성 완료"
 

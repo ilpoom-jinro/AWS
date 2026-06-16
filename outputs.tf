@@ -53,14 +53,9 @@ output "cluster_status_codebuild_project_name" {
   value       = aws_codebuild_project.cluster_status.name
 }
 
-output "gitea_auth_debug_codebuild_project_name" {
-  description = "CodeBuild project that debugs internal Gitea API authentication from inside the Ops VPC"
-  value       = aws_codebuild_project.gitea_auth_debug.name
-}
-
-output "ops_command_codebuild_project_name" {
-  description = "CodeBuild project that runs temporary commands from inside the Ops VPC"
-  value       = aws_codebuild_project.ops_command.name
+output "debug_codebuild_project_name" {
+  description = "CodeBuild project that runs debug commands from inside the Ops VPC"
+  value       = aws_codebuild_project.debug.name
 }
 
 output "mas_status_codebuild_project_name" {

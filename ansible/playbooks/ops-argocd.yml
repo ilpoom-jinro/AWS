@@ -73,6 +73,96 @@
         msg: "Argo CD Helm install failed. Check pod state and events above."
       when: argocd_helm_result.failed | default(false)
 
+    # App-of-Apps 부트스트랩 전에 AppProject를 먼저 적용해야 함.
+    # Application들이 project: ops-infra-project 등을 참조하는데,
+    # 프로젝트가 없으면 ArgoCD가 Application 생성을 거부함.
+    # default-project.yaml은 의도적으로 제외 — 모든 앱이 새 프로젝트로
+    # 전환 완료 확인 후 별도 수동 적용할 것.
+    - name: "ArgoCD AppProject 적용 — {{ item | basename }}"
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        src: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../../gitops/platform/argocd-config/projects/ops-infra-project.yaml"
+        - "{{ playbook_dir }}/../../gitops/platform/argocd-config/projects/service-project.yaml"
+        - "{{ playbook_dir }}/../../gitops/platform/argocd-config/projects/mas-project.yaml"
+
+    # argocd-cm을 GitOps 이전에 직접 적용: 계정 정의가 없으면 비밀번호 패치 불가.
+    # 이후 argocd-config Application(GitOps)이 동일 파일을 selfHeal로 관리.
+    - name: argocd-cm ConfigMap 적용 (로컬 계정 정의)
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        src: "{{ playbook_dir }}/../../gitops/platform/argocd-config/argocd-cm.yaml"
+
+    - name: argocd-rbac-cm ConfigMap 적용 (RBAC 정책)
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: present
+        src: "{{ playbook_dir }}/../../gitops/platform/argocd-config/argocd-rbac-cm.yaml"
+
+    # AWS Secrets Manager 시크릿 구조 (JSON):
+    # {
+    #   "dahyeon":     "...",
+    #   "bgshin":      "...",
+    #   "junho":       "...",
+    #   "sangjun":     "...",
+    #   "junyounglee": "..."
+    # }
+    # 시크릿 이름: argocd/local-account-passwords
+    - name: AWS Secrets Manager에서 ArgoCD 계정 비밀번호 조회
+      ansible.builtin.command:
+        cmd: >
+          aws secretsmanager get-secret-value
+          --region {{ aws_region }}
+          --secret-id argocd/local-account-passwords
+          --query SecretString
+          --output text
+      register: argocd_passwords_raw
+      no_log: true
+      changed_when: false
+
+    # bcrypt 해시를 생성해 argocd-secret에 직접 패치.
+    # 비밀번호는 환경변수로 전달 — Jinja2 템플릿을 거치지 않아 특수문자 안전.
+    # 전제: CodeBuild 이미지에 python3-bcrypt(pip install bcrypt) 설치 필요.
+    - name: ArgoCD 계정 비밀번호 bcrypt 해시 생성 및 argocd-secret 패치
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import json, os, subprocess
+        import bcrypt
+        from kubernetes import client, config
+
+        accounts = ["dahyeon", "bgshin", "junho", "sangjun", "junyounglee"]
+
+        r = subprocess.run(
+            ["aws", "secretsmanager", "get-secret-value",
+             "--region", os.environ["AWS_REGION"],
+             "--secret-id", "argocd/local-account-passwords",
+             "--query", "SecretString", "--output", "text"],
+            capture_output=True, text=True, check=True
+        )
+        passwords = json.loads(r.stdout.strip())
+
+        config.load_kube_config(context=os.environ["KUBE_CONTEXT"])
+        v1 = client.CoreV1Api()
+
+        string_data = {}
+        for account in accounts:
+            pw = passwords[account]
+            hashed = bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+            string_data[f"accounts.{account}.password"] = hashed
+            string_data[f"accounts.{account}.passwordMtime"] = "1970-01-01T00:00:00Z"
+
+        v1.patch_namespaced_secret("argocd-secret", "argocd", {"stringData": string_data})
+        print("argocd-secret 비밀번호 패치 완료")
+        PY
+      environment:
+        KUBE_CONTEXT: "{{ ops_kube_context }}"
+        AWS_REGION: "{{ aws_region }}"
+      no_log: true
+      changed_when: true
+
     - name: Create internal Git repository secret when repo URL is provided
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
@@ -88,7 +178,9 @@
           stringData:
             type: git
             url: "{{ gitops_repo_url }}"
-            project: default
+            # project 필드 제거 — 스코프 없이 모든 AppProject에서 접근 가능하게 함.
+            # project: default 를 두면 default 잠금 후 모든 프로젝트가 레포 접근 불가.
             username: "{{ internal_git_admin_username }}"
             password: "{{ internal_git_admin_password }}"
+      no_log: true
       when: gitops_repo_url | length > 0

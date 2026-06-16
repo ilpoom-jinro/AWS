@@ -1,0 +1,14 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  description: |
+    잠금 — 모든 Application은 명시적 프로젝트를 사용해야 함.
+    모든 Application이 새 프로젝트로 이전 완료된 후 이 파일을 적용할 것.
+  # 소스 레포, 배포 대상, 리소스 모두 차단
+  sourceRepos: []
+  destinations: []
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist: []

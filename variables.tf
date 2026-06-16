@@ -115,20 +115,14 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
-variable "gitea_auth_debug_codebuild_project_name" {
-  description = "CodeBuild project name for debugging internal Gitea API authentication from inside the Ops VPC"
+variable "debug_codebuild_project_name" {
+  description = "CodeBuild project name for running debug commands from inside the Ops VPC"
   type        = string
-  default     = "financial-gitea-auth-debug"
-}
-
-variable "ops_command_codebuild_project_name" {
-  description = "CodeBuild project name for running temporary commands from inside the Ops VPC"
-  type        = string
-  default     = "financial-ops-command"
+  default     = "financial-debug"
 }
 
 variable "ops_vpc_command" {
-  description = "Temporary shell command executed by the Ops VPC command CodeBuild project"
+  description = "Temporary shell command executed by the Gitea auth debug CodeBuild project"
   type        = string
   default     = "kubectl --context $${OPS_CONTEXT} -n git get deploy,svc,pods -o wide"
 }

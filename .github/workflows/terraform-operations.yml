@@ -13,7 +13,7 @@ on:
           reapply   = run plain terraform apply for changed infrastructure
           codebuild = run Ansible platform CodeBuild only
           gitops    = run GitOps repository bootstrap CodeBuild only
-          codebuild-update = create/update only selected CodeBuild project
+          codebuild-update = create/update only the debug CodeBuild project
         required: true
         default: plan
         type: choice
@@ -32,17 +32,8 @@ on:
         required: true
         default: false
         type: boolean
-      codebuild_update_project:
-        description: "Project to create/update when action is codebuild-update."
-        required: true
-        default: ops-command
-        type: choice
-        options:
-          - ops-command
-          - gitea-auth-debug
-          - both
       ops_vpc_command:
-        description: "Command for financial-ops-command. Used only when codebuild_update_project includes ops-command."
+        description: "Default command stored on financial-debug. You can override it in the AWS CodeBuild console."
         required: false
         default: "kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide"
         type: string
@@ -197,7 +188,7 @@ jobs:
           -target=aws_codebuild_project.gitops_bootstrap
           -target=aws_codebuild_project.cluster_status
           -target=aws_codebuild_project.gitea_auth_debug
-          -target=aws_codebuild_project.ops_command
+          -target=aws_codebuild_project.debug
           -target=aws_codebuild_project.service_cluster_status
           -target=aws_codebuild_project.manifest_updater
 
@@ -369,7 +360,7 @@ jobs:
           -target=aws_codebuild_project.gitops_bootstrap
           -target=aws_codebuild_project.cluster_status
           -target=aws_codebuild_project.gitea_auth_debug
-          -target=aws_codebuild_project.ops_command
+          -target=aws_codebuild_project.debug
           -target=aws_security_group.service_cluster_status_codebuild
           -target=aws_security_group_rule.service_cluster_status_to_service_eks_api
           -target=aws_codebuild_project.service_cluster_status
@@ -500,49 +491,6 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
-      - name: Build CodeBuild target list
-        id: targets
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          common_targets=(
-            -target=aws_security_group.ansible_codebuild
-            -target=aws_iam_role.ansible_codebuild
-            -target=aws_iam_role_policy.ansible_codebuild
-            -target=aws_eks_access_entry.ansible_codebuild_ops
-            -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin
-          )
-
-          project_targets=()
-          project_names=()
-
-          case "${{ inputs.codebuild_update_project }}" in
-            ops-command)
-              project_targets=(-target=aws_codebuild_project.ops_command)
-              project_names=(financial-ops-command)
-              ;;
-            gitea-auth-debug)
-              project_targets=(-target=aws_codebuild_project.gitea_auth_debug)
-              project_names=(financial-gitea-auth-debug)
-              ;;
-            both)
-              project_targets=(
-                -target=aws_codebuild_project.ops_command
-                -target=aws_codebuild_project.gitea_auth_debug
-              )
-              project_names=(financial-ops-command financial-gitea-auth-debug)
-              ;;
-            *)
-              echo "::error::Unsupported codebuild_update_project: ${{ inputs.codebuild_update_project }}"
-              exit 1
-              ;;
-          esac
-
-          printf 'targets=%q ' "${common_targets[@]}" "${project_targets[@]}" >> "${GITHUB_OUTPUT}"
-          printf '\n' >> "${GITHUB_OUTPUT}"
-          printf 'project_names=%s\n' "${project_names[*]}" >> "${GITHUB_OUTPUT}"
-
       - name: Targeted Terraform Plan
         shell: bash
         run: |
@@ -552,7 +500,13 @@ jobs:
             -lock-timeout=5m \
             -detailed-exitcode \
             -out=codebuild-update.tfplan \
-            ${{ steps.targets.outputs.targets }} \
+            -target=aws_security_group.ansible_codebuild \
+            -target=aws_iam_role.ansible_codebuild \
+            -target=aws_iam_role_policy.ansible_codebuild \
+            -target=aws_eks_access_entry.ansible_codebuild_ops \
+            -target=aws_eks_access_policy_association.ansible_codebuild_ops_admin \
+            -target=aws_codebuild_project.gitea_auth_debug \
+            -target=aws_codebuild_project.debug \
             $TF_MOVED_RESOURCE_TARGETS
           exitcode=$?
 
@@ -576,10 +530,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          for project_name in ${{ steps.targets.outputs.project_names }}; do
-            build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
-            echo "Started CodeBuild (${project_name}): ${build_id}"
-          done
+          project_name="financial-debug"
+          build_id="$(aws codebuild start-build --project-name "${project_name}" --query 'build.id' --output text)"
+          echo "Started CodeBuild (${project_name}): ${build_id}"
 
   codebuild:
     name: Run selected CodeBuild

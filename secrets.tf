@@ -72,3 +72,18 @@ resource "aws_secretsmanager_secret_version" "ops_rds_password" {
     password = random_password.ops_rds.result
   })
 }
+
+# ── ArgoCD 로컬 계정 비밀번호 ──────────────────────────────────────────────────
+# 값은 코드에 없음 — destroy/apply 사이클 생존을 위해 prevent_destroy = true
+# 최초 1회: aws secretsmanager put-secret-value --secret-id argocd/local-account-passwords \
+#   --secret-string '{"dahyeon":"...","bgshin":"...","junho":"...","sangjun":"...","junyounglee":"..."}'
+
+resource "aws_secretsmanager_secret" "argocd_local_account_passwords" {
+  name                    = "argocd/local-account-passwords"
+  description             = "ArgoCD local account passwords (JSON) — populate manually via AWS CLI; never store values in code"
+  recovery_window_in_days = 7
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
