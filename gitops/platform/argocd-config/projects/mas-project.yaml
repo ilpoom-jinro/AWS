@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: mas-project
+  namespace: argocd
+spec:
+  description: MAS(Multi-Agent System) 에이전트 — buildspec-manifest-updater가 Application을 동적 생성
+  sourceRepos:
+    - http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+  destinations:
+    # ops in-cluster — argocd-application-controller가 cluster-admin 보유.
+    # CreateNamespace=true로 네임스페이스 자동 생성되므로 별도 권한 불필요.
+    # "*mas*" 패턴으로 finops-mas, mas, mas-agents 등 모든 MAS 네임스페이스 허용.
+    - server: https://kubernetes.default.svc
+      namespace: "*mas*"
+  # MAS 에이전트는 클러스터 스코프 리소스 배포 불필요
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: ServiceAccount

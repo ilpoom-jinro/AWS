@@ -3,7 +3,7 @@ FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
 
-COPY pods/finops-ui/app ./app
+COPY pods/finops/ui/app ./app
 
 EXPOSE 8000
 

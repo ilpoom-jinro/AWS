@@ -4,18 +4,20 @@ This directory keeps monitoring-specific image mirror metadata and helper script
 
 The GitHub Actions workflow `.github/workflows/monitoring-images.yml` can mirror
 the images listed in `images.tsv` and build custom images listed in
-`custom-images.tsv` into existing ECR repositories. Terraform does not create
-those monitoring ECR repositories; create them first, then run the workflow.
+`custom-images.tsv` into existing ECR repositories. All ECR repositories below
+are managed by Terraform in `ecr.tf` and provisioned automatically by the
+`ecr-images.yml` workflow when it runs on `main`.
 
-Default ECR repositories:
+ECR repositories:
 
 - `financial/monitoring/grafana`
 - `financial/monitoring/loki`
 - `financial/monitoring/thanos`
 - `financial/monitoring/alloy`
 - `financial/monitoring/alertmanager`
-- `financial/monitoring/xray-collector`
-- `financial/monitoring/prometheus`
+- `financial/monitoring/tempo`
+- `financial/monitoring/aws-load-balancer-controller`
+- `financial/monitoring/observability-indexer`
 
 GitOps manifests for the future monitoring runtime are intentionally not stored
 here yet. The monitoring control plane may move to a separate k3s runtime on the

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teleport-app-service-config
+  namespace: teleport-apps
+data:
+  teleport.yaml: |
+    version: v3
+    teleport:
+      nodename: teleport-app-service
+      data_dir: /var/lib/teleport
+      join_params:
+        token_name: /etc/teleport/token/token
+        method: token
+      proxy_server: REPLACE_WITH_TELEPORT_PROXY_SERVER
+      log:
+        output: stderr
+        severity: INFO
+    auth_service:
+      enabled: false
+    proxy_service:
+      enabled: false
+    ssh_service:
+      enabled: false
+    app_service:
+      enabled: true
+      apps:
+        - name: finops-ui
+          uri: http://finops-ui.finops-mas.svc.cluster.local
+          public_addr: finops-ui.REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX
+          labels:
+            type: mas-ui
+            scenario: finops
+        - name: argocd-ui
+          uri: https://argocd-server.argocd.svc.cluster.local
+          public_addr: argocd-ui.REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX
+          insecure_skip_verify: true
+          labels:
+            type: platform-ui
+            app: argocd

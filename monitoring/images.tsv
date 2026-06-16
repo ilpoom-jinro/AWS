@@ -5,6 +5,5 @@ thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	v0.41.0
 thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	latest
 alloy	docker.io/grafana/alloy:latest	financial/monitoring/alloy	latest
 alertmanager	quay.io/prometheus/alertmanager:latest	financial/monitoring/alertmanager	latest
-xray-collector	public.ecr.aws/aws-observability/aws-otel-collector:latest	financial/monitoring/xray-collector	latest
-# prometheus	quay.io/prometheus/prometheus:v3.7.3	financial/monitoring/prometheus	v3.7.3
 aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/monitoring/aws-load-balancer-controller	v3.3.0
+tempo	docker.io/grafana/tempo:latest	financial/monitoring/tempo	latest

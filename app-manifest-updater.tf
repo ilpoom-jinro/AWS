@@ -186,7 +186,7 @@ resource "aws_codebuild_project" "manifest_updater" {
 
     environment_variable {
       name  = "INTERNAL_GIT_PASSWORD"
-      value = var.internal_git_admin_password
+      value = random_password.internal_git_admin.result
       type  = "PLAINTEXT"
     }
   }

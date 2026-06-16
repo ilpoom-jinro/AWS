@@ -33,13 +33,13 @@ spec:
               containerPort: 8000
           env:
             - name: DB_HOST
-              value: rds-endpoint.example.ap-northeast-2.rds.amazonaws.com
+              value: REPLACE_WITH_SERVICE_RDS_ENDPOINT
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
-              value: stockdemo
+              value: financial_service
             - name: DB_USER
-              value: stockuser
+              value: financial_admin
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -47,16 +47,19 @@ spec:
                   key: DB_PASSWORD
             - name: CORS_ORIGINS
               value: "*"
+
+            # OpenTelemetry tracing settings
             - name: OTEL_TRACING_ENABLED
               value: "true"
             - name: OTEL_SERVICE_NAME
               value: stock-demo-api
             - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-              value: http://otel-collector.aws-observability:4318/v1/traces
+              value: http://observability-alloy-service.observability.svc.cluster.local:4318/v1/traces
             - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
               value: http/protobuf
             - name: DEPLOYMENT_ENVIRONMENT
               value: service-eks
+
           readinessProbe:
             httpGet:
               path: /health

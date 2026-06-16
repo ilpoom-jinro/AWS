@@ -6,7 +6,7 @@ resource "aws_vpc_endpoint" "elasticloadbalancing" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.elasticloadbalancing"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -84,4 +84,31 @@ output "loki_nlb_sg_id" {
 output "thanos_receive_nlb_sg_id" {
   description = "Security group ID to attach to the Thanos Receive internal NLB"
   value       = aws_security_group.thanos_receive_nlb.id
+}
+# Attached to the Tempo internal NLB by the Kubernetes Service
+# annotation. Only Alloy in the Service VPC may push traces.
+resource "aws_security_group" "tempo_nlb" {
+  name        = "financial-vpc2-tempo-nlb-sg"
+  description = "Allow Tempo trace ingestion from the Service VPC EKS private subnets"
+  vpc_id      = aws_vpc.this.id
+
+  ingress {
+    description = "Allow Alloy trace push from the Service VPC"
+    from_port   = 4317
+    to_port     = 4318
+    protocol    = "tcp"
+    cidr_blocks = var.service_eks_private_subnet_cidrs
+  }
+
+  egress {
+    description = "Allow Tempo NLB traffic to monitoring targets"
+    from_port   = 4317
+    to_port     = 4318
+    protocol    = "tcp"
+    cidr_blocks = [aws_subnet.monitor_a.cidr_block]
+  }
+
+  tags = {
+    Name = "financial-vpc2-tempo-nlb-sg"
+  }
 }

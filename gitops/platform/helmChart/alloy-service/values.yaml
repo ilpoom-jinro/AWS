@@ -83,8 +83,9 @@ alloy:
       }
 
       prometheus.scrape "annotated_pods" {
-        targets    = discovery.relabel.annotated_pod_metrics.output
-        forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
+        targets         = discovery.relabel.annotated_pod_metrics.output
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.service_metric_filter.receiver]
       }
 
       // Kubelet exposes node health and cAdvisor exposes pod/container usage.
@@ -100,7 +101,8 @@ alloy:
           ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         }
 
-        forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.service_metric_filter.receiver]
       }
 
       prometheus.scrape "cadvisor" {
@@ -115,7 +117,30 @@ alloy:
           ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         }
 
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.service_metric_filter.receiver]
+      }
+
+      prometheus.relabel "service_metric_filter" {
         forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
+
+        rule {
+          source_labels = ["__name__"]
+          regex         = "go_.*|process_.*|promhttp_.*"
+          action        = "drop"
+        }
+
+        rule {
+          source_labels = ["__name__"]
+          regex         = "container_fs_.*|container_network_.*|container_tasks_state|container_threads.*|container_sockets.*"
+          action        = "drop"
+        }
+
+        rule {
+          source_labels = ["container"]
+          regex         = "^$|POD"
+          action        = "drop"
+        }
       }
 
       prometheus.remote_write "monitoring_thanos" {
@@ -129,11 +154,31 @@ alloy:
           url = "http://thanos-receive-internal-nlb.example.local/api/v1/receive"
         }
       }
+      otelcol.receiver.otlp "service_traces" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo-internal-nlb.example.local:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
 
       // TODO: S3 Vectors ingestion should be handled by a separate AI indexing pipeline.
 
-# GitOps updates restart Alloy through the ConfigMap checksum. Disabling this
-# optional sidecar removes the need to mirror config-reloader into ECR.
 configReloader:
   enabled: false
 

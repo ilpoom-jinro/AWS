@@ -1,0 +1,29 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+
+        : "${AWS_REGION:?AWS_REGION is required}"
+        : "${OPS_EKS_CLUSTER_NAME:?OPS_EKS_CLUSTER_NAME is required}"
+        : "${OPS_VPC_COMMAND:?OPS_VPC_COMMAND is required}"
+
+        OPS_CONTEXT="debug-${OPS_EKS_CLUSTER_NAME}"
+        export OPS_CONTEXT
+
+        section() {
+          printf '\n===== %s =====\n' "$1"
+        }
+
+        aws eks update-kubeconfig \
+          --region "${AWS_REGION}" \
+          --name "${OPS_EKS_CLUSTER_NAME}" \
+          --alias "${OPS_CONTEXT}"
+
+        section "Ops VPC command"
+        printf '%s\n' "${OPS_VPC_COMMAND}"
+
+        section "Command output"
+        bash -lc "${OPS_VPC_COMMAND}"

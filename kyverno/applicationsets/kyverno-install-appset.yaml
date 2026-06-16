@@ -32,14 +32,19 @@ spec:
     metadata:
       # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
       name: "kyverno-install-{{.name}}"
+      annotations:
+        # ServerSideDiff: 클라이언트 diff 대신 서버 사이드 dry-run으로 실제 변경분만 비교
+        # IncludeMutationWebhook: Kyverno 웹훅이 리소스를 변경해도 OutOfSync로 오탐하지 않음
+        argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
     spec:
-      project: default
+      project: ops-infra-project
 
       source:
         # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
         repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
         targetRevision: main
-        # helm template --include-crds 로 렌더링된 Kyverno 전체 매니페스트
+        # buildspec-gitops-bootstrap에서 CRD 제외 후 렌더링된 Kyverno 매니페스트
+        # CRD는 buildspec에서 양 클러스터에 직접 kubectl apply로 관리
         path: kyverno/install
 
       destination:
@@ -64,3 +69,19 @@ spec:
             pod-security.kubernetes.io/enforce: baseline
             pod-security.kubernetes.io/audit: restricted
             pod-security.kubernetes.io/warn: restricted
+      ignoreDifferences:
+        # Kyverno Helm 차트가 Job 생성 시 selector/labels를 자동 주입
+        - group: batch
+          kind: Job
+          jsonPointers:
+            - /spec/selector
+            - /spec/template/metadata/labels
+        # Kyverno cert-manager가 caBundle을 동적으로 갱신 — SSA field 충돌 방지
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          jsonPointers:
+            - /webhooks/*/clientConfig/caBundle
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          jsonPointers:
+            - /webhooks/*/clientConfig/caBundle

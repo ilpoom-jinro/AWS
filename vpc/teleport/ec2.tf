@@ -64,9 +64,10 @@ resource "aws_instance" "teleport" {
   }
 
   user_data = base64encode(templatefile("${path.module}/userdata.sh.tpl", {
-    eks_endpoint = var.eks_endpoint
-    eks_ca_data  = var.eks_ca_data
-    efs_dns      = "${aws_efs_file_system.teleport.id}.efs.${var.aws_region}.amazonaws.com"
+    eks_endpoint            = var.eks_endpoint
+    eks_ca_data             = var.eks_ca_data
+    efs_dns                 = "${data.aws_efs_file_system.teleport.id}.efs.${var.aws_region}.amazonaws.com"
+    teleport_app_join_token = var.teleport_app_join_token
   }))
 
   depends_on = [aws_efs_mount_target.teleport_a]

@@ -14,9 +14,9 @@ on:
           - base
           - all
       agent:
-        description: "Agent directory name under mas/pods. Ignored when operation is all."
+        description: "Agent path under mas/pods, for example finops/ui. Ignored when operation is all."
         required: true
-        default: "finops-ui"
+        default: "finops/ui"
         type: string
       deploy_scope:
         description: "Deployment scope"
@@ -60,6 +60,7 @@ jobs:
     outputs:
       agents: ${{ steps.detect.outputs.agents }}
       build_base: ${{ steps.detect.outputs.build_base }}
+      should_deploy: ${{ steps.detect.outputs.should_deploy }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,14 +86,30 @@ jobs:
           operation = os.environ["OPERATION"].strip()
           pods_dir = Path("mas/pods")
 
+          def agent_id(path):
+              return path.relative_to(pods_dir).parent.as_posix()
+
           def existing_agents():
               if not pods_dir.exists():
                   return []
               return sorted(
-                  path.parent.name
-                  for path in pods_dir.glob("*/agent.yml")
+                  agent_id(path)
+                  for path in pods_dir.glob("*/*/agent.yml")
                   if (path.parent / "Dockerfile").exists()
               )
+
+          def normalize_agent(value):
+              value = value.strip().strip("/")
+              if not value:
+                  return value
+              if (pods_dir / value / "agent.yml").exists():
+                  return value
+              if "/" not in value and "-" in value:
+                  scenario, role = value.split("-", 1)
+                  candidate = f"{scenario}/{role}"
+                  if (pods_dir / candidate / "agent.yml").exists():
+                      return candidate
+              return value
 
           build_base = False
 
@@ -102,7 +119,7 @@ jobs:
           elif operation == "all" or requested == "all":
               agents = existing_agents()
           elif operation == "new":
-              agents = [requested]
+              agents = [normalize_agent(requested)]
           elif operation == "changed" or requested == "changed":
               try:
                   base = subprocess.check_output(
@@ -116,27 +133,38 @@ jobs:
               except subprocess.CalledProcessError:
                   changed = []
 
-              agents = sorted({
-                  parts[2]
+              candidates = {
+                  f"{parts[2]}/{parts[3]}"
                   for path in changed
                   if (parts := Path(path).parts)
-                  and len(parts) >= 3
+                  and len(parts) >= 4
                   and parts[0] == "mas"
                   and parts[1] == "pods"
-                  and (pods_dir / parts[2] / "agent.yml").exists()
-              })
+              }
+              agents = sorted(
+                  agent
+                  for agent in candidates
+                  if (pods_dir / agent / "agent.yml").exists()
+              )
           else:
-              agents = [requested]
+              agents = [normalize_agent(requested)]
 
           missing = [agent for agent in agents if not (pods_dir / agent / "agent.yml").exists()]
           if missing:
-              raise SystemExit(f"Missing agent.yml for: {', '.join(missing)}")
+              raise SystemExit(
+                  "Missing agent.yml for: "
+                  f"{', '.join(missing)}. Use the nested path format, for example finops/ui."
+              )
+
+          should_deploy = operation != "base" and bool(agents)
 
           print(f"agents={json.dumps(agents)}")
           print(f"build_base={str(build_base).lower()}")
+          print(f"should_deploy={str(should_deploy).lower()}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"agents={json.dumps(agents)}\n")
               output.write(f"build_base={str(build_base).lower()}\n")
+              output.write(f"should_deploy={str(should_deploy).lower()}\n")
           PY
 
   build_base:
@@ -243,7 +271,7 @@ jobs:
     needs:
       - detect
       - build_base
-    if: ${{ always() && needs.detect.outputs.agents != '[]' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
+    if: ${{ always() && needs.detect.outputs.should_deploy == 'true' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: development
     strategy:
@@ -283,6 +311,9 @@ jobs:
           agent = os.environ["AGENT"]
           agent_dir = Path("mas/pods") / agent
           metadata_path = agent_dir / "agent.yml"
+          parts = Path(agent).parts
+          scenario_from_path = parts[0] if parts else agent.split("-", 1)[0]
+          role_from_path = parts[-1] if parts else agent
 
           values = {}
           for raw_line in metadata_path.read_text(encoding="utf-8").splitlines():
@@ -292,11 +323,11 @@ jobs:
               key, value = line.split(":", 1)
               values[key.strip()] = value.strip().strip('"').strip("'")
 
-          name = values.get("name", agent)
-          scenario = values.get("scenario", agent.split("-", 1)[0])
+          name = values.get("name", f"{scenario_from_path}-{role_from_path}")
+          scenario = values.get("scenario", scenario_from_path)
           namespace = values.get("namespace", f"{scenario}-mas")
           target_cluster = values.get("target_cluster", "financial-ops-eks")
-          image_repository = values.get("image_repository", f"financial/mas/{scenario}/{agent}")
+          image_repository = values.get("image_repository", f"financial/mas/{agent}")
           base_image_repository = values.get("base_image_repository", "financial/mas/base")
           dockerfile = values.get("dockerfile", str(agent_dir / "Dockerfile").replace("\\", "/"))
           build_context = values.get("build_context", "mas")

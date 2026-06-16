@@ -309,7 +309,142 @@ resource "aws_kms_alias" "key_rds_globalservice" {
 resource "time_sleep" "kms_rds_propagation" {
   depends_on = [
     aws_kms_key.key_rds_ops,
-    aws_kms_key.key_rds_globalservice
+    aws_kms_key.key_rds_globalservice,
+    aws_kms_key.key_cloudtrail,
   ]
   create_duration = "15s"
+}
+
+# =============================================
+# key-cloudtrail (CloudTrail 로그 S3 암호화)
+# ops/globalservice RDS 키와 동일한 정책 구조
+# =============================================
+resource "aws_kms_key" "key_cloudtrail" {
+  description             = "CloudTrail CMK for ilpumjinro"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSAdminRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
+        }
+        Action = [
+          "kms:DescribeKey",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:UpdateKeyDescription",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:EnableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSBreakGlassRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
+        }
+        Action = [
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:DisableKey",
+          "kms:DescribeKey",
+          "kms:ListKeys",
+          "kms:ListAliases"
+        ]
+        Resource = "*"
+      },
+      {
+        # EncryptionContext 조건으로 이 계정 Trail만 이 키를 사용 가능하도록 제한
+        Sid    = "AllowCloudTrailEncrypt"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:aws:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
+          }
+        }
+      },
+      {
+        Sid    = "DenyCrossAccount"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+        Condition = {
+          StringNotEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            "aws:PrincipalIsAWSService" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyWithoutMFA"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = [
+          "kms:DisableKey",
+          "kms:ScheduleKeyDeletion"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [module.iam]
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "CloudTrail"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_cloudtrail" {
+  name          = "alias/key-cloudtrail"
+  target_key_id = aws_kms_key.key_cloudtrail.key_id
 }

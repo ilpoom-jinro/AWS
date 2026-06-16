@@ -1,11 +1,20 @@
 image:
-  # Mirrored Alloy image in the private ECR registry.
   registry: REPLACE_WITH_ECR_REGISTRY
   repository: financial/monitoring/alloy
   tag: latest
   pullPolicy: Always
 
 alloy:
+  extraPorts:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+
   configMap:
     create: true
     content: |
@@ -13,8 +22,6 @@ alloy:
         level = "info"
       }
 
-      // Each DaemonSet pod discovers only the pods running on its own node.
-      // This prevents duplicate logs and duplicate metric samples.
       discovery.kubernetes "local_pods" {
         role = "pod"
 
@@ -54,9 +61,6 @@ alloy:
         }
       }
 
-      // Scrape application metrics only from pods that explicitly opt in with:
-      // prometheus.io/scrape: "true"
-      // prometheus.io/port: "<metrics-port>"
       discovery.relabel "annotated_pod_metrics" {
         targets = discovery.kubernetes.local_pods.targets
 
@@ -82,11 +86,11 @@ alloy:
       }
 
       prometheus.scrape "annotated_pods" {
-        targets    = discovery.relabel.annotated_pod_metrics.output
-        forward_to = [prometheus.remote_write.ops_thanos.receiver]
+        targets         = discovery.relabel.annotated_pod_metrics.output
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.ops_metric_filter.receiver]
       }
 
-      // Kubelet exposes node health and cAdvisor exposes pod/container usage.
       prometheus.scrape "kubelet" {
         targets = [{
           "__address__"     = "kubernetes.default.svc.cluster.local:443",
@@ -99,7 +103,8 @@ alloy:
           ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         }
 
-        forward_to = [prometheus.remote_write.ops_thanos.receiver]
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.ops_metric_filter.receiver]
       }
 
       prometheus.scrape "cadvisor" {
@@ -114,7 +119,30 @@ alloy:
           ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         }
 
+        scrape_interval = "60s"
+        forward_to      = [prometheus.relabel.ops_metric_filter.receiver]
+      }
+
+      prometheus.relabel "ops_metric_filter" {
         forward_to = [prometheus.remote_write.ops_thanos.receiver]
+
+        rule {
+          source_labels = ["__name__"]
+          regex         = "go_.*|process_.*|promhttp_.*"
+          action        = "drop"
+        }
+
+        rule {
+          source_labels = ["__name__"]
+          regex         = "container_fs_.*|container_network_.*|container_tasks_state|container_threads.*|container_sockets.*"
+          action        = "drop"
+        }
+
+        rule {
+          source_labels = ["container"]
+          regex         = "^$|POD"
+          action        = "drop"
+        }
       }
 
       prometheus.remote_write "ops_thanos" {
@@ -128,10 +156,36 @@ alloy:
         }
       }
 
+      otelcol.receiver.otlp "ops_traces" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "observability-tempo.observability.svc.cluster.local:4317"
+
+          tls {
+            insecure = true
+          }
+        }
+      }
+
       // TODO: S3 Vectors ingestion should be handled by a separate AI indexing pipeline.
 
-# GitOps updates restart Alloy through the ConfigMap checksum. Disabling this
-# optional sidecar removes the need to mirror config-reloader into ECR.
+service:
+  enabled: true
+  type: ClusterIP
+
 configReloader:
   enabled: false
 

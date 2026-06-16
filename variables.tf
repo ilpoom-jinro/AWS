@@ -115,6 +115,24 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
+variable "debug_codebuild_project_name" {
+  description = "CodeBuild project name for running debug commands from inside the Ops VPC"
+  type        = string
+  default     = "financial-debug"
+}
+
+variable "ops_vpc_command" {
+  description = "Temporary shell command executed by the Gitea auth debug CodeBuild project"
+  type        = string
+  default     = "kubectl --context $${OPS_CONTEXT} -n git get deploy,svc,pods -o wide"
+}
+
+variable "mas_status_codebuild_project_name" {
+  description = "CodeBuild project name for checking MAS and Teleport app-service status"
+  type        = string
+  default     = "financial-mas-status"
+}
+
 variable "service_cluster_status_codebuild_project_name" {
   description = "CodeBuild project name for checking Service EKS workload status from inside the Service VPC"
   type        = string
@@ -181,17 +199,16 @@ variable "internal_git_admin_username" {
   default     = "gitadmin"
 }
 
-variable "internal_git_admin_password" {
-  description = "Internal Git password used by the manifest updater"
-  type        = string
-  sensitive   = true
-  default     = "ChangeMe1234"
-}
-
 variable "dev_mode" {
   description = "개발 기간 임시 전체 권한 플래그"
   type        = bool
   default     = false
+}
+
+variable "single_az_mode" {
+  description = "개발 단계 비용 절감용 단일 AZ 모드 - true: RDS Multi-AZ 비활성화, EKS 노드 1대로 축소, VPC Endpoint를 단일 AZ로 구성 / 운영 전환 시 false로 변경하여 멀티 AZ 구성 복원"
+  type        = bool
+  default     = true
 }
 
 variable "teleport_image_repository_name" {

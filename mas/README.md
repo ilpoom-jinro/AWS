@@ -1,137 +1,290 @@
 # MAS
 
-Multi-agent system workloads for the financial platform.
-
-Current first slice:
-
-- `pods/finops-ui`: FinOps dashboard and chat entrypoint for operators.
-
-The UI runs as a FastAPI app and is intended to be deployed into
-`financial-ops-eks` through GitOps.
-
-## Agent Deployment Contract
-
-Each deployable agent lives under `mas/pods/<agent-name>` and must include:
+MAS workloads are grouped by scenario first, then by agent role.
 
 ```text
-mas/pods/<agent-name>/
+mas/
+  base/
+    Dockerfile
+  requirements.txt
+  pods/
+    finops/
+      ui/
+        app/
+          __init__.py
+          main.py
+        Dockerfile
+        agent.yml
+      orchestrator/
+        .gitkeep
+    gitops/
+      <agent>/
+    secops/
+      <agent>/
+```
+
+The standard agent path is:
+
+```text
+mas/pods/<scenario>/<agent>/
+```
+
+For example:
+
+```text
+mas/pods/finops/ui
+mas/pods/finops/orchestrator
+mas/pods/secops/analyzer
+mas/pods/gitops/ui
+```
+
+## Agent Files
+
+Each deployable agent needs:
+
+```text
+mas/pods/<scenario>/<agent>/
   app/
+    __init__.py
+    main.py
   Dockerfile
   agent.yml
 ```
 
-`agent.yml` is the source of truth for the generic MAS deploy workflow:
+`app/main.py` contains the FastAPI server or agent runtime code.
 
-```yaml
-name: finops-ui
-scenario: finops
-role: ui
-image_repository: financial/mas/finops-ui
-base_image_repository: financial/mas/base
-dockerfile: mas/pods/finops-ui/Dockerfile
-build_context: mas
-manifest_path: financial-ops-eks/finops-mas/kustomization.yaml
-target_container: finops-ui-image
-service_account_name: finops-ui
-service_name: finops-ui
-namespace: finops-mas
-target_cluster: financial-ops-eks
-```
-
-The `MAS Agent Deploy` GitHub Actions workflow reads this file, creates the ECR
-repository if needed, builds and pushes the image, then starts the manifest
-updater CodeBuild project. The CodeBuild job updates the image entry identified
-by `target_container` inside `manifest_path` in the internal GitOps repository.
-
-## Base Image
-
-The common runtime lives in:
+`app/__init__.py` makes `app` importable by Python, so the container can run:
 
 ```text
-mas/base/Dockerfile
-mas/requirements.txt
+uvicorn app.main:app
 ```
 
-The workflow can build and push this image separately:
+`Dockerfile` builds the agent image by using the MAS base image and copying only
+that agent's app code.
+
+`agent.yml` is the CI/CD contract. GitHub Actions reads it to decide which ECR
+repo to use, which Dockerfile to build, and which internal GitOps manifest to
+update.
+
+## Current FinOps UI
+
+The FinOps UI agent is now:
 
 ```text
-operation: base
+mas/pods/finops/ui
 ```
 
-The base image is pushed to:
+Its deployment name remains:
+
+```text
+finops-ui
+```
+
+That name is defined in:
+
+```text
+mas/pods/finops/ui/agent.yml
+```
+
+Current image repository:
+
+```text
+financial/mas/finops/ui
+```
+
+## GitHub Actions Impact
+
+The MAS deploy workflow uses the nested path format:
+
+```text
+.github/workflows/mas-agent-deploy.yml
+```
+
+Manual input examples:
+
+```text
+operation: new
+agent: finops/ui
+deploy_scope: full
+```
+
+```text
+operation: update
+agent: finops/ui
+deploy_scope: full
+```
+
+```text
+operation: all
+deploy_scope: full
+```
+
+`operation: all` scans:
+
+```text
+mas/pods/*/*/agent.yml
+```
+
+So future agents such as these are detected automatically after they have an
+`agent.yml` and `Dockerfile`:
+
+```text
+mas/pods/finops/orchestrator/agent.yml
+mas/pods/secops/analyzer/agent.yml
+mas/pods/gitops/ui/agent.yml
+```
+
+For backward compatibility, the workflow can resolve `finops-ui` to `finops/ui`
+when that nested path exists. The preferred input is still `finops/ui`.
+
+## Image Build Impact
+
+Base image:
 
 ```text
 financial/mas/base
 ```
 
-Agent Dockerfiles should use the base image through a build arg:
+Agent image:
+
+```text
+financial/mas/<scenario>/<agent>
+```
+
+For the FinOps UI:
+
+```text
+financial/mas/finops/ui
+```
+
+The FinOps UI Dockerfile now copies:
 
 ```dockerfile
-ARG MAS_BASE_IMAGE=python:3.12-slim
-FROM ${MAS_BASE_IMAGE}
-
-WORKDIR /app
-COPY pods/<agent-name>/app ./app
-
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY pods/finops/ui/app ./app
 ```
 
-During CI/CD, the workflow passes:
+Because the Docker build context is still:
 
 ```text
-MAS_BASE_IMAGE=<account>.dkr.ecr.<region>.amazonaws.com/financial/mas/base:latest
+mas
 ```
 
-The workflow has two control fields:
+## GitOps Manifest Impact
 
-- `operation`
-  - `base`: build and push only the MAS base image.
-  - `new`: create missing internal GitOps manifests for one agent, then deploy it with the current ECR base image.
-  - `update`: deploy one existing agent and require its internal GitOps manifest to already exist.
-  - `all`: deploy every agent under `mas/pods` using the current base image.
-- `deploy_scope`
-  - `full`: generate allowed missing manifests, build and push the image, then update the image tag.
-  - `manifests-only`: create or validate manifests without building an image.
-  - `image-only`: build and push the image, then update an existing manifest only.
-
-Typical choices:
+The Kubernetes workload name can stay `finops-ui`, but the image repository in
+the GitOps kustomization must match the new ECR path:
 
 ```text
-Base image only:
-  operation: base
-
-New agent:
-  operation: new
-  agent: <agent-name>
-  deploy_scope: full
-
-Existing agent code change:
-  operation: update
-  agent: <agent-name>
-  deploy_scope: full
-
-Deploy every agent:
-  operation: all
-  deploy_scope: full
+gitops/platform/financial-ops-eks/finops-mas/kustomization.yaml
 ```
 
-Base image rebuilds are intentionally explicit. Use `operation: base` when
-`mas/base/Dockerfile` or `mas/requirements.txt` changes. `new`, `update`, and
-`all` do not rebuild the base image; they pull the current ECR base image and
-use it through the `MAS_BASE_IMAGE` Docker build arg.
+Image entry:
 
-If `manifest_path` or `namespace` is omitted, the workflow derives them from
-`scenario`:
+```yaml
+images:
+  - name: finops-ui-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/ui
+    newTag: latest
+```
+
+The namespace remains:
 
 ```text
-namespace: <scenario>-mas
-manifest_path: <target_cluster>/<scenario>-mas/kustomization.yaml
+finops-mas
 ```
 
-For new scenarios, keep the same contract and choose repository/name prefixes
-that match the domain, for example:
+The service remains:
 
-- `financial/mas/finops/<agent-name>`
-- `financial/mas/gitops/<agent-name>`
-- `financial/mas/secops/<agent-name>`
+```text
+finops-ui
+```
+
+So the access command is unchanged:
+
+```text
+kubectl -n finops-mas port-forward svc/finops-ui 18080:80
+```
+
+## Adding Another FinOps Agent
+
+For a future orchestrator:
+
+```text
+mas/pods/finops/orchestrator/
+  app/
+    __init__.py
+    main.py
+  Dockerfile
+  agent.yml
+```
+
+Example `agent.yml`:
+
+```yaml
+name: finops-orchestrator
+scenario: finops
+role: orchestrator
+image_repository: financial/mas/finops/orchestrator
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/finops/orchestrator/Dockerfile
+build_context: mas
+namespace: finops-mas
+target_cluster: financial-ops-eks
+```
+
+## Teleport App Service
+
+The Teleport Application Service agent lives in:
+
+```text
+mas/pods/platform/teleport-app-service
+```
+
+It builds a private ECR mirror/wrapper image for the Teleport app-service
+runtime:
+
+```text
+financial/mas/platform/teleport-app-service
+```
+
+The GitOps manifests live in:
+
+```text
+gitops/platform/financial-ops-eks/teleport-app-service
+```
+
+This app-service runs inside the Ops EKS cluster and registers dashboard apps
+with the VPC3 Teleport cluster. The first registered apps are:
+
+```text
+finops-ui -> http://finops-ui.finops-mas.svc.cluster.local
+argocd-ui -> https://argocd-server.argocd.svc.cluster.local
+```
+
+To build and deploy it through the MAS workflow:
+
+```text
+operation: new
+agent: platform/teleport-app-service
+deploy_scope: full
+```
+
+After a destroy/apply, `financial-gitops-bootstrap` syncs these manifests into
+the internal GitOps repository. Terraform generates the Teleport app join token,
+VPC3 Teleport accepts that token, and the GitOps bootstrap creates the matching
+Kubernetes Secret in `teleport-apps`.
+
+Operators access Teleport through local port forwarding, so their workstation
+hosts file must map the fixed Teleport app domains to localhost:
+
+```text
+127.0.0.1 teleport.local
+127.0.0.1 finops-ui.teleport.local
+127.0.0.1 argocd-ui.teleport.local
+```
+
+Open the proxy with:
+
+```text
+https://teleport.local:3080
+```

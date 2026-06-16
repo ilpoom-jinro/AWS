@@ -23,22 +23,12 @@ output "ops_thanos_receive_nlb_sg_id" {
   value       = module.vpc2.thanos_receive_nlb_sg_id
 }
 
-output "service_xray_collector_role_arn" {
-  description = "IAM role ARN used by the Service EKS ADOT Collector through Pod Identity"
-  value       = module.vpc1.xray_collector_role_arn
+output "ops_tempo_nlb_sg_id" {
+  description = "Security group ID to insert into the Tempo internal NLB Service values"
+  value       = module.vpc2.tempo_nlb_sg_id
 }
 
 output "ops_grafana_cloudwatch_role_arn" {
   description = "IAM role ARN used by the Ops EKS Grafana Pod through Pod Identity"
   value       = module.vpc2.grafana_cloudwatch_role_arn
-}
-
-output "ops_observability_indexer_role_arn" {
-  description = "IAM role ARN used by the Ops EKS Observability Indexer Pod through Pod Identity"
-  value       = module.vpc2.observability_indexer_role_arn
-}
-
-output "ops_xray_vpc_endpoint_id" {
-  description = "Interface VPC endpoint used by the Ops VPC to read AWS X-Ray without internet"
-  value       = module.vpc2.xray_vpc_endpoint_id
 }

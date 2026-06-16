@@ -9,7 +9,7 @@ sysctl -p /etc/sysctl.d/99-teleport.conf
 
 # ── 2. K3s 시작 ────────────────────────────────────────────────────────────
 systemctl enable k3s
-systemctl start k3s
+systemctl start k3s || true  # K3s 시작 실패해도 스크립트 계속 진행 (타이밍 이슈 방지)
 until kubectl get nodes 2>/dev/null | grep -q Ready; do
   echo "K3s 준비 대기중..."
   sleep 5
@@ -44,10 +44,19 @@ users:
         - financial-ops-eks
 KUBEEOF
 chmod 600 /root/.kube/config
+TOKEN="$(curl -sX PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' || true)"
+if [ -n "$TOKEN" ]; then
+  TELEPORT_PRIVATE_IP="$(curl -sH "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)"
+else
+  TELEPORT_PRIVATE_IP="$(hostname -I | awk '{print $1}')"
+fi
+echo "Teleport private IP: $TELEPORT_PRIVATE_IP"
+TELEPORT_PUBLIC_ADDR="teleport.local"
+echo "Teleport public addr: $TELEPORT_PUBLIC_ADDR:3080"
 echo "kubeconfig 생성 완료"
 
 # ── 4. Teleport 설정 ────────────────────────────────────────────────────────
-cat > /etc/teleport.yaml << 'TELEEOF'
+cat > /etc/teleport.yaml << TELEEOF
 version: v3
 teleport:
   nodename: financial-teleport
@@ -59,12 +68,15 @@ auth_service:
   enabled: yes
   listen_addr: 0.0.0.0:3025
   cluster_name: financial-teleport
+  tokens:
+    - "app:${teleport_app_join_token}"
 proxy_service:
   enabled: yes
   web_listen_addr: 0.0.0.0:3080
   tunnel_listen_addr: 0.0.0.0:3024
-  public_addr: localhost:3080
-  ssh_public_addr: localhost:3080
+  public_addr: $${TELEPORT_PUBLIC_ADDR}:3080
+  ssh_public_addr: $${TELEPORT_PRIVATE_IP}:3080
+  tunnel_public_addr: $${TELEPORT_PRIVATE_IP}:3024
   kube_listen_addr: 0.0.0.0:3026
 ssh_service:
   enabled: no
@@ -124,14 +136,41 @@ spec:
 ROLEEOF
 echo "kube-access role 설정 완료"
 
-# ── 9. Teleport 유저 생성 ───────────────────────────────────────────────────
+tctl create -f << 'APPROLEEOF' 2>&1 || echo "mas-ui-access role 이미 존재"
+kind: role
+version: v7
+metadata:
+  name: mas-ui-access
+spec:
+  allow:
+    app_labels:
+      type: mas-ui
+APPROLEEOF
+echo "mas-ui-access role 설정 완료"
+
+# ── 9. Teleport 유저 생성 (없는 유저만 생성) ──────────────────────────────
 echo "=== Teleport 유저 invite 링크 ==="
-tctl users add bgshin     --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 신봉근
-tctl users add junho      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 백준호
-tctl users add junyounglee --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 이준영
-tctl users add dahyeon    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 조다현
-tctl users add sangjun    --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 허상준
-tctl users add gyeonghan  --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김경한
-tctl users add minsu      --roles=editor,access,kube-access --logins=root,ubuntu --ttl=48h 2>&1 || echo "유저 이미 존재" # 김민수
+
+create_user_if_not_exists() {
+  local username=$1
+  local comment=$2
+  shift 2
+
+  if tctl users ls 2>/dev/null | awk 'NR>2 {print $1}' | grep -qx "$username"; then
+    echo "유저 이미 존재 (스킵): $username ($comment)"
+  else
+    echo "유저 생성 중: $username ($comment)"
+    tctl users add "$username" "$@" --ttl=48h
+  fi
+}
+
+create_user_if_not_exists bgshin       "신봉근"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists junho        "백준호"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists junyounglee  "이준영"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists dahyeon      "조다현"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists sangjun      "허상준"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists gyeonghan    "김경한"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+create_user_if_not_exists minsu        "김민수"  --roles=editor,access,kube-access,mas-ui-access --logins=root,ubuntu
+
 echo "=== 초기화 완료: $(date) ==="
 echo "로그 확인: cat /var/log/teleport-init.log | grep -A2 'invite'"
