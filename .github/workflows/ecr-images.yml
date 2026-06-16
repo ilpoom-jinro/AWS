@@ -7,6 +7,8 @@ on:
     paths:
       - "ansible/**"
       - "gitops/**"
+      - "ecr.tf"
+      - "variables.tf"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
       - ".github/workflows/ecr-images.yml"
@@ -39,6 +41,11 @@ on:
         type: boolean
       mirror_kyverno:
         description: "Mirror Kyverno images into ECR"
+        required: true
+        default: false
+        type: boolean
+      mirror_finops_runtime:
+        description: "Mirror FinOps runtime images such as Temporal and Postgres into ECR"
         required: true
         default: false
         type: boolean
@@ -75,6 +82,10 @@ env:
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
+  FINOPS_TEMPORAL_REPOSITORY: financial/mas/finops/temporal
+  FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:1.24.2
+  FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
+  FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
 
 jobs:
   images:
@@ -220,6 +231,10 @@ jobs:
           -target=aws_ecr_lifecycle_policy.kyverno_cli
           -target=aws_ecr_repository.kyverno_kubectl
           -target=aws_ecr_lifecycle_policy.kyverno_kubectl
+          -target=aws_ecr_repository.finops_temporal
+          -target=aws_ecr_lifecycle_policy.finops_temporal
+          -target=aws_ecr_repository.finops_postgres
+          -target=aws_ecr_lifecycle_policy.finops_postgres
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -249,6 +264,8 @@ jobs:
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/reports-controller"
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/kyverno-cli"
           aws ecr describe-repositories --repository-names "${KUBECTL_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${FINOPS_TEMPORAL_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${FINOPS_POSTGRES_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -343,6 +360,26 @@ jobs:
           docker pull "${source_image}"
           docker tag "${source_image}" "${target_image}"
           docker push "${target_image}"
+
+      - name: Mirror FinOps runtime images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          temporal_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:1.24.2"
+          postgres_target="${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:16-alpine"
+
+          docker pull "${FINOPS_TEMPORAL_SOURCE_IMAGE}"
+          docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${temporal_target}"
+          docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
+          docker push "${temporal_target}"
+          docker push "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
+
+          docker pull "${FINOPS_POSTGRES_SOURCE_IMAGE}"
+          docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${postgres_target}"
+          docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
+          docker push "${postgres_target}"
+          docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true

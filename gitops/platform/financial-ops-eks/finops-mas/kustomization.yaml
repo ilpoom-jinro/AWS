@@ -4,10 +4,18 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - serviceaccount.yaml
+  - serviceaccount-orchestrator.yaml
+  - postgres.yaml
+  - temporal.yaml
   - deployment.yaml
   - service.yaml
+  - orchestrator-deployment.yaml
+  - orchestrator-service.yaml
 
 images:
   - name: finops-ui-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/ui
+    newTag: latest
+  - name: finops-orchestrator-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/orchestrator
     newTag: latest
