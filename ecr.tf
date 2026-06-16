@@ -573,6 +573,82 @@ resource "aws_ecr_lifecycle_policy" "teleport" {
   })
 }
 
+resource "aws_ecr_repository" "finops_temporal" {
+  name                 = "financial/mas/finops/temporal"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/finops/temporal"
+    Purpose   = "finops-temporal-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "finops_temporal" {
+  repository = aws_ecr_repository.finops_temporal.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 FinOps Temporal images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "finops_postgres" {
+  name                 = "financial/mas/finops/postgres"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/finops/postgres"
+    Purpose   = "finops-postgres-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "finops_postgres" {
+  repository = aws_ecr_repository.finops_postgres.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 FinOps Postgres images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "pause" {
   name                 = "financial/pause"
   image_tag_mutability = "MUTABLE"
