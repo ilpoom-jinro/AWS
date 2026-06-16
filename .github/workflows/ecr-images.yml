@@ -83,7 +83,7 @@ env:
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
   FINOPS_TEMPORAL_REPOSITORY: financial/mas/finops/temporal
-  FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:1.24.2
+  FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
   FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
   FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
 
@@ -366,14 +366,12 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          temporal_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:1.24.2"
+          temporal_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
           postgres_target="${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:16-alpine"
 
           docker pull "${FINOPS_TEMPORAL_SOURCE_IMAGE}"
           docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${temporal_target}"
-          docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
           docker push "${temporal_target}"
-          docker push "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
 
           docker pull "${FINOPS_POSTGRES_SOURCE_IMAGE}"
           docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${postgres_target}"
