@@ -118,9 +118,13 @@ phases:
           | kubectl --context financial-service-eks apply -f -
 
         # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
+        # non-CRD 리소스는 Gitea → ArgoCD가 관리하므로 CRD만 필터링.
+        # 전체 apply 시 argocd-controller와 field manager 충돌 및 immutable Job 에러 발생.
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
           | kubectl --context financial-ops-eks apply --server-side -f -
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
           | kubectl --context financial-service-eks apply --server-side -f -
 
         # ── Gitea용 매니페스트 — CRD 제외 (ArgoCD가 관리하는 non-CRD 리소스만) ──
