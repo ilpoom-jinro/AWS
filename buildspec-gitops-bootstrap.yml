@@ -22,12 +22,12 @@ phases:
             echo "Kyverno service is missing on ${CONTEXT}; removing stale webhook configurations."
 
             kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
+              -o name | { grep kyverno || true; } | while read -r webhook; do
                 kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
               done
 
             kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
+              -o name | { grep kyverno || true; } | while read -r webhook; do
                 kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
               done
           fi
