@@ -36,6 +36,17 @@
       register: ops_vpc_id
       changed_when: false
 
+    - name: Read the Service VPC ID from the EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks describe-cluster
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --query cluster.resourcesVpcConfig.vpcId
+          --output text
+      register: service_vpc_id
+      changed_when: false
+
     - name: Read the AWS account ID for the private ECR registry
       ansible.builtin.command:
         cmd: >
@@ -207,6 +218,7 @@
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
             "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
+            "REPLACE_WITH_SERVICE_VPC_ID": os.environ["SERVICE_VPC_ID"],
         }
 
         for path in Path(".").rglob("*"):
@@ -238,6 +250,7 @@
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
+        SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
         
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
