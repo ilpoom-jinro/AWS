@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - frontend/frontend.yaml
   - frontend/ingress.yaml
+  - frontend/gateway.yaml
   - backend/backend.yaml
 
 images:
