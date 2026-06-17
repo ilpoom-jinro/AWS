@@ -1,13 +1,13 @@
 # =============================================================================
 # Kyverno Helm Values
 # Chart: kyverno/kyverno  (https://kyverno.github.io/kyverno/)
-# 구성: Single-node — replicas=1, no PodDisruptionBudget
+# 구성: 2-node — admissionController replicas=2, 나머지 leader election으로 1
 # 대상 클러스터: financial-service-eks, financial-ops-eks
 # =============================================================================
 
 # Admission Controller — 정책 웹훅을 처리하는 핵심 컴포넌트
 admissionController:
-  replicas: 1
+  replicas: 2
   service:
     port: 443
     type: ClusterIP
