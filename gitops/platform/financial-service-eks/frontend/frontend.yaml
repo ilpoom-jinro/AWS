@@ -36,10 +36,10 @@ metadata:
   namespace: stock-demo
   labels:
     app: stock-web
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
 spec:
-  type: LoadBalancer
+  # ClusterIP: 외부 노출은 ALB Ingress(ingress.yaml)가 담당. 기존 type:LoadBalancer는
+  # in-tree CLB를 만들어 single-node 환경에서 NodePort 경로 문제로 접속 불가였음.
+  type: ClusterIP
   selector:
     app: stock-web
   ports:

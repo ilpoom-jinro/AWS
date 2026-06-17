@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - frontend/frontend.yaml
+  - frontend/ingress.yaml
   - backend/backend.yaml
 
 images:
