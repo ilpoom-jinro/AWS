@@ -21,16 +21,36 @@ phases:
           if ! kubectl --context "${CONTEXT}" -n kyverno get svc kyverno-svc >/dev/null 2>&1; then
             echo "Kyverno service is missing on ${CONTEXT}; removing stale webhook configurations."
 
-            kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
-                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
-              done
+            for webhook in $(kubectl --context "${CONTEXT}" get validatingwebhookconfigurations \
+              -o name 2>/dev/null | grep kyverno || true); do
+              kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+            done
 
-            kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
-              -o name | grep kyverno | while read -r webhook; do
-                kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
-              done
+            for webhook in $(kubectl --context "${CONTEXT}" get mutatingwebhookconfigurations \
+              -o name 2>/dev/null | grep kyverno || true); do
+              kubectl --context "${CONTEXT}" delete "${webhook}" --ignore-not-found
+            done
           fi
+        done
+      - |
+        set -euo pipefail
+
+        # ── AWS Load Balancer Controller CRDs — ArgoCD CRD exclusion으로 sync 제외됨.
+        # ansible-playbook이 app-of-apps를 등록하면 ArgoCD가 즉시 sync를 시작하므로
+        # IngressClassParams / TargetGroupBinding apply 전에 CRD가 반드시 먼저
+        # 설치되어야 함. TargetGroupBinding CRD는 service 클러스터의 target-type:ip
+        # ALB 동작에도 필수이므로 ops + service 양 클러스터 모두에 직접 apply.
+        # (service 컨텍스트를 먼저 처리해 루프 종료 시 current 컨텍스트가
+        #  financial-ops-eks로 남도록 함 — 이후 단계는 ops 컨텍스트를 가정) ──
+        for CLUSTER in financial-service-eks financial-ops-eks; do
+          aws eks update-kubeconfig \
+            --region ap-northeast-2 \
+            --name "${CLUSTER}" \
+            --alias "${CLUSTER}"
+
+          kubectl --context "${CLUSTER}" apply --server-side \
+            -f /workspace/gitops/platform/helmChart/charts/aws-load-balancer-controller/crds/crds.yaml \
+            -f /workspace/gitops/platform/helmChart/charts/aws-load-balancer-controller/crds/gateway-crds.yaml
         done
       - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
@@ -97,10 +117,20 @@ phases:
           --set "policyReportsCleanup.image.registry=${ECR_REGISTRY}"
         )
 
+        # ── kyverno 네임스페이스 사전 생성 (없으면 namespace-scoped 리소스 apply 실패) ──
+        kubectl --context financial-ops-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-ops-eks apply -f -
+        kubectl --context financial-service-eks create namespace kyverno --dry-run=client -o yaml \
+          | kubectl --context financial-service-eks apply -f -
+
         # ── CRD는 ArgoCD 관리 대상 제외 — 양 클러스터에 직접 apply ──
+        # non-CRD 리소스는 Gitea → ArgoCD가 관리하므로 CRD만 필터링.
+        # 전체 apply 시 argocd-controller와 field manager 충돌 및 immutable Job 에러 발생.
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
           | kubectl --context financial-ops-eks apply --server-side -f -
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" --include-crds \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
           | kubectl --context financial-service-eks apply --server-side -f -
 
         # ── Gitea용 매니페스트 — CRD 제외 (ArgoCD가 관리하는 non-CRD 리소스만) ──

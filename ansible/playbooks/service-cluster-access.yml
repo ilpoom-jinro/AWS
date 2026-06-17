@@ -152,6 +152,10 @@
             - apiGroups: [security.istio.io]
               resources: [authorizationpolicies]
               verbs: [get, list, watch, create, update, patch, delete]
+            # observability-alloy-service ClusterRole이 /metrics nonResourceURL 권한을 포함하므로
+            # argocd-manager가 해당 권한을 보유해야 privilege escalation 없이 ClusterRole 생성 가능.
+            - nonResourceURLs: ["/metrics"]
+              verbs: [get]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
