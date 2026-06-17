@@ -143,7 +143,7 @@ resource "aws_launch_template" "eks_node_ops" {
     ebs {
       volume_size           = var.eks_node_disk_size
       volume_type           = "gp3"
-      encrypted             = true              # 금융권 필수: 노드 루트 볼륨 CMK 암호화
+      encrypted             = true # 금융권 필수: 노드 루트 볼륨 CMK 암호화
       kms_key_id            = var.kms_key_eks_arn
       delete_on_termination = true
     }
@@ -319,7 +319,7 @@ resource "aws_launch_template" "eks_node_monitor" {
     ebs {
       volume_size           = var.eks_node_disk_size # ops general 노드와 동일한 30GiB
       volume_type           = "gp3"
-      encrypted             = true                   # 금융권 필수: 모니터링 노드 루트 볼륨 CMK 암호화
+      encrypted             = true # 금융권 필수: 모니터링 노드 루트 볼륨 CMK 암호화
       kms_key_id            = var.kms_key_eks_arn
       delete_on_termination = true
     }

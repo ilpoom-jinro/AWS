@@ -32,7 +32,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
   bucket = aws_s3_bucket.terraform_state.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"                              # aws/s3 기본키 대신 CMK 사용
+      sse_algorithm     = "aws:kms" # aws/s3 기본키 대신 CMK 사용
       kms_master_key_id = data.aws_kms_alias.key_s3.target_key_arn
     }
     bucket_key_enabled = true
@@ -87,7 +87,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail_logs_l
   bucket = aws_s3_bucket.cloudtrail_logs_locked.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"                              # aws/s3 기본키 대신 CMK 사용
+      sse_algorithm     = "aws:kms" # aws/s3 기본키 대신 CMK 사용
       kms_master_key_id = data.aws_kms_alias.key_s3.target_key_arn
     }
     bucket_key_enabled = true
