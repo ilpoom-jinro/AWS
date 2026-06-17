@@ -169,8 +169,6 @@ def index() -> str:
         color: #075985;
         font-size: 12px;
         font-weight: 700;
-        padding: 10px 14px;
-        cursor: pointer;
       }
       button {
         border: 0;
@@ -324,6 +322,7 @@ def index() -> str:
     <script>
       let currentWorkflow = null;
       let calendarItems = [];
+      let workflowPoller = null;
 
       async function api(path, options = {}) {
         const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -342,7 +341,8 @@ def index() -> str:
           renderCalendar(calendarItems);
           if (data.active_workflow) {
             currentWorkflow = data.active_workflow.workflow_id;
-            await loadWorkflow(currentWorkflow);
+            const done = await loadWorkflow(currentWorkflow);
+            if (!done) startWorkflowPolling(currentWorkflow);
           } else {
             renderEmptyConversation();
           }
@@ -612,14 +612,44 @@ def index() -> str:
         el.scrollTop = el.scrollHeight;
       }
 
+      function stopWorkflowPolling() {
+        if (workflowPoller) {
+          clearInterval(workflowPoller);
+          workflowPoller = null;
+        }
+      }
+
+      function startWorkflowPolling(workflowId) {
+        stopWorkflowPolling();
+        workflowPoller = setInterval(async () => {
+          try {
+            const done = await loadWorkflow(workflowId);
+            if (done) {
+              stopWorkflowPolling();
+              document.getElementById("toast").textContent = "";
+            }
+          } catch (error) {
+            showError(error);
+          }
+        }, 1000);
+      }
+
+      async function loadWorkflow(workflowId) {
+        const data = await api(`/api/workflows/${workflowId}`);
+        renderPlan(data);
+        renderConversation(data);
+        return !["running", "starting"].includes(data.status || "running");
+      }
+
       async function runPlan() {
         try {
-          document.getElementById("toast").textContent = "FinOps plan 실행 중...";
+          stopWorkflowPolling();
+          document.getElementById("toast").textContent = "Temporal workflow 시작 중...";
           renderCallingConversation();
           const result = await api("/api/workflows/run", {method: "POST"});
           currentWorkflow = result.workflow_id;
           await loadWorkflow(currentWorkflow);
-          document.getElementById("toast").textContent = "";
+          startWorkflowPolling(currentWorkflow);
         } catch (error) {
           showError(error);
         }

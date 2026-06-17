@@ -15,7 +15,7 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import build_final_plan, run_agent
+from app.agent_runtime import AGENT_DATA_REQUESTS, build_final_plan, run_agent
 from app.workflows import FinOpsEventWorkflow
 
 
@@ -48,10 +48,12 @@ AGENT_ENDPOINTS = {
         "http://finops-policy-guardrail-agent.finops-mas.svc.cluster.local",
     ),
 }
+AGENT_VALUE_REQUESTS = AGENT_DATA_REQUESTS
 
-app = FastAPI(title="FinOps Orchestrator", version="0.2.0")
+app = FastAPI(title="FinOps Orchestrator", version="0.3.0")
 temporal_client: Client | None = None
 temporal_worker_task: asyncio.Task | None = None
+AGENT_STEP_DELAY_SECONDS = float(os.getenv("AGENT_STEP_DELAY_SECONDS", "0.8"))
 
 
 class ChatRequest(BaseModel):
@@ -70,6 +72,59 @@ def utcnow() -> str:
 
 def connect():
     return psycopg.connect(DATABASE_URL, autocommit=True)
+
+
+def format_agent_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "필요함" if value else "필요하지 않음"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def build_agent_value_exchange(
+    agent_key: str,
+    agent_name: str,
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    messages = []
+    agent_results = context.get("agent_results", {})
+    for request in AGENT_VALUE_REQUESTS.get(agent_key, []):
+        source_key = request["source_key"]
+        source_result = agent_results.get(source_key)
+        if source_result is None or request["field"] not in source_result:
+            continue
+        value = source_result[request["field"]]
+        data_request = {
+            "requester_agent": agent_key,
+            "requester_name": agent_name,
+            "source_agent": source_key,
+            "source_name": request["source_name"],
+            "field": request["field"],
+            "label": request["label"],
+            "status": "fulfilled_from_workflow_state",
+            "value": value,
+        }
+        context.setdefault("data_requests", []).append(data_request)
+        messages.append(
+            {
+                "sender": agent_name,
+                "receiver": request["source_name"],
+                "message": f"{request['label']} 값이 필요합니다. 현재 단계 판단에 사용할 수 있도록 공유해 주세요.",
+                "payload": {"type": "value_request", **data_request, "value": None},
+            }
+        )
+        messages.append(
+            {
+                "sender": request["source_name"],
+                "receiver": agent_name,
+                "message": f"{request['label']}은 {format_agent_value(value)}입니다. 이 값을 기준으로 다음 판단을 진행하세요.",
+                "payload": {"type": "value_response", **data_request},
+            }
+        )
+    return messages
 
 
 def fetch_event_context(event_id: str) -> dict[str, Any]:
@@ -245,6 +300,57 @@ async def run_agent_step(
     next_agent_name: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
+    started_at = utcnow()
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into agent_decision_log
+              (workflow_id, phase, agent, status, result, created_at)
+            values (%s, %s, %s, 'running', %s, %s)
+            """,
+            (
+                workflow_id,
+                phase,
+                agent_name,
+                json.dumps({"agent_key": agent_key, "next": next_agent_name}),
+                started_at,
+            ),
+        )
+        conn.execute(
+            """
+            insert into agent_conversation_log
+              (workflow_id, phase, sender, receiver, message, payload, created_at)
+            values (%s, %s, 'FinOps Orchestrator', %s, %s, %s, %s)
+            """,
+            (
+                workflow_id,
+                phase,
+                agent_name,
+                f"{agent_name}에게 현재 이벤트 컨텍스트와 이전 agent 결과를 전달했습니다. 결과가 오면 다음 단계인 {next_agent_name}에게 넘기겠습니다.",
+                json.dumps({"agent_key": agent_key, "status": "calling"}),
+                started_at,
+            ),
+        )
+        for exchange in build_agent_value_exchange(agent_key, agent_name, context):
+            conn.execute(
+                """
+                insert into agent_conversation_log
+                  (workflow_id, phase, sender, receiver, message, payload, created_at)
+                values (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    workflow_id,
+                    phase,
+                    exchange["sender"],
+                    exchange["receiver"],
+                    exchange["message"],
+                    json.dumps(exchange["payload"]),
+                    utcnow(),
+                ),
+            )
+    if AGENT_STEP_DELAY_SECONDS > 0:
+        await asyncio.sleep(AGENT_STEP_DELAY_SECONDS)
+
     output = (
         call_agent_pod(agent_key, workflow_id, context)
         if agent_key in AGENT_ENDPOINTS
@@ -284,6 +390,7 @@ async def run_agent_step(
 @activity.defn(name="finalize_finops_plan")
 async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
     plan = build_final_plan(context)
+    plan["data_requests"] = context.get("data_requests", [])
     created_at = utcnow()
     with connect() as conn:
         conn.execute(
@@ -291,6 +398,11 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
             insert into final_event_plan
               (workflow_id, event_id, status, plan, created_at, updated_at)
             values (%s, %s, 'waiting_approval', %s, %s, %s)
+            on conflict (workflow_id) do update set
+              event_id = excluded.event_id,
+              status = excluded.status,
+              plan = excluded.plan,
+              updated_at = excluded.updated_at
             """,
             (workflow_id, plan["event_id"], json.dumps(plan), created_at, created_at),
         )
@@ -312,6 +424,19 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
                 workflow_id,
                 "최종 FinOps 계획을 만들었습니다. 운영자 승인을 기다립니다.",
                 json.dumps({"plan": plan}),
+                utcnow(),
+            ),
+        )
+        conn.execute(
+            """
+            insert into agent_conversation_log
+              (workflow_id, phase, sender, receiver, message, payload, created_at)
+            values (%s, 13, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
+            """,
+            (
+                workflow_id,
+                "최종 FinOps 계획을 만들었습니다. 운영자 승인을 기다립니다.",
+                json.dumps({"plan": plan, "status": "waiting_approval"}),
                 utcnow(),
             ),
         )
@@ -379,18 +504,63 @@ async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
     workflow_id = f"finops-{uuid.uuid4().hex[:8]}"
     try:
         client = await get_temporal_client()
-        result = await asyncio.wait_for(
-            client.execute_workflow(
-                FinOpsEventWorkflow.run,
-                args=[event_id, workflow_id],
-                id=workflow_id,
-                task_queue=TEMPORAL_TASK_QUEUE,
-            ),
-            timeout=30,
+        created_at = utcnow()
+        with connect() as conn:
+            conn.execute(
+                """
+                insert into final_event_plan
+                  (workflow_id, event_id, status, plan, created_at, updated_at)
+                values (%s, %s, 'running', %s, %s, %s)
+                """,
+                (
+                    workflow_id,
+                    event_id,
+                    json.dumps({"event_id": event_id, "engine": "temporal", "phase": "starting"}),
+                    created_at,
+                    created_at,
+                ),
+            )
+            conn.execute(
+                """
+                insert into agent_conversation_log
+                  (workflow_id, phase, sender, receiver, message, payload, created_at)
+                values (%s, 0, 'Operator', 'FinOps Orchestrator', %s, %s, %s)
+                """,
+                (
+                    workflow_id,
+                    "비즈니스 캘린더의 이벤트를 기준으로 FinOps 계획 수립을 요청했습니다.",
+                    json.dumps({"event_id": event_id, "status": "requested"}),
+                    created_at,
+                ),
+            )
+            conn.execute(
+                """
+                insert into agent_conversation_log
+                  (workflow_id, phase, sender, receiver, message, payload, created_at)
+                values (%s, 0, 'FinOps Orchestrator', 'Temporal', %s, %s, %s)
+                """,
+                (
+                    workflow_id,
+                    f"Temporal task queue '{TEMPORAL_TASK_QUEUE}'에 FinOpsEventWorkflow 실행을 예약했습니다.",
+                    json.dumps(
+                        {
+                            "event_id": event_id,
+                            "workflow_id": workflow_id,
+                            "task_queue": TEMPORAL_TASK_QUEUE,
+                        }
+                    ),
+                    created_at,
+                ),
+            )
+        await client.start_workflow(
+            FinOpsEventWorkflow.run,
+            args=[event_id, workflow_id],
+            id=workflow_id,
+            task_queue=TEMPORAL_TASK_QUEUE,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"temporal workflow failed: {exc}") from exc
-    return {"workflow_id": workflow_id, "status": result["status"], "engine": "temporal"}
+    return {"workflow_id": workflow_id, "status": "running", "engine": "temporal"}
 
 
 @app.get("/api/workflows")
@@ -448,6 +618,7 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
         "event_id": plan[1],
         "status": plan[2],
         "plan": plan[3],
+        "data_requests": plan[3].get("data_requests", []) if isinstance(plan[3], dict) else [],
         "updated_at": plan[4],
         "timeline": [
             {
