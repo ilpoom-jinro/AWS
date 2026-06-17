@@ -43,8 +43,8 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "peak_reduction_percent": 42,
         }
         message = (
-            f"비즈니스 정책을 반영해 VIP는 즉시 발송하고 일반 사용자는 {delay}분 동안 분산하겠습니다. "
-            "이 전략이면 예상 피크를 약 42% 낮출 수 있습니다."
+            f"VIP는 즉시 발송하고 일반 사용자는 {delay}분 동안 분산하겠습니다. "
+            "이 전략이면 예상 peak를 약 42% 낮출 수 있습니다."
         )
     elif agent_key == "traffic_forecast":
         shaping = context["agent_results"]["demand_shaping"]
@@ -58,8 +58,8 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "based_on": "demand_shaping",
         }
         message = (
-            f"Demand Shaping 결과를 반영하면 피크는 {before} rps에서 {after} rps로 낮아집니다. "
-            f"앱 계층은 {pods}개 pod를 준비하는 계획이 적절합니다."
+            f"Demand Shaping 결과를 반영하면 peak는 {before} rps에서 {after} rps로 낮아집니다. "
+            f"이 수준에서는 app pod {pods}개를 준비하는 계획이 적절합니다."
         )
     elif agent_key == "bottleneck_capacity":
         forecast = context["agent_results"]["traffic_forecast"]
@@ -71,8 +71,8 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "validated_rps": forecast["peak_rps_after"],
         }
         message = (
-            f"{forecast['peak_rps_after']} rps 기준으로 DB CPU는 약 68%, 캐시 hit ratio는 91%로 예상됩니다. "
-            "전체 경로는 버티지만 캐시 hit ratio를 유지해야 합니다."
+            f"{forecast['peak_rps_after']} rps 기준으로 DB CPU는 68%, cache hit ratio는 91%로 예상됩니다. "
+            "전체 경로는 버틸 수 있지만 cache hit ratio를 유지해야 합니다."
         )
     elif agent_key == "infra_execution":
         forecast = context["agent_results"]["traffic_forecast"]
@@ -83,7 +83,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "target_app_pods": forecast["required_app_pods"],
         }
         message = (
-            f"T-20분에 app pod를 {forecast['required_app_pods']}개까지 준비하고, "
+            f"T-20분에 app pod를 {forecast['required_app_pods']}개까지 준비하고 "
             "T-15분에 CDN/cache pre-warm을 시작하겠습니다."
         )
     elif agent_key == "cost":
@@ -142,7 +142,8 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     elif agent_key == "postmortem_learning":
         result = {"profile_update": "pending_after_execution", "compare": ["forecast", "actual", "cost"]}
         message = (
-            "이벤트 종료 후 예측값과 실제 트래픽, 실제 비용을 비교해 다음 이벤트 profile을 갱신하겠습니다."
+            "이벤트 종료 후 예측값, 실제 트래픽, 실제 비용을 비교해서 "
+            "다음 이벤트 profile을 갱신하겠습니다."
         )
     else:
         raise ValueError(f"unknown agent: {agent_key}")
@@ -166,6 +167,6 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
             "VIP 사용자는 즉시 발송",
             f"일반 사용자는 {context['policy']['max_general_delay_minutes']}분 동안 분산 발송",
             "푸시 15분 전 CDN/cache pre-warm",
-            "예상 피크에 맞춰 app pod scale-out 후 실제 RPS 기반 scale-down",
+            "예상 peak에 맞춰 app pod scale-out 후 실제 RPS 기반 scale-down",
         ],
     }
