@@ -137,7 +137,7 @@ phases:
         # helm template은 crds/ 디렉토리만 --include-crds로 제어하므로
         # templates/ 안에 정의된 CRD(예: updaterequests.kyverno.io)는 별도 필터링 필요.
         helm template kyverno /opt/helm-charts/kyverno "${HELM_FLAGS[@]}" \
-          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")!="CustomResourceDefinition"]' \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump({**d,"apiVersion":"policy/v1"} if d.get("kind")=="PodDisruptionBudget" and d.get("apiVersion")=="policy/v1beta1" else d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")!="CustomResourceDefinition"]' \
           > /tmp/kyverno-install.yaml
 
         # ── Gitea kyverno/ 경로에 렌더링된 매니페스트 및 정책 push ──
