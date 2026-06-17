@@ -145,8 +145,12 @@ resource "aws_eks_node_group" "service" {
   disk_size       = var.eks_node_disk_size
 
   scaling_config {
-    desired_size = var.single_az_mode ? 1 : var.eks_node_desired_size
-    min_size     = var.single_az_mode ? 1 : var.eks_node_min_size
+    # service general 노드는 외부 노출 데모앱 + Istio(istiod/ztunnel/gateway) 등이
+    # 올라가 CPU가 빠듯함(2 vCPU 노드 단일 시 ~93% requests). CPU 확보와 HA,
+    # Istio Gateway pod 수용을 위해 노드 수는 single_az_mode와 무관하게
+    # eks_node_desired/min_size(기본 2)를 따른다. (ops general과 동일 패턴)
+    desired_size = var.eks_node_desired_size
+    min_size     = var.eks_node_min_size
     max_size     = var.eks_node_max_size
   }
 
