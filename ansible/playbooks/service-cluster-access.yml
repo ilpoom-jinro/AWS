@@ -141,7 +141,7 @@
               verbs: [get, list, watch, create, update, patch, delete]
             - apiGroups: [rbac.authorization.k8s.io]
               resources: [clusterroles, clusterrolebindings]
-              verbs: [get, list, watch, create, update, patch, delete]
+              verbs: [get, list, watch, create, update, patch, delete, escalate, bind]
             - apiGroups: [admissionregistration.k8s.io]
               resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
               verbs: [get, list, watch, create, update, patch, delete]
