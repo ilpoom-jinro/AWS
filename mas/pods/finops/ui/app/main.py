@@ -131,9 +131,9 @@ def index() -> str:
       h2 { font-size: 16px; }
       h3 { font-size: 14px; }
       main {
-        max-width: 1440px;
-        margin: 0 auto;
-        padding: 18px;
+        width: 100%;
+        margin: 0;
+        padding: 16px 18px;
         display: grid;
         grid-template-columns: 1fr;
         gap: 16px;
@@ -153,7 +153,7 @@ def index() -> str:
       }
       .content-grid {
         display: grid;
-        grid-template-columns: 360px minmax(0, 1fr);
+        grid-template-columns: minmax(420px, 30vw) minmax(0, 1fr);
         gap: 16px;
         align-items: start;
       }
@@ -198,13 +198,16 @@ def index() -> str:
       }
       .day-name { color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }
       .day {
-        min-height: 72px;
+        min-height: 92px;
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 7px;
         background: #fff;
       }
-      .day.outside { background: #f1f5f9; color: #94a3b8; }
+      .day.empty {
+        border-color: transparent;
+        background: transparent;
+      }
       .day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
       .date-number { font-size: 12px; font-weight: 700; }
       .event-pill {
@@ -216,6 +219,8 @@ def index() -> str:
         font-size: 11px;
         line-height: 1.25;
         font-weight: 700;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       .chat-room {
         min-height: 560px;
@@ -351,22 +356,22 @@ def index() -> str:
         document.getElementById("calendar-month").textContent =
           now.toLocaleString("en", {month: "short", year: "numeric"});
         const first = new Date(year, month, 1);
-        const start = new Date(first);
-        start.setDate(first.getDate() - first.getDay());
+        const last = new Date(year, month + 1, 0);
         const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const headers = names.map(name => `<div class="day-name">${name}</div>`).join("");
         const days = [];
-        for (let i = 0; i < 42; i++) {
-          const date = new Date(start);
-          date.setDate(start.getDate() + i);
+        for (let i = 0; i < first.getDay(); i++) {
+          days.push('<div class="day empty"></div>');
+        }
+        for (let day = 1; day <= last.getDate(); day++) {
+          const date = new Date(year, month, day);
           const isToday = date.toDateString() === now.toDateString();
-          const outside = date.getMonth() !== month;
           const events = isToday ? items.map(item => `
             <div class="event-pill">${item.title}<br>${item.scheduled_at} / Grade ${item.grade}</div>
           `).join("") : "";
           days.push(`
-            <div class="day ${outside ? "outside" : ""} ${isToday ? "today" : ""}">
-              <div class="date-number">${date.getDate()}</div>${events}
+            <div class="day ${isToday ? "today" : ""}">
+              <div class="date-number">${day}</div>${events}
             </div>
           `);
         }
