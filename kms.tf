@@ -787,9 +787,8 @@ resource "aws_kms_key" "key_eks" {
         Resource = "*"
       },
       {
-        # EC2 서비스: EKS managed node group EBS 볼륨 암호화
-        # AutoScaling SLR ARN은 첫 apply 시 미존재 가능 → ec2.amazonaws.com으로 교체
-        # DenyCrossAccount Condition이 이 계정 내 EC2 호출만 허용하도록 범위 제한
+        # EC2 서비스: 직접 RunInstances 경로(EBS 즉시 암호화)용. EKS managed node
+        # group은 ASG가 인스턴스를 띄우므로 이 프린시팔로는 부족 → 아래 SLR 권한 필수.
         Sid    = "AllowEC2EBSEncryption"
         Effect = "Allow"
         Principal = {
@@ -803,6 +802,42 @@ resource "aws_kms_key" "key_eks" {
           "kms:DescribeKey"
         ]
         Resource = "*"
+      },
+      {
+        # AutoScaling service-linked role: EKS managed node group의 ASG가 노드 EBS
+        # 루트 볼륨을 이 CMK로 암호화할 때 사용. SLR에 직접 권한이 없으면 인스턴스
+        # launch가 Client.InvalidKMSKey.InvalidState로 실패하여 노드가 클러스터에
+        # join하지 못해 노드그룹이 CREATE_FAILED가 된다. (ec2.amazonaws.com 프린시팔만으로는
+        # 불충분 — ASG는 SLR 자격으로 KMS를 직접 호출한다.)
+        Sid    = "AllowAutoScalingEBSEncryption"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      },
+      {
+        # ASG SLR이 암호화된 EBS 볼륨에 대한 grant를 생성하도록 허용
+        # (GrantIsForAWSResource로 AWS 리소스 경유 호출만 허용해 범위 제한)
+        Sid    = "AllowAutoScalingCreateGrant"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        }
+        Action   = "kms:CreateGrant"
+        Resource = "*"
+        Condition = {
+          Bool = {
+            "kms:GrantIsForAWSResource" = "true"
+          }
+        }
       },
       {
         Sid    = "DenyCrossAccount"
