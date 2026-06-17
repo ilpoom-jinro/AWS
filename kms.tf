@@ -305,12 +305,15 @@ resource "aws_kms_alias" "key_rds_globalservice" {
 }
 
 # KMS 키 생성 후 AWS 내부 전파 대기
-# 키 생성 직후 RDS가 바로 사용하면 inaccessible-encryption-credentials 발생
+# 키 생성 직후 RDS/EKS가 바로 사용하면 inaccessible-encryption-credentials 발생
 resource "time_sleep" "kms_rds_propagation" {
   depends_on = [
     aws_kms_key.key_rds_ops,
     aws_kms_key.key_rds_globalservice,
     aws_kms_key.key_cloudtrail,
+    aws_kms_key.key_s3,
+    aws_kms_key.key_secretsmanager,
+    aws_kms_key.key_eks,
   ]
   create_duration = "15s"
 }
@@ -447,4 +450,409 @@ resource "aws_kms_key" "key_cloudtrail" {
 resource "aws_kms_alias" "key_cloudtrail" {
   name          = "alias/key-cloudtrail"
   target_key_id = aws_kms_key.key_cloudtrail.key_id
+}
+
+# =============================================
+# key-s3 (S3 버킷 암호화)
+# 대상: terraform state, cloudtrail logs, teleport sessions
+# =============================================
+resource "aws_kms_key" "key_s3" {
+  description             = "S3 CMK for ilpumjinro"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSAdminRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
+        }
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:UpdateKeyDescription",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:EnableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSBreakGlassRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
+        }
+        Action = [
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:DisableKey",
+          "kms:DescribeKey",
+          "kms:ListKeys",
+          "kms:ListAliases"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowS3Service"
+        Effect = "Allow"
+        Principal = {
+          Service = "s3.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyCrossAccount"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+        Condition = {
+          StringNotEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            "aws:PrincipalIsAWSService" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyWithoutMFA"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = [
+          "kms:DisableKey",
+          "kms:ScheduleKeyDeletion"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [module.iam]
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "S3"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_s3" {
+  name          = "alias/key-s3"
+  target_key_id = aws_kms_key.key_s3.key_id
+}
+
+# =============================================
+# key-secretsmanager (Secrets Manager 암호화)
+# 대상: service/ops RDS 마스터 비밀번호
+# =============================================
+resource "aws_kms_key" "key_secretsmanager" {
+  description             = "Secrets Manager CMK for ilpumjinro"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSAdminRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
+        }
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:UpdateKeyDescription",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:EnableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSBreakGlassRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
+        }
+        Action = [
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:DisableKey",
+          "kms:DescribeKey",
+          "kms:ListKeys",
+          "kms:ListAliases"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowSecretsManagerService"
+        Effect = "Allow"
+        Principal = {
+          Service = "secretsmanager.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyCrossAccount"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+        Condition = {
+          StringNotEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            "aws:PrincipalIsAWSService" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyWithoutMFA"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = [
+          "kms:DisableKey",
+          "kms:ScheduleKeyDeletion"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [module.iam]
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "SecretsManager"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_secretsmanager" {
+  name          = "alias/key-secretsmanager"
+  target_key_id = aws_kms_key.key_secretsmanager.key_id
+}
+
+# =============================================
+# key-eks (EKS etcd Secrets 암호화 + EBS 노드 볼륨 암호화)
+# 대상:
+#   - financial-ops-eks / financial-service-eks encryption_config
+#   - EKS 노드 Launch Template EBS 볼륨
+#
+# Principal 설계
+#   - EKS 클러스터 Role (etcd): vpc 모듈에서 생성되므로 key 생성 시점에 미존재
+#     → MalformedPolicyDocumentException 방지를 위해 키 정책에서 제외
+#     → vpc/ops/iam.tf, vpc/globalservice/iam.tf inline 정책으로 IAM delegation 처리
+#   - EC2 서비스 (EBS 볼륨): AutoScaling SLR은 첫 apply 시 미존재 가능
+#     → ec2.amazonaws.com 서비스 프린시팔로 교체 (DenyCrossAccount로 계정 범위 제한)
+# =============================================
+resource "aws_kms_key" "key_eks" {
+  description             = "EKS CMK for ilpumjinro (etcd Secrets + EBS node volumes)"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSAdminRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
+        }
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:UpdateKeyDescription",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:EnableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSBreakGlassRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
+        }
+        Action = [
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:DisableKey",
+          "kms:DescribeKey",
+          "kms:ListKeys",
+          "kms:ListAliases"
+        ]
+        Resource = "*"
+      },
+      {
+        # EC2 서비스: EKS managed node group EBS 볼륨 암호화
+        # AutoScaling SLR ARN은 첫 apply 시 미존재 가능 → ec2.amazonaws.com으로 교체
+        # DenyCrossAccount Condition이 이 계정 내 EC2 호출만 허용하도록 범위 제한
+        Sid    = "AllowEC2EBSEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:CreateGrant",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyCrossAccount"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+        Condition = {
+          StringNotEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            "aws:PrincipalIsAWSService" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyWithoutMFA"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = [
+          "kms:DisableKey",
+          "kms:ScheduleKeyDeletion"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [module.iam]
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "EKS"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_eks" {
+  name          = "alias/key-eks"
+  target_key_id = aws_kms_key.key_eks.key_id
 }

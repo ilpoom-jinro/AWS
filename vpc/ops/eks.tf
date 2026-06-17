@@ -46,6 +46,13 @@ resource "aws_eks_cluster" "ops" {
 
   enabled_cluster_log_types = var.eks_enabled_cluster_log_types
 
+  encryption_config {
+    resources = ["secrets"] # etcd에 저장되는 Kubernetes Secret 오브젝트 암호화
+    provider {
+      key_arn = var.kms_key_eks_arn
+    }
+  }
+
   tags = {
     Name = var.eks_cluster_name
     Role = "internal-ops-cluster"
@@ -54,6 +61,7 @@ resource "aws_eks_cluster" "ops" {
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy,
     aws_iam_role_policy_attachment.eks_vpc_resource_controller,
+    aws_iam_role_policy.eks_cluster_kms, # encryption_config 전에 KMS Grant 권한 확보 필수
   ]
 }
 
@@ -135,6 +143,8 @@ resource "aws_launch_template" "eks_node_ops" {
     ebs {
       volume_size           = var.eks_node_disk_size
       volume_type           = "gp3"
+      encrypted             = true              # 금융권 필수: 노드 루트 볼륨 CMK 암호화
+      kms_key_id            = var.kms_key_eks_arn
       delete_on_termination = true
     }
   }
@@ -303,6 +313,17 @@ resource "aws_launch_template" "eks_node_monitor" {
     aws_eks_cluster.ops.vpc_config[0].cluster_security_group_id,
     aws_security_group.eks_node.id,
   ]
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.eks_node_disk_size # ops general 노드와 동일한 30GiB
+      volume_type           = "gp3"
+      encrypted             = true                   # 금융권 필수: 모니터링 노드 루트 볼륨 CMK 암호화
+      kms_key_id            = var.kms_key_eks_arn
+      delete_on_termination = true
+    }
+  }
 
   metadata_options {
     http_endpoint               = "enabled"
