@@ -15,7 +15,7 @@ ORCHESTRATOR_URL = os.getenv(
     "http://finops-orchestrator.finops-mas.svc.cluster.local",
 )
 
-app = FastAPI(title="FinOps UI Agent", version="0.3.0")
+app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
 
 class ChatRequest(BaseModel):
@@ -133,7 +133,7 @@ def index() -> str:
       main {
         width: 100%;
         margin: 0;
-        padding: 16px 18px;
+        padding: 16px;
         display: grid;
         grid-template-columns: 1fr;
         gap: 16px;
@@ -153,7 +153,7 @@ def index() -> str:
       }
       .content-grid {
         display: grid;
-        grid-template-columns: minmax(420px, 30vw) minmax(0, 1fr);
+        grid-template-columns: minmax(560px, 34vw) minmax(0, 1fr);
         gap: 16px;
         align-items: start;
       }
@@ -169,6 +169,8 @@ def index() -> str:
         color: #075985;
         font-size: 12px;
         font-weight: 700;
+        padding: 10px 14px;
+        cursor: pointer;
       }
       button {
         border: 0;
@@ -193,15 +195,15 @@ def index() -> str:
       .calendar-grid {
         display: grid;
         grid-template-columns: repeat(7, minmax(0, 1fr));
-        gap: 6px;
+        gap: 8px;
         margin-top: 12px;
       }
       .day-name { color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }
       .day {
-        min-height: 92px;
+        min-height: 118px;
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 7px;
+        padding: 8px;
         background: #fff;
       }
       .day.empty {
@@ -215,16 +217,16 @@ def index() -> str:
         border-radius: 6px;
         background: var(--accent-soft);
         color: #1e3a8a;
-        padding: 5px;
-        font-size: 11px;
+        padding: 7px;
+        font-size: 12px;
         line-height: 1.25;
         font-weight: 700;
         white-space: normal;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
       }
       .chat-room {
-        min-height: 560px;
-        max-height: calc(100vh - 376px);
+        min-height: 620px;
+        max-height: calc(100vh - 332px);
         overflow: auto;
         display: grid;
         gap: 10px;
@@ -261,6 +263,7 @@ def index() -> str:
         .content-grid { grid-template-columns: 1fr; }
         .metric { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .chat-room { max-height: none; }
+        .day { min-height: 104px; }
       }
     </style>
   </head>
@@ -509,6 +512,114 @@ def index() -> str:
             </div>
           `;
           el.scrollTop = el.scrollHeight;
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function eventIntroBubble(label = "요청") {
+        const event = calendarItems[0];
+        if (!event) return "";
+        const users = Number(event.target_users || 0).toLocaleString();
+        return `
+          <div class="bubble operator">
+            <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
+            <p>${escapeHtml(event.scheduled_at)} 예정된 ${escapeHtml(event.title)} 일정으로 FinOps 계획을 ${label}합니다. 대상자는 ${users}명입니다.</p>
+          </div>
+        `;
+      }
+
+      function renderEmptyConversation() {
+        document.getElementById("conversation-status").textContent = "ready";
+        document.getElementById("agent-chat").innerHTML = `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps MAS</span><span class="badge">ready</span></div>
+            <p>아직 agent를 호출하지 않았습니다. Run FinOps Plan을 누르면 일정 확인부터 정책 검증까지 agent 호출과 결과만 순서대로 표시합니다.</p>
+          </div>
+        `;
+      }
+
+      function renderCallingConversation() {
+        document.getElementById("conversation-status").textContent = "calling_agents";
+        document.getElementById("agent-chat").innerHTML = eventIntroBubble("요청") + `
+          <div class="bubble agent">
+            <div class="speaker"><span>Orchestrator</span><span class="badge">calling</span></div>
+            <p>Temporal workflow를 시작했고, Business Control Agent부터 순서대로 호출하고 있습니다.</p>
+          </div>
+        `;
+      }
+
+      function narrate(item) {
+        const r = item.result || {};
+        switch (item.agent) {
+          case "Business Control Agent":
+            return `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "unknown"}이고, 실행 전 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Demand Shaping Agent":
+            return `VIP는 ${r.vip || "즉시"} 처리하고, 일반 사용자는 ${r.general_users || "분산 발송"} 전략으로 낮춥니다. 예상 peak 감소폭은 ${r.peak_reduction || r.peak_reduction_percent || "계산 중"}입니다.`;
+          case "Traffic Forecast Agent":
+            return `평탄화 전 peak는 ${r.peak_rps_before || "-"} rps, 평탄화 후 peak는 ${r.peak_rps_after || "-"} rps입니다. 필요한 app pod는 ${r.required_app_pods || "-"}개입니다.`;
+          case "Bottleneck Capacity Agent":
+            return `병목을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}, cache hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
+          case "Infra Execution Planner":
+            return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실측 트래픽"} 기준으로 진행합니다.`;
+          case "Cost Agent":
+            return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
+          case "Unit Economics Agent":
+            return `예상 비즈니스 가치는 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
+          case "Policy Guardrail Agent":
+            return `정책상 ${(r.allowed || []).join(", ") || "필요 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Final Plan":
+            return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
+          case "Observer Agent":
+            return `실행 중 관측을 준비했습니다. 첫 권고는 ${r.recommendation || "실제 RPS를 보고 용량을 조정"}입니다.`;
+          case "Fallback Planner":
+            return "실행이 안전하지 않으면 VIP 발송만 유지하고 일반 사용자는 hold하며 static report fallback을 제공합니다.";
+          case "Postmortem Learning Agent":
+            return `이벤트 종료 후 예측과 실제 결과를 비교합니다. 프로필 업데이트 상태는 ${r.profile_update || "pending"}입니다.`;
+          case "Dry-run Execution":
+            return "승인을 확인했습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.";
+          default:
+            return JSON.stringify(r);
+        }
+      }
+
+      function renderConversation(data) {
+        const el = document.getElementById("agent-chat");
+        document.getElementById("conversation-status").textContent = data.status || "running";
+        const messages = data.conversation && data.conversation.length
+          ? data.conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.sender)}</span><span class="badge">to ${escapeHtml(item.receiver)}</span></div>
+              <p>${escapeHtml(item.message)}</p>
+            </div>
+          `).join("")
+          : (data.timeline || []).map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.agent)}</span><span class="badge">${escapeHtml(item.status)}</span></div>
+              <p>${escapeHtml(narrate(item))}</p>
+            </div>
+          `).join("");
+        el.innerHTML = eventIntroBubble("요청") + messages;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      async function runPlan() {
+        try {
+          document.getElementById("toast").textContent = "FinOps plan 실행 중...";
+          renderCallingConversation();
+          const result = await api("/api/workflows/run", {method: "POST"});
+          currentWorkflow = result.workflow_id;
+          await loadWorkflow(currentWorkflow);
+          document.getElementById("toast").textContent = "";
         } catch (error) {
           showError(error);
         }
