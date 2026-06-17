@@ -16,8 +16,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, JSONB, String, Text, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, Index, String, Text, text
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -82,6 +82,6 @@ class AuditLogTable(Base):
     )
 
     payload: Mapped[dict] = mapped_column(
-        JSON,
+        JSONB,
         nullable=False,
     )
