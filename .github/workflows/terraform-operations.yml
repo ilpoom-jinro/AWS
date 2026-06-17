@@ -63,6 +63,8 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
   TF_VAR_dev_mode: "true"
+  # stock-web ALB(Ingress) 배포·healthy 후 활성화 → ilpumjinro.store·aws.ilpumjinro.store 레코드 연결
+  TF_VAR_enable_service_alb_records: "true"
   TF_VAR_ops_vpc_command: ${{ inputs.ops_vpc_command || 'kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide' }}
   
 jobs:

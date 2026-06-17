@@ -40,10 +40,21 @@ resource "aws_acm_certificate_validation" "main" {
 
 # ── Health Check (AWS ALB 상태 감시) ──────────────────────────────────────────
 
-resource "aws_route53_health_check" "aws_primary" {
-  count = var.service_alb_dns_name != "" ? 1 : 0
+# stock-web ALB는 service 클러스터 Ingress(AWS LB Controller)가 동적으로 생성하므로
+# DNS·zone_id를 하드코딩하지 않고 태그로 자동 조회한다. Ingress 배포 후
+# enable_service_alb_records=true 로 설정하면 레코드가 활성화된다.
+data "aws_lb" "service" {
+  count = var.enable_service_alb_records ? 1 : 0
 
-  fqdn              = var.service_alb_dns_name
+  tags = {
+    "ingress.k8s.aws/stack" = "stock-demo/stock-web"
+  }
+}
+
+resource "aws_route53_health_check" "aws_primary" {
+  count = var.enable_service_alb_records ? 1 : 0
+
+  fqdn              = data.aws_lb.service[0].dns_name
   port              = 443
   type              = "HTTPS"
   resource_path     = "/"
@@ -58,7 +69,7 @@ resource "aws_route53_health_check" "aws_primary" {
 # ── ilpumjinro.store — Failover (PRIMARY: AWS / SECONDARY: GCP) ──────────────
 
 resource "aws_route53_record" "root_primary" {
-  count   = var.service_alb_dns_name != "" ? 1 : 0
+  count   = var.enable_service_alb_records ? 1 : 0
   zone_id = aws_route53_zone.main.zone_id
   name    = "ilpumjinro.store"
   type    = "A"
@@ -71,8 +82,8 @@ resource "aws_route53_record" "root_primary" {
   }
 
   alias {
-    name                   = var.service_alb_dns_name
-    zone_id                = "Z35SXDOTRQ7X7K" # ap-northeast-2 ALB ELB hosted zone ID
+    name                   = data.aws_lb.service[0].dns_name
+    zone_id                = data.aws_lb.service[0].zone_id
     evaluate_target_health = true
   }
 }
@@ -95,14 +106,14 @@ resource "aws_route53_record" "root_secondary" {
 # ── aws.ilpumjinro.store → AWS ALB 직접 연결 ──────────────────────────────────
 
 resource "aws_route53_record" "aws_direct" {
-  count   = var.service_alb_dns_name != "" ? 1 : 0
+  count   = var.enable_service_alb_records ? 1 : 0
   zone_id = aws_route53_zone.main.zone_id
   name    = "aws.ilpumjinro.store"
   type    = "A"
 
   alias {
-    name                   = var.service_alb_dns_name
-    zone_id                = "Z35SXDOTRQ7X7K"
+    name                   = data.aws_lb.service[0].dns_name
+    zone_id                = data.aws_lb.service[0].zone_id
     evaluate_target_health = true
   }
 }
