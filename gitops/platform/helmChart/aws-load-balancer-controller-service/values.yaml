@@ -1,0 +1,26 @@
+# AWS Load Balancer Controller for the Service EKS cluster (financial-service-eks).
+# Provisions the internet-facing ALB requested by the stock-web Ingress
+# (target-type: ip) so the demo app is reachable over HTTPS via ilpumjinro.store.
+clusterName: financial-service-eks
+region: ap-northeast-2
+
+# vpcId is intentionally omitted: the controller auto-discovers the VPC from the
+# EKS node IMDS. This keeps the config free of a per-account VPC ID and avoids a
+# REPLACE_WITH_SERVICE_VPC_ID sync token, so destroy -> apply stays repeatable.
+
+# Two replicas run active/standby via leader election. The chart uses a soft
+# (preferred) pod anti-affinity, so both can co-locate on a single node today and
+# automatically spread across nodes once single_az_mode is turned off.
+replicaCount: 2
+
+image:
+  # Mirrored to private ECR by the monitoring image workflow
+  # (public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0).
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/aws-load-balancer-controller
+  tag: v3.3.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  # Terraform Pod Identity Association must use this exact ServiceAccount name.
+  name: aws-load-balancer-controller
