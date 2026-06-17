@@ -17,6 +17,99 @@ AGENT_SEQUENCE = [
     ("postmortem_learning", "Postmortem Learning Agent"),
 ]
 
+AGENT_DATA_REQUESTS = {
+    "traffic_forecast": [
+        {
+            "source_key": "demand_shaping",
+            "source_name": "Demand Shaping Agent",
+            "field": "peak_reduction_percent",
+            "label": "분산 발송 후 예상 peak 감소율",
+        },
+        {
+            "source_key": "business_control",
+            "source_name": "Business Control Agent",
+            "field": "target_users",
+            "label": "대상 사용자 수",
+        },
+    ],
+    "bottleneck_capacity": [
+        {
+            "source_key": "traffic_forecast",
+            "source_name": "Traffic Forecast Agent",
+            "field": "peak_rps_after",
+            "label": "병목 검증 기준 RPS",
+        },
+    ],
+    "infra_execution": [
+        {
+            "source_key": "traffic_forecast",
+            "source_name": "Traffic Forecast Agent",
+            "field": "required_app_pods",
+            "label": "준비해야 할 app pod 수",
+        },
+    ],
+    "cost": [
+        {
+            "source_key": "infra_execution",
+            "source_name": "Infra Execution Planner",
+            "field": "target_app_pods",
+            "label": "비용 계산 기준 pod 수",
+        },
+    ],
+    "unit_economics": [
+        {
+            "source_key": "cost",
+            "source_name": "Cost Agent",
+            "field": "total",
+            "label": "예상 총 비용",
+        },
+    ],
+    "policy_guardrail": [
+        {
+            "source_key": "unit_economics",
+            "source_name": "Unit Economics Agent",
+            "field": "cost_ratio",
+            "label": "비용 대비 가치 비율",
+        },
+    ],
+    "observer": [
+        {
+            "source_key": "traffic_forecast",
+            "source_name": "Traffic Forecast Agent",
+            "field": "peak_rps_after",
+            "label": "관측 기준 예상 RPS",
+        },
+        {
+            "source_key": "policy_guardrail",
+            "source_name": "Policy Guardrail Agent",
+            "field": "approval_required",
+            "label": "실행 전 승인 필요 여부",
+        },
+    ],
+    "fallback": [
+        {
+            "source_key": "policy_guardrail",
+            "source_name": "Policy Guardrail Agent",
+            "field": "allowed",
+            "label": "정책상 허용된 실행 액션",
+        },
+    ],
+    "postmortem_learning": [
+        {
+            "source_key": "traffic_forecast",
+            "source_name": "Traffic Forecast Agent",
+            "field": "peak_rps_before",
+            "label": "사후 비교용 평탄화 전 예상 RPS",
+        },
+        {
+            "source_key": "cost",
+            "source_name": "Cost Agent",
+            "field": "total",
+            "label": "사후 비교용 예상 비용",
+        },
+    ],
+}
+
 
 def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     event = context["event"]

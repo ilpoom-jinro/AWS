@@ -15,7 +15,7 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import build_final_plan, run_agent
+from app.agent_runtime import AGENT_DATA_REQUESTS, build_final_plan, run_agent
 from app.workflows import FinOpsEventWorkflow
 
 
@@ -48,98 +48,7 @@ AGENT_ENDPOINTS = {
         "http://finops-policy-guardrail-agent.finops-mas.svc.cluster.local",
     ),
 }
-AGENT_VALUE_REQUESTS = {
-    "traffic_forecast": [
-        {
-            "source_key": "demand_shaping",
-            "source_name": "Demand Shaping Agent",
-            "field": "peak_reduction_percent",
-            "label": "분산 발송 후 예상 peak 감소율",
-        },
-        {
-            "source_key": "business_control",
-            "source_name": "Business Control Agent",
-            "field": "target_users",
-            "label": "대상 사용자 수",
-        },
-    ],
-    "bottleneck_capacity": [
-        {
-            "source_key": "traffic_forecast",
-            "source_name": "Traffic Forecast Agent",
-            "field": "peak_rps_after",
-            "label": "병목 검증 기준 RPS",
-        },
-    ],
-    "infra_execution": [
-        {
-            "source_key": "traffic_forecast",
-            "source_name": "Traffic Forecast Agent",
-            "field": "required_app_pods",
-            "label": "준비해야 할 app pod 수",
-        },
-    ],
-    "cost": [
-        {
-            "source_key": "infra_execution",
-            "source_name": "Infra Execution Planner",
-            "field": "target_app_pods",
-            "label": "비용 계산 기준 pod 수",
-        },
-    ],
-    "unit_economics": [
-        {
-            "source_key": "cost",
-            "source_name": "Cost Agent",
-            "field": "total",
-            "label": "예상 총 비용",
-        },
-    ],
-    "policy_guardrail": [
-        {
-            "source_key": "unit_economics",
-            "source_name": "Unit Economics Agent",
-            "field": "cost_ratio",
-            "label": "비용 대비 가치 비율",
-        },
-    ],
-    "observer": [
-        {
-            "source_key": "traffic_forecast",
-            "source_name": "Traffic Forecast Agent",
-            "field": "peak_rps_after",
-            "label": "관측 기준 예상 RPS",
-        },
-        {
-            "source_key": "policy_guardrail",
-            "source_name": "Policy Guardrail Agent",
-            "field": "approval_required",
-            "label": "실행 전 승인 필요 여부",
-        },
-    ],
-    "fallback": [
-        {
-            "source_key": "policy_guardrail",
-            "source_name": "Policy Guardrail Agent",
-            "field": "allowed",
-            "label": "정책상 허용된 실행 액션",
-        },
-    ],
-    "postmortem_learning": [
-        {
-            "source_key": "traffic_forecast",
-            "source_name": "Traffic Forecast Agent",
-            "field": "peak_rps_before",
-            "label": "사후 비교용 평탄화 전 예상 RPS",
-        },
-        {
-            "source_key": "cost",
-            "source_name": "Cost Agent",
-            "field": "total",
-            "label": "사후 비교용 예상 비용",
-        },
-    ],
-}
+AGENT_VALUE_REQUESTS = AGENT_DATA_REQUESTS
 
 app = FastAPI(title="FinOps Orchestrator", version="0.3.0")
 temporal_client: Client | None = None
@@ -188,17 +97,23 @@ def build_agent_value_exchange(
         if source_result is None or request["field"] not in source_result:
             continue
         value = source_result[request["field"]]
+        data_request = {
+            "requester_agent": agent_key,
+            "requester_name": agent_name,
+            "source_agent": source_key,
+            "source_name": request["source_name"],
+            "field": request["field"],
+            "label": request["label"],
+            "status": "fulfilled_from_workflow_state",
+            "value": value,
+        }
+        context.setdefault("data_requests", []).append(data_request)
         messages.append(
             {
                 "sender": agent_name,
                 "receiver": request["source_name"],
                 "message": f"{request['label']} 값이 필요합니다. 현재 단계 판단에 사용할 수 있도록 공유해 주세요.",
-                "payload": {
-                    "type": "value_request",
-                    "source_agent": source_key,
-                    "field": request["field"],
-                    "label": request["label"],
-                },
+                "payload": {"type": "value_request", **data_request, "value": None},
             }
         )
         messages.append(
@@ -206,13 +121,7 @@ def build_agent_value_exchange(
                 "sender": request["source_name"],
                 "receiver": agent_name,
                 "message": f"{request['label']}은 {format_agent_value(value)}입니다. 이 값을 기준으로 다음 판단을 진행하세요.",
-                "payload": {
-                    "type": "value_response",
-                    "source_agent": source_key,
-                    "field": request["field"],
-                    "label": request["label"],
-                    "value": value,
-                },
+                "payload": {"type": "value_response", **data_request},
             }
         )
     return messages
@@ -481,6 +390,7 @@ async def run_agent_step(
 @activity.defn(name="finalize_finops_plan")
 async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
     plan = build_final_plan(context)
+    plan["data_requests"] = context.get("data_requests", [])
     created_at = utcnow()
     with connect() as conn:
         conn.execute(
@@ -708,6 +618,7 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
         "event_id": plan[1],
         "status": plan[2],
         "plan": plan[3],
+        "data_requests": plan[3].get("data_requests", []) if isinstance(plan[3], dict) else [],
         "updated_at": plan[4],
         "timeline": [
             {
