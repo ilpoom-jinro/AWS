@@ -144,14 +144,43 @@
               resources: [ingressclasses]
               verbs: [get, list, watch, create, update, patch, delete]
             - apiGroups: [elbv2.k8s.aws]
-              resources: [ingressclassparams]
+              resources: [ingressclassparams, targetgroupbindings, targetgroupbindings/status, albtargetcontrolconfigs]
               verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
+            # ALBC ClusterRole이 부여하는 권한 — argocd-manager가 보유해야 privilege escalation 없이 생성 가능
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, patch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [create, delete, update]
+            - apiGroups: [""]
+              resources: [services]
+              verbs: [patch, update]
+            - apiGroups: [""]
+              resources: [pods/status, services/status]
+              verbs: [patch, update]
+            - apiGroups: ["extensions", "networking.k8s.io"]
+              resources: [ingresses, ingresses/status]
+              verbs: [patch, update]
+            - apiGroups: [aga.k8s.aws]
+              resources: ["*"]
+              verbs: [get, list, watch, patch, update]
+            - apiGroups: [gateway.k8s.aws]
+              resources: ["*"]
+              verbs: [get, list, watch, patch, update]
             # Argo CD creates a ClusterRole that grants Kyverno permission to
             # generate Istio AuthorizationPolicy resources. Kubernetes requires
             # the caller to already hold the permissions it grants.
             - apiGroups: [security.istio.io]
               resources: [authorizationpolicies]
               verbs: [get, list, watch, create, update, patch, delete]
+            # observability-alloy-service ClusterRole이 /metrics nonResourceURL 권한을 포함하므로
+            # argocd-manager가 해당 권한을 보유해야 privilege escalation 없이 ClusterRole 생성 가능.
+            - nonResourceURLs: ["/metrics"]
+              verbs: [get]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
@@ -258,6 +287,7 @@
         - istio-system    # istio-policies-service 배포 대상
         - stock-demo      # service-demo-app 배포 대상
         - kyverno         # kyverno ApplicationSet 배포 대상
+        - kube-system     # aws-load-balancer-controller-service 배포 대상
 
     - name: Ensure long-lived token secret exists for Argo CD manager
       kubernetes.core.k8s:

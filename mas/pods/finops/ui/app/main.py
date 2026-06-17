@@ -169,6 +169,8 @@ def index() -> str:
         color: #075985;
         font-size: 12px;
         font-weight: 700;
+        padding: 10px 14px;
+        cursor: pointer;
       }
       button {
         border: 0;

@@ -28,6 +28,9 @@ spec:
       namespace: istio-system
     - name: financial-service-eks
       namespace: kyverno
+    # aws-load-balancer-controller-service 가 배포되는 네임스페이스
+    - name: financial-service-eks
+      namespace: kube-system
     # 모든 등록 클러스터 → kyverno 네임스페이스 (ApplicationSet cluster generator 와일드카드 대응)
     - server: "*"
       namespace: kyverno
