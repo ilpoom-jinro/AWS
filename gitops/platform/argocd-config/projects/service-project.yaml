@@ -28,6 +28,14 @@ spec:
       kind: ServiceAccount
     - group: networking.k8s.io
       kind: Ingress
+    # Istio Gateway(ambient) — 외부 ALB → mesh 진입점 + mTLS 경계
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    # 데모앱 전용 ALLOW (Kyverno deny-all zero-trust 위 명시 허용)
+    - group: security.istio.io
+      kind: AuthorizationPolicy
   syncWindows:
     # 금융 컴플라이언스 요건: 평일 업무시간(KST 09:00–18:00)에만 자동 배포 허용
     # KST = UTC+9이므로 UTC 00:00 시작, 9시간 윈도우

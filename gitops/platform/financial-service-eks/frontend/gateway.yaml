@@ -1,0 +1,51 @@
+# Istio Gateway (ambient) — 외부 ALB → mesh 진입점.
+# ALB가 평문으로 이 Gateway(Envoy)를 때리고, Gateway가 mTLS로 stock-web에 전달한다.
+# stock-demo는 PeerAuthentication STRICT(mesh 기본)라 ALB가 파드를 직접 평문으로 때리면
+# ztunnel이 RST → 항상 unhealthy였음. Gateway가 mesh 경계가 되어
+# "외부 HTTPS(ALB) + 내부 mTLS(mesh)"를 동시에 달성한다.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: stock-gw
+  namespace: stock-demo
+  annotations:
+    # ClusterIP: 기존 ALB를 재사용(NLB 중복 생성/비용 방지). ALB Ingress가 이 service를 backend로 참조.
+    networking.istio.io/service-type: ClusterIP
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# Gateway → stock-web 라우팅 (Gateway 이후는 mesh mTLS).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: stock-route
+  namespace: stock-demo
+spec:
+  parentRefs:
+    - name: stock-gw
+  rules:
+    - backendRefs:
+        - name: stock-web
+          port: 80
+---
+# Kyverno가 자동 생성하는 deny-all AuthorizationPolicy(zero-trust 기본 차단) 위에
+# 명시적 ALLOW. 현재는 포괄 허용(rules: [{}])이며, 운영 강화 시 source별로 좁힐 것:
+#   - Gateway 인입(외부)        : Gateway 워크로드 selector
+#   - stock-web                 : from principals = Gateway SA
+#   - stock-api(backend)        : from principals = stock-web SA
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-stock-traffic
+  namespace: stock-demo
+spec:
+  action: ALLOW
+  rules:
+    - {}
