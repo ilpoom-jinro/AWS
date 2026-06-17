@@ -109,6 +109,21 @@ output "kms_key_rds_globalservice_arn" {
   value       = aws_kms_key.key_rds_globalservice.arn
 }
 
+output "kms_key_s3_arn" {
+  description = "S3 CMK ARN (bootstrap S3 SSE 참조)"
+  value       = aws_kms_key.key_s3.arn
+}
+
+output "kms_key_secretsmanager_arn" {
+  description = "Secrets Manager CMK ARN"
+  value       = aws_kms_key.key_secretsmanager.arn
+}
+
+output "kms_key_eks_arn" {
+  description = "EKS CMK ARN (etcd Secrets + EBS node volumes)"
+  value       = aws_kms_key.key_eks.arn
+}
+
 output "route53_name_servers" {
   description = "가비아 네임서버 설정에 입력할 NS 레코드 4개"
   value       = aws_route53_zone.main.name_servers

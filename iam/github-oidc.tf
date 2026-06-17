@@ -529,7 +529,12 @@ resource "aws_iam_policy" "github_actions_security" {
           "kms:UpdateAlias",
           "kms:DeleteAlias",
           "kms:UpdateKeyDescription",
-          "kms:CreateGrant"
+          "kms:CreateGrant",
+          # S3/SecretsManager CMK 실제 사용 권한 (Terraform state 읽기/쓰기, 시크릿 암복호화)
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKeyWithoutPlaintext"
         ]
         Resource = "*"
       },
