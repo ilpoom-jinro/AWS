@@ -1,0 +1,16 @@
+name: finops-traffic-forecast-agent
+scenario: finops
+role: traffic-forecast
+image_repository: financial/mas/finops/traffic-forecast-agent
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/finops/traffic-forecast/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/finops-mas/kustomization.yaml
+target_container: finops-traffic-forecast-agent-image
+service_account_name: finops-agent
+service_name: finops-traffic-forecast-agent
+namespace: finops-mas
+target_cluster: financial-ops-eks
+container_port: "8000"
+service_port: "80"
+replicas: "1"
