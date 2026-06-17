@@ -176,6 +176,18 @@ resource "aws_eks_addon" "vpc_cni" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
+  # DISABLE_TCP_EARLY_DEMUX=true: 보조 ENI에 있는 파드로 외부(ALB/NLB)에서 오는
+  # TCP 헬스체크가 커널 TCP early demux로 인해 노드 소켓으로 잘못 라우팅되는 문제
+  # 해결. 이 설정이 false면 노드 내부 kube-probe는 통과하지만 외부 LB 헬스체크는
+  # 파드(nginx)에 도달하지 못해 항상 unhealthy가 됨. ALB target-type:ip 노출에 필수.
+  configuration_values = jsonencode({
+    init = {
+      env = {
+        DISABLE_TCP_EARLY_DEMUX = "true"
+      }
+    }
+  })
+
   depends_on = [aws_eks_node_group.service]
 }
 
