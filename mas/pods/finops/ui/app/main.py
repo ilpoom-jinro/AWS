@@ -135,9 +135,8 @@ def index() -> str:
         margin: 0 auto;
         padding: 18px;
         display: grid;
-        grid-template-columns: 340px minmax(460px, 1fr) 340px;
+        grid-template-columns: 1fr;
         gap: 16px;
-        align-items: start;
       }
       section, .card {
         background: var(--panel);
@@ -146,6 +145,18 @@ def index() -> str:
         padding: 14px;
       }
       .stack { display: grid; gap: 12px; }
+      .summary {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 16px;
+        align-items: center;
+      }
+      .content-grid {
+        display: grid;
+        grid-template-columns: 360px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
       .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
       .muted { color: var(--muted); }
       .badge {
@@ -207,8 +218,8 @@ def index() -> str:
         font-weight: 700;
       }
       .chat-room {
-        min-height: 520px;
-        max-height: calc(100vh - 284px);
+        min-height: 560px;
+        max-height: calc(100vh - 376px);
         overflow: auto;
         display: grid;
         gap: 10px;
@@ -229,19 +240,9 @@ def index() -> str:
       .bubble.agent { margin-right: 48px; }
       .speaker { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; }
       .bubble p { margin: 8px 0 0; color: #334155; line-height: 1.45; }
-      .metric { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .metric { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; }
       .metric .card { padding: 12px; }
       .value { font-size: 23px; font-weight: 700; margin-top: 6px; }
-      .timeline { display: grid; gap: 8px; max-height: calc(100vh - 310px); overflow: auto; padding-right: 4px; }
-      .phase {
-        display: grid;
-        grid-template-columns: 42px 1fr auto;
-        gap: 10px;
-        align-items: start;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 10px;
-      }
       pre {
         margin: 8px 0 0;
         white-space: pre-wrap;
@@ -251,8 +252,10 @@ def index() -> str:
       }
       #toast { color: var(--warn); font-size: 13px; }
       @media (max-width: 1020px) {
-        main { grid-template-columns: 1fr; }
-        .chat-room, .timeline { max-height: none; }
+        .summary { grid-template-columns: 1fr; }
+        .content-grid { grid-template-columns: 1fr; }
+        .metric { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .chat-room { max-height: none; }
       }
     </style>
   </head>
@@ -265,7 +268,23 @@ def index() -> str:
       <button onclick="runPlan()">Run FinOps Plan</button>
     </header>
     <main>
-      <div class="stack">
+      <section>
+        <div class="summary">
+          <div>
+            <h2>Final Plan</h2>
+            <div id="status" class="badge" style="margin-top: 8px;">idle</div>
+          </div>
+          <div class="metric">
+            <div class="card"><div class="muted">Before Peak</div><div id="before" class="value">-</div></div>
+            <div class="card"><div class="muted">After Peak</div><div id="after" class="value">-</div></div>
+            <div class="card"><div class="muted">Required Pods</div><div id="pods" class="value">-</div></div>
+            <div class="card"><div class="muted">Cost</div><div id="cost" class="value">-</div></div>
+          </div>
+          <button id="approve" onclick="approvePlan()" disabled>Approve Dry-run</button>
+        </div>
+      </section>
+
+      <div class="content-grid">
         <section>
           <div class="row">
             <h2>Business Calendar</h2>
@@ -273,47 +292,25 @@ def index() -> str:
           </div>
           <div id="calendar" class="calendar-grid"></div>
         </section>
-      </div>
 
-      <div class="stack">
-        <section>
-          <div class="row">
-            <h2>Agent Conversation</h2>
-            <span id="conversation-status" class="badge">idle</span>
-          </div>
-          <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
-        </section>
-        <section>
-          <h2>ChatOps</h2>
-          <p class="muted">Ask the agents to re-plan the selected business event.</p>
-          <textarea id="chat-message">Spread general users over 20 minutes</textarea>
-          <div class="row" style="margin-top: 10px;">
-            <button class="secondary" onclick="sendChat()">Send Change Request</button>
-            <div id="toast"></div>
-          </div>
-        </section>
-      </div>
-
-      <div class="stack">
-        <section>
-          <div class="row">
-            <h2>Final Plan</h2>
-            <div id="status" class="badge">idle</div>
-          </div>
-          <div class="metric" style="margin-top: 12px;">
-            <div class="card"><div class="muted">Before Peak</div><div id="before" class="value">-</div></div>
-            <div class="card"><div class="muted">After Peak</div><div id="after" class="value">-</div></div>
-            <div class="card"><div class="muted">Required Pods</div><div id="pods" class="value">-</div></div>
-            <div class="card"><div class="muted">Cost</div><div id="cost" class="value">-</div></div>
-          </div>
-          <div class="row" style="margin-top: 12px;">
-            <button id="approve" onclick="approvePlan()" disabled>Approve Dry-run</button>
-          </div>
-        </section>
-        <section>
-          <h2>Workflow Timeline</h2>
-          <div id="timeline" class="timeline" style="margin-top: 12px;"></div>
-        </section>
+        <div class="stack">
+          <section>
+            <div class="row">
+              <h2>Agent Chat</h2>
+              <span id="conversation-status" class="badge">idle</span>
+            </div>
+            <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
+          </section>
+          <section>
+            <h2>ChatOps</h2>
+          <p class="muted">선택한 비즈니스 이벤트에 대해 agent들에게 재계획을 요청합니다.</p>
+          <textarea id="chat-message">일반 사용자를 20분 동안 분산 발송해줘</textarea>
+            <div class="row" style="margin-top: 10px;">
+              <button class="secondary" onclick="sendChat()">Send Change Request</button>
+              <div id="toast"></div>
+            </div>
+          </section>
+        </div>
       </div>
     </main>
     <script>
@@ -391,7 +388,6 @@ def index() -> str:
       async function loadWorkflow(workflowId) {
         const data = await api(`/api/workflows/${workflowId}`);
         renderPlan(data);
-        renderTimeline(data.timeline || []);
         renderConversation(data);
       }
 
@@ -405,23 +401,12 @@ def index() -> str:
         document.getElementById("approve").disabled = data.status !== "waiting_approval";
       }
 
-      function renderTimeline(items) {
-        const el = document.getElementById("timeline");
-        el.innerHTML = items.map(item => `
-          <div class="phase">
-            <span class="badge">${item.phase}</span>
-            <div><strong>${item.agent}</strong><pre>${JSON.stringify(item.result, null, 2)}</pre></div>
-            <span class="badge">${item.status}</span>
-          </div>
-        `).join("");
-      }
-
       function renderEmptyConversation() {
         document.getElementById("conversation-status").textContent = "waiting";
         document.getElementById("agent-chat").innerHTML = `
           <div class="bubble agent">
             <div class="speaker"><span>Business Control Agent</span><span class="badge">ready</span></div>
-            <p>I found the business calendar. Run a FinOps plan and I will coordinate the agents for today's event.</p>
+            <p>비즈니스 캘린더를 확인했습니다. FinOps 계획을 실행하면 오늘 이벤트에 맞춰 agent들을 순서대로 조율하겠습니다.</p>
           </div>
         `;
       }
@@ -430,31 +415,31 @@ def index() -> str:
         const r = item.result || {};
         switch (item.agent) {
           case "Business Control Agent":
-            return `I found ${r.event_id || "the scheduled event"} and classified it as grade ${r.grade || "unknown"}. Approval is ${r.approval_required ? "required" : "not required"} before execution.`;
+            return `${r.event_id || "일정 이벤트"}를 확인했고 등급은 ${r.grade || "unknown"}입니다. 실행 전 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
           case "Demand Shaping Agent":
-            return `I will send VIP users ${r.vip || "first"} and move general users to ${r.general_users || "a distributed window"}. That lowers peak traffic by about ${r.peak_reduction || "a meaningful amount"}.`;
+            return `VIP 사용자는 ${r.vip || "우선"} 처리하고 일반 사용자는 ${r.general_users || "분산 구간"}으로 이동하겠습니다. 이 방식으로 피크를 약 ${r.peak_reduction || r.peak_reduction_percent || "의미 있게"} 낮출 수 있습니다.`;
           case "Traffic Forecast Agent":
-            return `Before shaping I expect ${r.peak_rps_before || "-"} rps. After shaping I expect ${r.peak_rps_after || "-"} rps, so the app tier should prepare ${r.required_app_pods || "-"} pods.`;
+            return `평탄화 전 예상 피크는 ${r.peak_rps_before || "-"} rps이고, 평탄화 후에는 ${r.peak_rps_after || "-"} rps입니다. 앱 계층은 ${r.required_app_pods || "-"}개 pod를 준비해야 합니다.`;
           case "Bottleneck Capacity Agent":
-            return `I checked the bottlenecks. DB CPU is around ${r.db_cpu || "-"}, cache hit ratio is ${r.cache_hit_ratio || "-"}, and the status is ${r.status || "unknown"}.`;
+            return `병목을 확인했습니다. DB CPU는 약 ${r.db_cpu || "-"}, 캐시 hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
           case "Infra Execution Planner":
-            return `I recommend scale-out at ${r.scale_out_at || "-"}, pre-warm at ${r.prewarm_at || "-"}, and scale-down based on ${r.scale_down || "observed traffic"}.`;
+            return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실제 관측 트래픽"} 기준으로 진행합니다.`;
           case "Cost Agent":
-            return `The estimated event cost is $${r.total || "-"}, including EKS $${r.eks || "-"}, network $${r.network || "-"}, logs $${r.logs || "-"}, and push $${r.push || "-"}.`;
+            return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
           case "Unit Economics Agent":
-            return `Expected business value is about $${r.expected_value_usd || "-"} and the cost ratio is ${r.cost_ratio || "-"}. I do ${r.override ? "" : "not "}recommend an override.`;
+            return `예상 비즈니스 가치는 약 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
           case "Policy Guardrail Agent":
-            return `Policy allows ${(r.allowed || []).join(", ") || "the proposed actions"}. Operator approval is ${r.approval_required ? "required" : "not required"}.`;
+            return `정책상 ${(r.allowed || []).join(", ") || "제안 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
           case "Final Plan":
-            return `I packaged the recommendations into a final plan and set the workflow status to ${r.status || "waiting"}.`;
+            return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
           case "Observer Agent":
-            return `I am ready for runtime observation. My first recommendation is: ${r.recommendation || "watch actual traffic and adjust capacity"}.`;
+            return `실행 중 관측을 준비했습니다. 첫 권고는 ${r.recommendation || "실제 트래픽을 보고 용량을 조정"}입니다.`;
           case "Fallback Planner":
-            return "If execution becomes unsafe, I will keep VIP delivery, hold general users, and provide a static report fallback.";
+            return "실행이 안전하지 않으면 VIP 발송만 유지하고 일반 사용자는 hold하며 static report fallback을 제공합니다.";
           case "Postmortem Learning Agent":
-            return `After the event, I will compare forecast and actual results. Profile update is ${r.profile_update || "pending"}.`;
+            return `이벤트 종료 후 예측과 실제 결과를 비교합니다. 프로필 업데이트 상태는 ${r.profile_update || "pending"}입니다.`;
           case "Dry-run Execution":
-            return "Approval received. I completed the dry-run checks for scale-out, pre-warm, and push schedule registration.";
+            return "승인을 확인했습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.";
           default:
             return JSON.stringify(r);
         }
@@ -467,15 +452,23 @@ def index() -> str:
         const intro = event ? `
           <div class="bubble operator">
             <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
-            <p>Please prepare a FinOps plan for ${event.title} at ${event.scheduled_at}. Target users: ${event.target_users.toLocaleString()}.</p>
+            <p>${event.scheduled_at}에 예정된 ${event.title} 이벤트의 FinOps 계획을 준비해줘. 대상자는 ${event.target_users.toLocaleString()}명이야.</p>
           </div>
         ` : "";
-        el.innerHTML = intro + (data.timeline || []).map(item => `
+        const messages = data.conversation && data.conversation.length
+          ? data.conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${item.sender}</span><span class="badge">to ${item.receiver}</span></div>
+              <p>${item.message}</p>
+            </div>
+          `).join("")
+          : (data.timeline || []).map(item => `
           <div class="bubble agent">
             <div class="speaker"><span>${item.agent}</span><span class="badge">${item.status}</span></div>
             <p>${narrate(item)}</p>
           </div>
         `).join("");
+        el.innerHTML = intro + messages;
         el.scrollTop = el.scrollHeight;
       }
 

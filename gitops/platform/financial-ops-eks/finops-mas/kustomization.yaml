@@ -5,8 +5,10 @@ resources:
   - namespace.yaml
   - serviceaccount.yaml
   - serviceaccount-orchestrator.yaml
+  - serviceaccount-agent.yaml
   - postgres.yaml
   - temporal.yaml
+  - agents.yaml
   - deployment.yaml
   - service.yaml
   - orchestrator-deployment.yaml
@@ -18,4 +20,22 @@ images:
     newTag: latest
   - name: finops-orchestrator-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/orchestrator
+    newTag: latest
+  - name: finops-business-control-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/business-control-agent
+    newTag: latest
+  - name: finops-demand-shaping-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/demand-shaping-agent
+    newTag: latest
+  - name: finops-traffic-forecast-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/traffic-forecast-agent
+    newTag: latest
+  - name: finops-bottleneck-capacity-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/bottleneck-capacity-agent
+    newTag: latest
+  - name: finops-cost-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/cost-agent
+    newTag: latest
+  - name: finops-policy-guardrail-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/policy-guardrail-agent
     newTag: latest

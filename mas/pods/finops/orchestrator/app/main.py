@@ -1,21 +1,57 @@
+import asyncio
 import json
 import os
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from temporalio import activity
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from app.agent_runtime import build_final_plan, run_agent
+from app.workflows import FinOpsEventWorkflow
 
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops",
 )
+TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
+TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "finops-agent-task-queue")
+AGENT_ENDPOINTS = {
+    "business_control": os.getenv(
+        "BUSINESS_CONTROL_AGENT_URL",
+        "http://finops-business-control-agent.finops-mas.svc.cluster.local",
+    ),
+    "demand_shaping": os.getenv(
+        "DEMAND_SHAPING_AGENT_URL",
+        "http://finops-demand-shaping-agent.finops-mas.svc.cluster.local",
+    ),
+    "traffic_forecast": os.getenv(
+        "TRAFFIC_FORECAST_AGENT_URL",
+        "http://finops-traffic-forecast-agent.finops-mas.svc.cluster.local",
+    ),
+    "bottleneck_capacity": os.getenv(
+        "BOTTLENECK_CAPACITY_AGENT_URL",
+        "http://finops-bottleneck-capacity-agent.finops-mas.svc.cluster.local",
+    ),
+    "cost": os.getenv("COST_AGENT_URL", "http://finops-cost-agent.finops-mas.svc.cluster.local"),
+    "policy_guardrail": os.getenv(
+        "POLICY_GUARDRAIL_AGENT_URL",
+        "http://finops-policy-guardrail-agent.finops-mas.svc.cluster.local",
+    ),
+}
 
-app = FastAPI(title="FinOps Orchestrator", version="0.1.0")
+app = FastAPI(title="FinOps Orchestrator", version="0.2.0")
+temporal_client: Client | None = None
+temporal_worker_task: asyncio.Task | None = None
 
 
 class ChatRequest(BaseModel):
@@ -34,6 +70,61 @@ def utcnow() -> str:
 
 def connect():
     return psycopg.connect(DATABASE_URL, autocommit=True)
+
+
+def fetch_event_context(event_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        event = conn.execute(
+            """
+            select event_id, title, grade, target_users, max_delay_minutes, scheduled_at
+            from business_calendar
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+        policy = conn.execute(
+            """
+            select event_id, vip_immediate, approval_required, max_general_delay_minutes
+            from business_policy
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+    if not event or not policy:
+        raise ValueError(f"event context not found: {event_id}")
+    return {
+        "event": {
+            "event_id": event[0],
+            "title": event[1],
+            "grade": event[2],
+            "target_users": event[3],
+            "max_delay_minutes": event[4],
+            "scheduled_at": event[5],
+        },
+        "policy": {
+            "event_id": policy[0],
+            "vip_immediate": policy[1],
+            "approval_required": policy[2],
+            "max_general_delay_minutes": policy[3],
+        },
+        "agent_results": {},
+    }
+
+
+def call_agent_pod(agent_key: str, workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
+    endpoint = AGENT_ENDPOINTS[agent_key]
+    body = json.dumps({"workflow_id": workflow_id, "context": context}).encode("utf-8")
+    request = Request(
+        f"{endpoint}/run",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except URLError as exc:
+        raise RuntimeError(f"{agent_key} agent pod unavailable: {exc}") from exc
 
 
 def init_db() -> None:
@@ -71,6 +162,20 @@ def init_db() -> None:
                       agent text not null,
                       status text not null,
                       result jsonb not null,
+                      created_at text not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists agent_conversation_log (
+                      id serial primary key,
+                      workflow_id text not null,
+                      phase integer not null,
+                      sender text not null,
+                      receiver text not null,
+                      message text not null,
+                      payload jsonb not null,
                       created_at text not null
                     )
                     """
@@ -126,9 +231,123 @@ def seed(conn) -> None:
     )
 
 
+@activity.defn(name="load_event_context")
+async def load_event_context(event_id: str) -> dict[str, Any]:
+    return fetch_event_context(event_id)
+
+
+@activity.defn(name="run_agent_step")
+async def run_agent_step(
+    workflow_id: str,
+    phase: int,
+    agent_key: str,
+    agent_name: str,
+    next_agent_name: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    output = (
+        call_agent_pod(agent_key, workflow_id, context)
+        if agent_key in AGENT_ENDPOINTS
+        else run_agent(agent_key, context)
+    )
+    result = output["result"]
+    context["agent_results"][agent_key] = result
+    created_at = utcnow()
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into agent_decision_log
+              (workflow_id, phase, agent, status, result, created_at)
+            values (%s, %s, %s, 'completed', %s, %s)
+            """,
+            (workflow_id, phase, agent_name, json.dumps(result), created_at),
+        )
+        conn.execute(
+            """
+            insert into agent_conversation_log
+              (workflow_id, phase, sender, receiver, message, payload, created_at)
+            values (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                workflow_id,
+                phase,
+                agent_name,
+                next_agent_name,
+                output["message"],
+                json.dumps({"agent_key": agent_key, "result": result}),
+                created_at,
+            ),
+        )
+    return context
+
+
+@activity.defn(name="finalize_finops_plan")
+async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
+    plan = build_final_plan(context)
+    created_at = utcnow()
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into final_event_plan
+              (workflow_id, event_id, status, plan, created_at, updated_at)
+            values (%s, %s, 'waiting_approval', %s, %s, %s)
+            """,
+            (workflow_id, plan["event_id"], json.dumps(plan), created_at, created_at),
+        )
+        conn.execute(
+            """
+            insert into approval_request
+              (workflow_id, status, requested_at)
+            values (%s, 'waiting', %s)
+            """,
+            (workflow_id, created_at),
+        )
+        conn.execute(
+            """
+            insert into agent_conversation_log
+              (workflow_id, phase, sender, receiver, message, payload, created_at)
+            values (%s, 12, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
+            """,
+            (
+                workflow_id,
+                "최종 FinOps 계획을 만들었습니다. 운영자 승인을 기다립니다.",
+                json.dumps({"plan": plan}),
+                utcnow(),
+            ),
+        )
+    return {"workflow_id": workflow_id, "status": "waiting_approval", "plan": plan}
+
+
+async def start_temporal_worker() -> None:
+    global temporal_client
+    temporal_client = await Client.connect(TEMPORAL_ADDRESS)
+    worker = Worker(
+        temporal_client,
+        task_queue=TEMPORAL_TASK_QUEUE,
+        workflows=[FinOpsEventWorkflow],
+        activities=[load_event_context, run_agent_step, finalize_finops_plan],
+    )
+    await worker.run()
+
+
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
+    global temporal_worker_task
     init_db()
+    temporal_worker_task = asyncio.create_task(start_temporal_worker())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if temporal_worker_task:
+        temporal_worker_task.cancel()
+
+
+async def get_temporal_client() -> Client:
+    global temporal_client
+    if temporal_client is None:
+        temporal_client = await Client.connect(TEMPORAL_ADDRESS)
+    return temporal_client
 
 
 @app.get("/health")
@@ -156,58 +375,22 @@ def calendar() -> list[dict[str, Any]]:
 
 
 @app.post("/api/workflows/run")
-def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
+async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
     workflow_id = f"finops-{uuid.uuid4().hex[:8]}"
-    phases = build_phases(event_id)
-    with connect() as conn:
-        for phase in phases:
-            conn.execute(
-                """
-                insert into agent_decision_log
-                  (workflow_id, phase, agent, status, result, created_at)
-                values (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    workflow_id,
-                    phase["phase"],
-                    phase["agent"],
-                    phase["status"],
-                    json.dumps(phase["result"]),
-                    utcnow(),
-                ),
-            )
-        plan = {
-            "event_id": event_id,
-            "peak_rps_before": 1420,
-            "peak_rps_after": 820,
-            "required_app_pods": 29,
-            "estimated_cost_usd": 50.3,
-            "approval_required": True,
-            "execution_mode": "dry_run",
-            "recommended_actions": [
-                "Send VIP users immediately",
-                "Spread general users across 10 minutes",
-                "Pre-warm CDN and cache 15 minutes before push",
-                "Scale app pods to 29, then scale down after observed RPS drops",
-            ],
-        }
-        conn.execute(
-            """
-            insert into final_event_plan
-              (workflow_id, event_id, status, plan, created_at, updated_at)
-            values (%s, %s, 'waiting_approval', %s, %s, %s)
-            """,
-            (workflow_id, event_id, json.dumps(plan), utcnow(), utcnow()),
+    try:
+        client = await get_temporal_client()
+        result = await asyncio.wait_for(
+            client.execute_workflow(
+                FinOpsEventWorkflow.run,
+                args=[event_id, workflow_id],
+                id=workflow_id,
+                task_queue=TEMPORAL_TASK_QUEUE,
+            ),
+            timeout=30,
         )
-        conn.execute(
-            """
-            insert into approval_request
-              (workflow_id, status, requested_at)
-            values (%s, 'waiting', %s)
-            """,
-            (workflow_id, utcnow()),
-        )
-    return {"workflow_id": workflow_id, "status": "waiting_approval"}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"temporal workflow failed: {exc}") from exc
+    return {"workflow_id": workflow_id, "status": result["status"], "engine": "temporal"}
 
 
 @app.get("/api/workflows")
@@ -251,6 +434,15 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
             """,
             (workflow_id,),
         ).fetchall()
+        conversation = conn.execute(
+            """
+            select phase, sender, receiver, message, payload, created_at
+            from agent_conversation_log
+            where workflow_id = %s
+            order by phase, id
+            """,
+            (workflow_id,),
+        ).fetchall()
     return {
         "workflow_id": plan[0],
         "event_id": plan[1],
@@ -266,6 +458,17 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
                 "created_at": row[4],
             }
             for row in logs
+        ],
+        "conversation": [
+            {
+                "phase": row[0],
+                "sender": row[1],
+                "receiver": row[2],
+                "message": row[3],
+                "payload": row[4],
+                "created_at": row[5],
+            }
+            for row in conversation
         ],
     }
 
@@ -316,6 +519,19 @@ def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, str]:
                     utcnow(),
                 ),
             )
+            conn.execute(
+                """
+                insert into agent_conversation_log
+                  (workflow_id, phase, sender, receiver, message, payload, created_at)
+                values (%s, 13, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
+                """,
+                (
+                    workflow_id,
+                    "승인이 확인되었습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.",
+                    json.dumps({"status": "dry_run_completed"}),
+                    utcnow(),
+                ),
+            )
     return {"workflow_id": workflow_id, "status": final_status}
 
 
@@ -329,28 +545,7 @@ def chat(request: ChatRequest) -> dict[str, Any]:
         "change_request": {
             "max_delivery_delay_minutes": delay,
             "push_window_minutes": delay,
-            "requires_replan_from": "Phase 2",
+            "requires_replan_from": "Demand Shaping Agent",
         },
-        "answer": f"General-user push window can be replanned to {delay} minutes after policy validation.",
+        "answer": f"요청을 구조화했습니다. 일반 사용자 발송 구간을 {delay}분으로 재계획하려면 Demand Shaping 단계부터 다시 실행하면 됩니다.",
     }
-
-
-def build_phases(event_id: str) -> list[dict[str, Any]]:
-    return [
-        phase(1, "Business Control Agent", {"event_id": event_id, "grade": "S", "approval_required": True}),
-        phase(2, "Demand Shaping Agent", {"vip": "immediate", "general_users": "spread_over_10m", "peak_reduction": "42%"}),
-        phase(3, "Traffic Forecast Agent", {"peak_rps_before": 1420, "peak_rps_after": 820, "required_app_pods": 29}),
-        phase(4, "Bottleneck Capacity Agent", {"db_cpu": "68%", "cache_hit_ratio": "91%", "status": "warning"}),
-        phase(5, "Infra Execution Planner", {"scale_out_at": "T-20m", "prewarm_at": "T-15m", "scale_down": "observed_rps_based"}),
-        phase(6, "Cost Agent", {"eks": 31.2, "network": 8.1, "logs": 3.4, "push": 7.6, "total": 50.3}),
-        phase(7, "Unit Economics Agent", {"expected_value_usd": 4200, "cost_ratio": "1.2%", "override": False}),
-        phase(8, "Policy Guardrail Agent", {"allowed": ["scale_out", "prewarm", "spread_push"], "approval_required": True}),
-        phase(9, "Final Plan", {"status": "waiting_approval"}),
-        phase(10, "Observer Agent", {"mode": "armed", "recommendation": "scale_down_if_actual_rps_below_600"}),
-        phase(11, "Fallback Planner", {"vip_only": True, "general_hold": True, "static_report": True}),
-        phase(12, "Postmortem Learning Agent", {"profile_update": "pending_after_execution"}),
-    ]
-
-
-def phase(number: int, agent: str, result: dict[str, Any]) -> dict[str, Any]:
-    return {"phase": number, "agent": agent, "status": "completed", "result": result}

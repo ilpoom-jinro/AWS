@@ -3,9 +3,7 @@ FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir "psycopg[binary]==3.2.3" "temporalio==1.9.0"
-
-COPY pods/finops/orchestrator/app ./app
+COPY pods/finops/agents/app ./app
 
 EXPOSE 8000
 
