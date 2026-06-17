@@ -8,7 +8,7 @@ from pydantic import BaseModel
 AGENT_KEY = os.getenv("AGENT_KEY", "business_control")
 AGENT_NAME = os.getenv("AGENT_NAME", "Business Control Agent")
 
-app = FastAPI(title=AGENT_NAME, version="0.1.0")
+app = FastAPI(title=AGENT_NAME, version="0.2.0")
 
 
 class AgentRequest(BaseModel):
@@ -46,7 +46,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         }
         message = (
             f"Business Control 결과를 반영해 VIP는 즉시 발송하고 일반 사용자는 {delay}분 동안 분산하겠습니다. "
-            "예상 피크를 약 42% 낮출 수 있습니다."
+            "예상 peak를 약 42% 낮출 수 있습니다."
         )
     elif agent_key == "traffic_forecast":
         shaping = previous["demand_shaping"]
@@ -59,7 +59,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "based_on": "demand_shaping",
         }
         message = (
-            f"Demand Shaping의 {shaping['general_users']} 전략을 반영하면 피크는 "
+            f"Demand Shaping의 {shaping['general_users']} 전략을 반영하면 peak는 "
             f"{before} rps에서 {after} rps로 낮아집니다. app pod는 29개가 필요합니다."
         )
     elif agent_key == "bottleneck_capacity":
@@ -72,7 +72,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "validated_rps": forecast["peak_rps_after"],
         }
         message = (
-            f"{forecast['peak_rps_after']} rps 기준으로 DB CPU는 68%, 캐시 hit ratio는 91%입니다. "
+            f"{forecast['peak_rps_after']} rps 기준으로 DB CPU는 68%, cache hit ratio는 91%입니다. "
             "병목은 경고 수준이지만 실행 가능합니다."
         )
     elif agent_key == "cost":
@@ -100,7 +100,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         )
     else:
         result = {"status": "skipped", "agent_key": agent_key}
-        message = f"{AGENT_NAME}은 현재 외부 pod가 아니라 orchestrator 내부 fallback으로 처리됩니다."
+        message = f"{AGENT_NAME}은 아직 별도 pod가 아니므로 orchestrator 내부 fallback으로 처리합니다."
 
     return {"agent": AGENT_NAME, "agent_key": agent_key, "result": result, "message": message}
 
