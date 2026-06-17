@@ -116,10 +116,11 @@
             - apiGroups: ["security.istio.io", "telemetry.istio.io"]
               resources: ["*"]
               verbs: [get, list, watch, create, update, patch, delete]
-            # 네임스페이스 스코프 RBAC (kyverno RoleBinding에서 사용 — Helm 차트가 생성)
+            # 네임스페이스 스코프 RBAC (kyverno 등 Helm 차트가 생성)
+            # escalate/bind: 차트가 argocd-manager 권한을 초과하는 Role을 생성할 때 privilege escalation 우회
             - apiGroups: [rbac.authorization.k8s.io]
               resources: [roles, rolebindings]
-              verbs: [get, list, watch, create, update, patch, delete]
+              verbs: [get, list, watch, create, update, patch, delete, escalate, bind]
             # AWS Load Balancer Controller leader-election-role이 leases create/update/patch를 부여하므로
             # argocd-manager도 동일 권한 보유 필요 (privilege escalation 방지)
             - apiGroups: [coordination.k8s.io]
