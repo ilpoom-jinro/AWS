@@ -4,9 +4,11 @@
 clusterName: financial-service-eks
 region: ap-northeast-2
 
-# vpcId is intentionally omitted: the controller auto-discovers the VPC from the
-# EKS node IMDS. This keeps the config free of a per-account VPC ID and avoids a
-# REPLACE_WITH_SERVICE_VPC_ID sync token, so destroy -> apply stays repeatable.
+# vpcId must be set explicitly: the EKS node IMDS hop limit blocks the controller
+# from auto-discovering the VPC from a pod (ec2imds GetMetadata context deadline
+# exceeded → CrashLoop). gitops-platform-sync.yml replaces this token with the
+# Service VPC ID at sync time (mirrors the Ops controller's REPLACE_WITH_OPS_VPC_ID).
+vpcId: REPLACE_WITH_SERVICE_VPC_ID
 
 # Two replicas run active/standby via leader election. The chart uses a soft
 # (preferred) pod anti-affinity, so both can co-locate on a single node today and
