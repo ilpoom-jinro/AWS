@@ -120,6 +120,11 @@
             - apiGroups: [rbac.authorization.k8s.io]
               resources: [roles, rolebindings]
               verbs: [get, list, watch, create, update, patch, delete]
+            # AWS Load Balancer Controller leader-election-role이 leases create/update/patch를 부여하므로
+            # argocd-manager도 동일 권한 보유 필요 (privilege escalation 방지)
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-cluster-writer
       kubernetes.core.k8s:
