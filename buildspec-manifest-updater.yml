@@ -194,7 +194,7 @@ phases:
                   "containers": [{
                     "name": app_name,
                     "image": target_container,
-                    "imagePullPolicy": "IfNotPresent",
+                    "imagePullPolicy": "Always",
                     "ports": [{
                       "name": "http",
                       "containerPort": container_port,
