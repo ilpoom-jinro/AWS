@@ -144,7 +144,10 @@
               resources: [ingressclasses]
               verbs: [get, list, watch, create, update, patch, delete]
             - apiGroups: [elbv2.k8s.aws]
-              resources: [ingressclassparams]
+              resources: [ingressclassparams, targetgroupbindings]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: ["*"]
               verbs: [get, list, watch, create, update, patch, delete]
             # Argo CD creates a ClusterRole that grants Kyverno permission to
             # generate Istio AuthorizationPolicy resources. Kubernetes requires
