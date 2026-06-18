@@ -277,7 +277,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         }
         message = (
             f"예상 비즈니스 가치는 약 ${expected_value:g}이고 비용 비율은 {cost_ratio}%입니다. "
-            "비용 대비 실행 가치는 충분하다고 판단합니다."
+            f"비용 대비 실행 가치는 충분하다고 판단합니다."
         )
     elif agent_key == "policy_guardrail":
         unit = previous["unit_economics"]

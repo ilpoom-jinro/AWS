@@ -38,7 +38,7 @@ from typing import Protocol
 from .models import (
     AnomalyReport,
     ApprovalRequest,
-    ApprovalResult,
+    ApprovalTicket,
     AuditLog,
     CollectMetricsInput,
     ComplianceReport,
@@ -118,7 +118,15 @@ class AIOpsActivities(Protocol):
         input: DetectIncidentInput,
     ) -> IncidentContext:
         """
-        CrashLoop / OOMKilled / High Latency 탐지
+        Kubernetes 장애 탐지
+
+        - CrashLoopBackOff
+        - OOMKilled
+        - High Latency
+        - ImagePullBackOff
+        - PendingTimeout
+        - Evicted
+
         구현 위치: mas/agents/aiops/src/aiops/nodes/detector.py
         """
         ...
@@ -229,13 +237,27 @@ class SecOpsActivities(Protocol):
 # ---
 
 class CommonActivities(Protocol):
-
-    async def request_approval(
+        
+    async def send_approval_request(
         self,
-        request: ApprovalRequest,
-    ) -> ApprovalResult:
+        request: ApprovalRequest,  
+    ) -> ApprovalTicket:
         """
-        Slack HITL 승인 게이트 (4시간 무응답 = 재알림,  8시간 = 자동 거부)
+        Slack에 승인 요청 메시지 전송. 즉시 반환
+
+        승인 결과 수신 4시간 8시간 로직은 workflow가 signal + wait_condition()으로 처리
+        구현 위치: mas/slack-hitl/bot.py
+        """
+        ...
+        
+    
+    async def send_reminder(
+        self,
+        ticket: ApprovalTicket,
+    ) -> None:
+        """
+        리마인더 시점에 Slack 메시지 갱신(chat.update) 또는 재알림 전송
+        호출 시점은 Workflow가 결정한다 (ApprovalRequest.reminder_after_hours 경과 시)
         구현 위치: mas/slack-hitl/bot.py
         """
         ...
