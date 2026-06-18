@@ -370,11 +370,7 @@
                       - -c
                       - |
                         set -eu
-                        psql \
-                          -h "{{ service_rds_endpoint.stdout }}" \
-                          -p 5432 \
-                          -U financial_admin \
-                          -d financial_service \
+                        psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
                           -v ON_ERROR_STOP=1 <<'SQL'
                         CREATE TABLE IF NOT EXISTS recommendations (
                           id SERIAL PRIMARY KEY,
