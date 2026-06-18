@@ -141,6 +141,19 @@ jobs:
                   and parts[0] == "mas"
                   and parts[1] == "pods"
               }
+              if any(
+                  len(parts := Path(path).parts) >= 4
+                  and parts[0] == "mas"
+                  and parts[1] == "pods"
+                  and parts[2] == "finops"
+                  and parts[3] == "agents"
+                  for path in changed
+              ):
+                  candidates.update(
+                      agent
+                      for agent in existing_agents()
+                      if agent.startswith("finops/")
+                  )
               agents = sorted(
                   agent
                   for agent in candidates

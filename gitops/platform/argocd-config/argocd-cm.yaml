@@ -7,14 +7,59 @@ metadata:
     app.kubernetes.io/name: argocd-cm
     app.kubernetes.io/part-of: argocd
 data:
-  # 빌트인 admin 계정 비활성화 — 모든 접근은 로컬 명명 계정으로만 허용
-  admin.enabled: "false"
-
-  # 로컬 계정 정의
-  # 비밀번호는 AWS Secrets Manager(argocd/local-account-passwords)에서
-  # ops-argocd.yml Ansible 태스크가 읽어 argocd-secret에 bcrypt 해시로 패치함
-  accounts.dahyeon:    apiKey, login
-  accounts.bgshin:     apiKey, login
-  accounts.junho:      apiKey, login
-  accounts.sangjun:    apiKey, login
-  accounts.junyounglee: apiKey, login
+  # CRD는 262144 bytes 초과로 ArgoCD annotation 방식 관리 불가.
+  # 아래 그룹들은 Helm 차트 기본값이며, gitops YAML로 명시해 Helm 싱크 시 유실되지 않도록 관리.
+  # CRD 제외는 j2 템플릿과 동일하게 Kyverno CRD 문제 해결 목적으로 추가.
+  resource.exclusions: |
+    - apiGroups:
+      - ''
+      - discovery.k8s.io
+      kinds:
+      - Endpoints
+      - EndpointSlice
+    - apiGroups:
+      - coordination.k8s.io
+      kinds:
+      - Lease
+    - apiGroups:
+      - authentication.k8s.io
+      - authorization.k8s.io
+      kinds:
+      - SelfSubjectReview
+      - TokenReview
+      - LocalSubjectAccessReview
+      - SelfSubjectAccessReview
+      - SelfSubjectRulesReview
+      - SubjectAccessReview
+    - apiGroups:
+      - certificates.k8s.io
+      kinds:
+      - CertificateSigningRequest
+    - apiGroups:
+      - cert-manager.io
+      kinds:
+      - CertificateRequest
+    - apiGroups:
+      - cilium.io
+      kinds:
+      - CiliumIdentity
+      - CiliumEndpoint
+      - CiliumEndpointSlice
+    - apiGroups:
+      - kyverno.io
+      - reports.kyverno.io
+      - wgpolicyk8s.io
+      kinds:
+      - PolicyReport
+      - ClusterPolicyReport
+      - EphemeralReport
+      - ClusterEphemeralReport
+      - AdmissionReport
+      - ClusterAdmissionReport
+      - BackgroundScanReport
+      - ClusterBackgroundScanReport
+      - UpdateRequest
+    - apiGroups:
+      - apiextensions.k8s.io
+      kinds:
+      - CustomResourceDefinition

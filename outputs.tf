@@ -108,3 +108,33 @@ output "kms_key_rds_globalservice_arn" {
   description = "RDS CMK ARN for financial-vpc1-service (준호씨 rds.tf에서 참조)"
   value       = aws_kms_key.key_rds_globalservice.arn
 }
+
+output "kms_key_s3_arn" {
+  description = "S3 CMK ARN (bootstrap S3 SSE 참조)"
+  value       = aws_kms_key.key_s3.arn
+}
+
+output "kms_key_secretsmanager_arn" {
+  description = "Secrets Manager CMK ARN"
+  value       = aws_kms_key.key_secretsmanager.arn
+}
+
+output "kms_key_eks_arn" {
+  description = "EKS CMK ARN (etcd Secrets + EBS node volumes)"
+  value       = aws_kms_key.key_eks.arn
+}
+
+output "route53_name_servers" {
+  description = "가비아 네임서버 설정에 입력할 NS 레코드 4개"
+  value       = aws_route53_zone.main.name_servers
+}
+
+output "route53_zone_id" {
+  description = "ilpumjinro.store Hosted Zone ID"
+  value       = aws_route53_zone.main.zone_id
+}
+
+output "acm_certificate_arn" {
+  description = "ilpumjinro.store ACM 인증서 ARN — ingress.yaml certificate-arn에 입력"
+  value       = aws_acm_certificate.main.arn
+}

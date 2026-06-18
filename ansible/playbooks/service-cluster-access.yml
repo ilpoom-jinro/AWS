@@ -116,9 +116,15 @@
             - apiGroups: ["security.istio.io", "telemetry.istio.io"]
               resources: ["*"]
               verbs: [get, list, watch, create, update, patch, delete]
-            # 네임스페이스 스코프 RBAC (kyverno RoleBinding에서 사용 — Helm 차트가 생성)
+            # 네임스페이스 스코프 RBAC (kyverno 등 Helm 차트가 생성)
+            # escalate/bind: 차트가 argocd-manager 권한을 초과하는 Role을 생성할 때 privilege escalation 우회
             - apiGroups: [rbac.authorization.k8s.io]
               resources: [roles, rolebindings]
+              verbs: [get, list, watch, create, update, patch, delete, escalate, bind]
+            # AWS Load Balancer Controller leader-election-role이 leases create/update/patch를 부여하므로
+            # argocd-manager도 동일 권한 보유 필요 (privilege escalation 방지)
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
               verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-cluster-writer
@@ -136,7 +142,7 @@
               verbs: [get, list, watch, create, update, patch, delete]
             - apiGroups: [rbac.authorization.k8s.io]
               resources: [clusterroles, clusterrolebindings]
-              verbs: [get, list, watch, create, update, patch, delete]
+              verbs: [get, list, watch, create, update, patch, delete, escalate, bind]
             - apiGroups: [admissionregistration.k8s.io]
               resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
               verbs: [get, list, watch, create, update, patch, delete]
@@ -144,8 +150,43 @@
               resources: [ingressclasses]
               verbs: [get, list, watch, create, update, patch, delete]
             - apiGroups: [elbv2.k8s.aws]
-              resources: [ingressclassparams]
+              resources: [ingressclassparams, targetgroupbindings, targetgroupbindings/status, albtargetcontrolconfigs]
               verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
+            # ALBC ClusterRole이 부여하는 권한 — argocd-manager가 보유해야 privilege escalation 없이 생성 가능
+            - apiGroups: [""]
+              resources: [events]
+              verbs: [create, patch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [create, delete, update]
+            - apiGroups: [""]
+              resources: [services]
+              verbs: [patch, update]
+            - apiGroups: [""]
+              resources: [pods/status, services/status]
+              verbs: [patch, update]
+            - apiGroups: ["extensions", "networking.k8s.io"]
+              resources: [ingresses, ingresses/status]
+              verbs: [patch, update]
+            - apiGroups: [aga.k8s.aws]
+              resources: ["*"]
+              verbs: [get, list, watch, patch, update]
+            - apiGroups: [gateway.k8s.aws]
+              resources: ["*"]
+              verbs: [get, list, watch, patch, update]
+            # Argo CD creates a ClusterRole that grants Kyverno permission to
+            # generate Istio AuthorizationPolicy resources. Kubernetes requires
+            # the caller to already hold the permissions it grants.
+            - apiGroups: [security.istio.io]
+              resources: [authorizationpolicies]
+              verbs: [get, list, watch, create, update, patch, delete]
+            # observability-alloy-service ClusterRole이 /metrics nonResourceURL 권한을 포함하므로
+            # argocd-manager가 해당 권한을 보유해야 privilege escalation 없이 ClusterRole 생성 가능.
+            - nonResourceURLs: ["/metrics"]
+              verbs: [get]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
@@ -252,6 +293,7 @@
         - istio-system    # istio-policies-service 배포 대상
         - stock-demo      # service-demo-app 배포 대상
         - kyverno         # kyverno ApplicationSet 배포 대상
+        - kube-system     # aws-load-balancer-controller-service 배포 대상
 
     - name: Ensure long-lived token secret exists for Argo CD manager
       kubernetes.core.k8s:

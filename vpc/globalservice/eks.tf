@@ -46,6 +46,13 @@ resource "aws_eks_cluster" "service" {
 
   enabled_cluster_log_types = var.eks_enabled_cluster_log_types
 
+  encryption_config {
+    resources = ["secrets"] # etcd에 저장되는 Kubernetes Secret 오브젝트 암호화
+    provider {
+      key_arn = var.kms_key_eks_arn
+    }
+  }
+
   tags = {
     Name = var.eks_cluster_name
     Role = "service-cluster"
@@ -54,6 +61,7 @@ resource "aws_eks_cluster" "service" {
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy,
     aws_iam_role_policy_attachment.eks_vpc_resource_controller,
+    aws_iam_role_policy.eks_cluster_kms, # encryption_config 전에 KMS Grant 권한 확보 필수
   ]
 }
 
@@ -135,6 +143,34 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
+# service 노드 Launch Template — IMDSv2 강제 + EBS CMK 암호화
+# disk_size는 launch_template과 병용 불가 → block_device_mappings로 이전
+resource "aws_launch_template" "eks_node_service" {
+  name_prefix = "${var.eks_cluster_name}-node-"
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = var.eks_node_disk_size
+      volume_type           = "gp3"
+      encrypted             = true # 금융권 필수: 서비스 노드 루트 볼륨 CMK 암호화
+      kms_key_id            = var.kms_key_eks_arn
+      delete_on_termination = true
+    }
+  }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    instance_metadata_tags      = "enabled"
+  }
+
+  tags = {
+    Name = "${var.eks_cluster_name}-node-lt"
+  }
+}
+
 resource "aws_eks_node_group" "service" {
   cluster_name    = aws_eks_cluster.service.name
   node_group_name = "${var.eks_cluster_name}-general"
@@ -142,12 +178,21 @@ resource "aws_eks_node_group" "service" {
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   instance_types  = var.eks_node_instance_types
   capacity_type   = var.eks_node_capacity_type
-  disk_size       = var.eks_node_disk_size
+  # disk_size는 launch_template 사용 시 지정 불가 → launch template block_device_mappings로 이전
 
   scaling_config {
-    desired_size = var.single_az_mode ? 1 : var.eks_node_desired_size
-    min_size     = var.single_az_mode ? 1 : var.eks_node_min_size
+    # service general 노드는 외부 노출 데모앱 + Istio(istiod/ztunnel/gateway) 등이
+    # 올라가 CPU가 빠듯함(2 vCPU 노드 단일 시 ~93% requests). CPU 확보와 HA,
+    # Istio Gateway pod 수용을 위해 노드 수는 single_az_mode와 무관하게
+    # eks_node_desired/min_size(기본 2)를 따른다. (ops general과 동일 패턴)
+    desired_size = var.eks_node_desired_size
+    min_size     = var.eks_node_min_size
     max_size     = var.eks_node_max_size
+  }
+
+  launch_template {
+    id      = aws_launch_template.eks_node_service.id
+    version = "$Latest"
   }
 
   update_config {
@@ -175,6 +220,18 @@ resource "aws_eks_addon" "vpc_cni" {
   addon_name                  = "vpc-cni"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+
+  # DISABLE_TCP_EARLY_DEMUX=true: 보조 ENI에 있는 파드로 외부(ALB/NLB)에서 오는
+  # TCP 헬스체크가 커널 TCP early demux로 인해 노드 소켓으로 잘못 라우팅되는 문제
+  # 해결. 이 설정이 false면 노드 내부 kube-probe는 통과하지만 외부 LB 헬스체크는
+  # 파드(nginx)에 도달하지 못해 항상 unhealthy가 됨. ALB target-type:ip 노출에 필수.
+  configuration_values = jsonencode({
+    init = {
+      env = {
+        DISABLE_TCP_EARLY_DEMUX = "true"
+      }
+    }
+  })
 
   depends_on = [aws_eks_node_group.service]
 }
