@@ -15,6 +15,9 @@
 #   storage_encrypted = true
 #   kms_key_id        = output ARN 참조
 #   생성 후 변경 불가 → 처음부터 반드시 설정
+#
+# depends_on [module.iam] 제거됨
+# → 워크플로우에서 IAM apply 완료 후 KMS apply 실행하여 순서 보장
 # =============================================
 
 # =============================================
@@ -150,8 +153,9 @@ resource "aws_kms_key" "key_rds_ops" {
     ]
   })
 
-  # module.iam이 먼저 완료돼야 Role ARN이 유효해짐 (병렬 실행 방지)
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -167,6 +171,10 @@ resource "aws_kms_key" "key_rds_ops" {
 resource "aws_kms_alias" "key_rds_ops" {
   name          = "alias/key-rds-ops"
   target_key_id = aws_kms_key.key_rds_ops.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
 }
 
 # =============================================
@@ -287,8 +295,9 @@ resource "aws_kms_key" "key_rds_globalservice" {
     ]
   })
 
-  # module.iam이 먼저 완료돼야 Role ARN이 유효해짐 (병렬 실행 방지)
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -302,20 +311,10 @@ resource "aws_kms_key" "key_rds_globalservice" {
 resource "aws_kms_alias" "key_rds_globalservice" {
   name          = "alias/key-rds-globalservice"
   target_key_id = aws_kms_key.key_rds_globalservice.key_id
-}
 
-# KMS 키 생성 후 AWS 내부 전파 대기
-# 키 생성 직후 RDS/EKS가 바로 사용하면 inaccessible-encryption-credentials 발생
-resource "time_sleep" "kms_rds_propagation" {
-  depends_on = [
-    aws_kms_key.key_rds_ops,
-    aws_kms_key.key_rds_globalservice,
-    aws_kms_key.key_cloudtrail,
-    aws_kms_key.key_s3,
-    aws_kms_key.key_secretsmanager,
-    aws_kms_key.key_eks,
-  ]
-  create_duration = "15s"
+  lifecycle {
+    create_before_destroy = false
+  }
 }
 
 # =============================================
@@ -436,7 +435,9 @@ resource "aws_kms_key" "key_cloudtrail" {
     ]
   })
 
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -450,6 +451,10 @@ resource "aws_kms_key" "key_cloudtrail" {
 resource "aws_kms_alias" "key_cloudtrail" {
   name          = "alias/key-cloudtrail"
   target_key_id = aws_kms_key.key_cloudtrail.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
 }
 
 # =============================================
@@ -566,7 +571,9 @@ resource "aws_kms_key" "key_s3" {
     ]
   })
 
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -580,6 +587,10 @@ resource "aws_kms_key" "key_s3" {
 resource "aws_kms_alias" "key_s3" {
   name          = "alias/key-s3"
   target_key_id = aws_kms_key.key_s3.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
 }
 
 # =============================================
@@ -697,7 +708,9 @@ resource "aws_kms_key" "key_secretsmanager" {
     ]
   })
 
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -711,6 +724,10 @@ resource "aws_kms_key" "key_secretsmanager" {
 resource "aws_kms_alias" "key_secretsmanager" {
   name          = "alias/key-secretsmanager"
   target_key_id = aws_kms_key.key_secretsmanager.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
 }
 
 # =============================================
@@ -876,7 +893,9 @@ resource "aws_kms_key" "key_eks" {
     ]
   })
 
-  depends_on = [module.iam]
+  lifecycle {
+    prevent_destroy = true
+  }
 
   tags = {
     Project     = "ilpumjinro"
@@ -890,4 +909,8 @@ resource "aws_kms_key" "key_eks" {
 resource "aws_kms_alias" "key_eks" {
   name          = "alias/key-eks"
   target_key_id = aws_kms_key.key_eks.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
 }
