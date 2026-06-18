@@ -26,7 +26,7 @@ resource "aws_secretsmanager_secret" "service_rds_password" {
   name                    = "financial-service-rds-password"
   description             = "RDS master password for financial-service PostgreSQL"
   recovery_window_in_days = 7
-  kms_key_id              = aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
+  kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
     Name = "financial-service-rds-password"
@@ -56,7 +56,7 @@ resource "aws_secretsmanager_secret" "ops_rds_password" {
   name                    = "financial-ops-rds-password"
   description             = "RDS master password for financial-ops PostgreSQL"
   recovery_window_in_days = 7
-  kms_key_id              = aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
+  kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
     Name = "financial-ops-rds-password"

@@ -101,27 +101,27 @@ output "observability_indexer_image_repository_url" {
 
 output "kms_key_rds_ops_arn" {
   description = "RDS CMK ARN for financial-vpc2-ops (준호씨 rds.tf에서 참조)"
-  value       = aws_kms_key.key_rds_ops.arn
+  value       = data.aws_kms_key.key_rds_ops.arn
 }
 
 output "kms_key_rds_globalservice_arn" {
   description = "RDS CMK ARN for financial-vpc1-service (준호씨 rds.tf에서 참조)"
-  value       = aws_kms_key.key_rds_globalservice.arn
+  value       = data.aws_kms_key.key_rds_globalservice.arn
 }
 
 output "kms_key_s3_arn" {
   description = "S3 CMK ARN (bootstrap S3 SSE 참조)"
-  value       = aws_kms_key.key_s3.arn
+  value       = data.aws_kms_key.key_s3.arn
 }
 
 output "kms_key_secretsmanager_arn" {
   description = "Secrets Manager CMK ARN"
-  value       = aws_kms_key.key_secretsmanager.arn
+  value       = data.aws_kms_key.key_secretsmanager.arn
 }
 
 output "kms_key_eks_arn" {
   description = "EKS CMK ARN (etcd Secrets + EBS node volumes)"
-  value       = aws_kms_key.key_eks.arn
+  value       = data.aws_kms_key.key_eks.arn
 }
 
 output "route53_name_servers" {
