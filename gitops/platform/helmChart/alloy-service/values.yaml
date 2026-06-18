@@ -51,7 +51,7 @@ alloy:
       loki.write "monitoring_loki" {
         endpoint {
           // Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
-          url = "http://loki-internal-nlb.example.local/loki/api/v1/push"
+          url = "http://loki-internal-nlb.example.local:3100/loki/api/v1/push"
         }
       }
 
@@ -151,7 +151,7 @@ alloy:
 
         endpoint {
           // Replaced in the internal Gitea deployment copy by gitops-platform-sync.yml.
-          url = "http://thanos-receive-internal-nlb.example.local/api/v1/receive"
+          url = "http://thanos-receive-internal-nlb.example.local:19291/api/v1/receive"
         }
       }
       otelcol.receiver.otlp "service_traces" {
