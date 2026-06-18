@@ -24,6 +24,8 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     # 파드 교체 시 무중단 (등록 해제 대기 단축)
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    # TLS 1.2 미만 차단 및 취약 Cipher Suite 제거 (ELBSecurityPolicy-2016-08 기본값 대체)
+    alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
 spec:
   ingressClassName: alb
   rules:
