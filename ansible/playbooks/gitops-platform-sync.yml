@@ -331,7 +331,7 @@
         wait_condition:
           type: Complete
           status: "True"
-        wait_timeout: 180
+        wait_timeout: 300
         definition:
           apiVersion: batch/v1
           kind: Job
@@ -340,7 +340,7 @@
             namespace: stock-demo
           spec:
             backoffLimit: 1
-            ttlSecondsAfterFinished: 300
+            ttlSecondsAfterFinished: 3600
             template:
               spec:
                 restartPolicy: Never
