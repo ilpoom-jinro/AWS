@@ -120,6 +120,15 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
         Resource = "*"
       },
       {
+        Sid    = "SecretsManagerRead"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:financial-service-rds-password-*"
+      },
+      {
         Sid    = "CodeBuildNetworkInterfacePermission"
         Effect = "Allow"
         Action = [
@@ -132,14 +141,6 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
           }
         }
       },
-      {
-        Sid    = "SecretsManagerArgocd"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = aws_secretsmanager_secret.argocd_local_account_passwords.arn
-      }
     ]
   })
 }

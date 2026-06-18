@@ -3,6 +3,18 @@ variable "gcp_fixed_ip" {
   type        = string
 }
 
+variable "gcp_service_ip" {
+  description = "GCP 서비스 LB 정적 IP — Route53 Failover SECONDARY 및 gcp.ilpumjinro.store 대상 (plain IP, e.g. 1.2.3.4). GCP LB 배포 후 입력"
+  type        = string
+  default     = ""
+}
+
+variable "aiops_alb_dns_name" {
+  description = "financial-ops-eks AIOps Ingress ALB DNS name — AIOps 배포 후 kubectl get ingress -n aiops 로 확인"
+  type        = string
+  default     = ""
+}
+
 variable "oci_headscale_ip" {
   description = "OCI Headscale server IP (CIDR format, e.g. 1.2.3.4/32)"
   type        = string
