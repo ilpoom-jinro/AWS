@@ -310,7 +310,7 @@
       environment:
         SERVICE_RDS_SECRET: "{{ service_rds_secret.stdout }}"
       changed_when: true
-      no_log: true
+      no_log: false
 
     - name: Restart stock-api after RDS password secret update
       ansible.builtin.command:
