@@ -51,13 +51,13 @@ class SDKSettings(BaseSettings):
         value: PostgresDsn,
     ) -> PostgresDsn:
         if value.scheme != "postgresql+asyncpg":
-        raise ValueError(
-            "DATABASE_URL은 "
-            "'postgresql+asyncpg://user:pass@host:5432/dbname' "
-            "형식이어야 합니다"
-        )
+            raise ValueError(
+                "DATABASE_URL은 "
+                "'postgresql+asyncpg://user:pass@host:5432/dbname' "
+                "형식이어야 합니다"
+            )
 
-    return value
+        return value
 
 
 @lru_cache(maxsize=1)
