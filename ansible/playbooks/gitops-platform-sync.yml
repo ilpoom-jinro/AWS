@@ -260,7 +260,7 @@
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
-        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.local"
+        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.{{ teleport_private_ip.stdout }}.nip.io"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
@@ -291,25 +291,24 @@
           metadata:
             name: stock-demo
 
-    - name: Recreate stock-api RDS password secret in Service EKS
-      ansible.builtin.shell: |
-        set -e
-        DB_PASSWORD="$(python3 - <<'PY'
-        import json
-        import os
-        print(json.loads(os.environ["SERVICE_RDS_SECRET"])["password"])
-        PY
-        )"
+    - name: Extract Service RDS password
+      ansible.builtin.set_fact:
+        service_rds_password: "{{ (service_rds_secret.stdout | from_json).password }}"
+      no_log: true
 
-        kubectl --context {{ service_kube_context }} -n stock-demo \
-          delete secret stock-api-secret --ignore-not-found
-
-        kubectl --context {{ service_kube_context }} -n stock-demo \
-          create secret generic stock-api-secret \
-          --from-literal=DB_PASSWORD="${DB_PASSWORD}"
-      environment:
-        SERVICE_RDS_SECRET: "{{ service_rds_secret.stdout }}"
-      changed_when: true
+    - name: Apply stock-api RDS password secret in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: stock-api-secret
+            namespace: stock-demo
+          type: Opaque
+          stringData:
+            DB_PASSWORD: "{{ service_rds_password }}"
       no_log: true
 
     - name: Restart stock-api after RDS password secret update
