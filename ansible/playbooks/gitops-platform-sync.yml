@@ -119,16 +119,30 @@
       register: service_rds_endpoint
       changed_when: false
 
+    - name: Read the Service RDS password from Secrets Manager
+      ansible.builtin.command:
+        cmd: >
+          aws secretsmanager get-secret-value
+          --region {{ aws_region }}
+          --secret-id financial-service-rds-password
+          --query SecretString
+          --output text
+      register: service_rds_secret
+      changed_when: false
+      no_log: true
+
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
-        msg: "Failed to discover the Ops VPC ID, monitoring NLB security group IDs, or the Service RDS endpoint."
+        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, Service RDS endpoint, or Service RDS secret."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
+        service_vpc_id.stdout in ["", "None"] or
         teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
-        service_rds_endpoint.stdout in ["", "None"]
+        service_rds_endpoint.stdout in ["", "None"] or
+        service_rds_secret.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -212,13 +226,13 @@
         replacements = {
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
+            "REPLACE_WITH_SERVICE_VPC_ID": os.environ["SERVICE_VPC_ID"],
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
             "REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX": os.environ["TELEPORT_APP_PUBLIC_SUFFIX"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
             "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
-            "REPLACE_WITH_SERVICE_VPC_ID": os.environ["SERVICE_VPC_ID"],
         }
 
         for path in Path(".").rglob("*"):
@@ -244,19 +258,68 @@
         AWS_ACCOUNT_ID: "{{ aws_account_id.stdout }}"
         AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
+        SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
         TELEPORT_APP_PUBLIC_SUFFIX: "teleport.local"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
-        SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
-        
+
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present
         src: "{{ gitops_platform_seed_dir }}/bootstrap/platform-app-of-apps.yaml"
+
+    - name: Update kubeconfig for the Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --alias {{ service_kube_context }}
+      changed_when: false
+
+    - name: Ensure stock-demo namespace exists in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: stock-demo
+
+    - name: Recreate stock-api RDS password secret in Service EKS
+      ansible.builtin.shell: |
+        set -e
+        DB_PASSWORD="$(python3 - <<'PY'
+        import json
+        import os
+        print(json.loads(os.environ["SERVICE_RDS_SECRET"])["password"])
+        PY
+        )"
+
+        kubectl --context {{ service_kube_context }} -n stock-demo \
+          delete secret stock-api-secret --ignore-not-found
+
+        kubectl --context {{ service_kube_context }} -n stock-demo \
+          create secret generic stock-api-secret \
+          --from-literal=DB_PASSWORD="${DB_PASSWORD}"
+      environment:
+        SERVICE_RDS_SECRET: "{{ service_rds_secret.stdout }}"
+      changed_when: true
+      no_log: true
+
+    - name: Restart stock-api after RDS password secret update
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n stock-demo
+          rollout restart deployment/stock-api
+      changed_when: true
+      failed_when: false
 
     - name: Check if Loki, Thanos Receive and Tempo services exist in observability namespace
       ansible.builtin.shell: |
