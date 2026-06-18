@@ -9,12 +9,6 @@ variable "gcp_service_ip" {
   default     = ""
 }
 
-variable "enable_service_alb_records" {
-  description = "true 시 stock-web ALB(태그 ingress.k8s.aws/stack=stock-demo/stock-web)를 자동 조회하여 ilpumjinro.store(Failover PRIMARY)·aws.ilpumjinro.store 레코드를 연결. Ingress 배포·ALB healthy 후 활성화"
-  type        = bool
-  default     = false
-}
-
 variable "aiops_alb_dns_name" {
   description = "financial-ops-eks AIOps Ingress ALB DNS name — AIOps 배포 후 kubectl get ingress -n aiops 로 확인"
   type        = string

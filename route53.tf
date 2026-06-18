@@ -41,18 +41,27 @@ resource "aws_acm_certificate_validation" "main" {
 # ── Health Check (AWS ALB 상태 감시) ──────────────────────────────────────────
 
 # stock-web ALB는 service 클러스터 Ingress(AWS LB Controller)가 동적으로 생성하므로
-# DNS·zone_id를 하드코딩하지 않고 태그로 자동 조회한다. Ingress 배포 후
-# enable_service_alb_records=true 로 설정하면 레코드가 활성화된다.
-data "aws_lb" "service" {
-  count = var.enable_service_alb_records ? 1 : 0
-
+# DNS·zone_id를 하드코딩하지 않고 태그로 자동 조회한다. 복수형 data.aws_lbs는
+# 매칭 0개여도 에러가 없어(단수형 aws_lb는 0개 시 plan 실패), ALB가 아직 없는
+# 재구축 초기에도 plan이 깨지지 않으며, ALB가 생기면 레코드가 자동 활성화된다.
+data "aws_lbs" "service" {
   tags = {
     "ingress.k8s.aws/stack" = "stock-demo/stock-web"
   }
 }
 
+locals {
+  # ALB가 조회되면 1, 없으면 0 — Route53 레코드/헬스체크 생성 여부를 자동 결정
+  service_alb_enabled = length(data.aws_lbs.service.arns) > 0 ? 1 : 0
+}
+
+data "aws_lb" "service" {
+  count = local.service_alb_enabled
+  arn   = tolist(data.aws_lbs.service.arns)[0]
+}
+
 resource "aws_route53_health_check" "aws_primary" {
-  count = var.enable_service_alb_records ? 1 : 0
+  count = local.service_alb_enabled
 
   fqdn              = data.aws_lb.service[0].dns_name
   port              = 443
@@ -69,7 +78,7 @@ resource "aws_route53_health_check" "aws_primary" {
 # ── ilpumjinro.store — Failover (PRIMARY: AWS / SECONDARY: GCP) ──────────────
 
 resource "aws_route53_record" "root_primary" {
-  count   = var.enable_service_alb_records ? 1 : 0
+  count   = local.service_alb_enabled
   zone_id = aws_route53_zone.main.zone_id
   name    = "ilpumjinro.store"
   type    = "A"
@@ -106,7 +115,7 @@ resource "aws_route53_record" "root_secondary" {
 # ── aws.ilpumjinro.store → AWS ALB 직접 연결 ──────────────────────────────────
 
 resource "aws_route53_record" "aws_direct" {
-  count   = var.enable_service_alb_records ? 1 : 0
+  count   = local.service_alb_enabled
   zone_id = aws_route53_zone.main.zone_id
   name    = "aws.ilpumjinro.store"
   type    = "A"
