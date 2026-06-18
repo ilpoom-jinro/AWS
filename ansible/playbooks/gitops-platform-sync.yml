@@ -349,7 +349,7 @@
                     type: RuntimeDefault
                 containers:
                   - name: rds-init
-                    image: postgres:16
+                    image: "{{ aws_account_id.stdout }}.dkr.ecr.{{ aws_region }}.amazonaws.com/financial/mas/finops/postgres:16-alpine"
                     imagePullPolicy: IfNotPresent
                     env:
                       - name: PGPASSWORD
