@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: aiops
-  labels:
-    istio.io/dataplane-mode: ambient   # Istio Ambient Mesh 적용

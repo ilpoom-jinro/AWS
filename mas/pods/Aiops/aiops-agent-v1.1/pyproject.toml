@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiops-agent"
+version = "1.1.0"
+description = "MAS Platform AIOps Agent — Temporal Activities (detect/analyze/verify)"
+requires-python = ">=3.12"
+dependencies = [
+    # Temporal
+    "temporalio>=1.7",
+    # 팀 공통 패키지 (mas 모노레포 내 경로 의존)
+    #   contracts, shared, workflows 는 monorepo editable install
+    # AWS (shared.bedrock 경유)
+    "boto3>=1.34",
+    "botocore>=1.34",
+    # Kubernetes (읽기 전용 수집)
+    "kubernetes>=30.1",
+    # 모델
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
