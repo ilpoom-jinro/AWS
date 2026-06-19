@@ -1,12 +1,23 @@
+import asyncio
 import os
 from typing import Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+from temporalio import activity
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from app.agent_runtime import AGENT_TASK_QUEUES, run_agent as run_finops_agent_logic
 
 
 AGENT_KEY = os.getenv("AGENT_KEY", "business_control")
 AGENT_NAME = os.getenv("AGENT_NAME", "Business Control Agent")
+TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
+AGENT_TASK_QUEUE = os.getenv(
+    "AGENT_TASK_QUEUE",
+    AGENT_TASK_QUEUES.get(AGENT_KEY, f"finops-{AGENT_KEY.replace('_', '-')}-agent-task-queue"),
+)
 
 AGENT_DATA_REQUESTS = {
     "demand_shaping": [
@@ -73,6 +84,8 @@ AGENT_CONFIDENCE = {
 }
 
 app = FastAPI(title=AGENT_NAME, version="0.3.0")
+temporal_worker_task: asyncio.Task | None = None
+temporal_client: Client | None = None
 
 
 class AgentRequest(BaseModel):
@@ -80,6 +93,41 @@ class AgentRequest(BaseModel):
     context: dict[str, Any]
     available_results: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+
+
+@activity.defn(name="run_finops_agent")
+async def run_finops_agent(
+    workflow_id: str,
+    agent_key: str,
+    agent_name: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    if agent_key != AGENT_KEY:
+        raise ValueError(f"{AGENT_NAME} cannot run agent '{agent_key}'")
+    return run_finops_agent_logic(agent_key, context)
+
+
+async def start_temporal_worker() -> None:
+    global temporal_client
+    temporal_client = await Client.connect(TEMPORAL_ADDRESS)
+    worker = Worker(
+        temporal_client,
+        task_queue=AGENT_TASK_QUEUE,
+        activities=[run_finops_agent],
+    )
+    await worker.run()
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    global temporal_worker_task
+    temporal_worker_task = asyncio.create_task(start_temporal_worker())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if temporal_worker_task:
+        temporal_worker_task.cancel()
 
 
 def event_policy(context: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -206,9 +254,14 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "agent": AGENT_NAME, "agent_key": AGENT_KEY}
+    return {
+        "status": "ok",
+        "agent": AGENT_NAME,
+        "agent_key": AGENT_KEY,
+        "task_queue": AGENT_TASK_QUEUE,
+    }
 
 
 @app.post("/run")
 def run(request: AgentRequest) -> dict[str, Any]:
-    return run_agent(AGENT_KEY, request.context, request.available_results)
+    return run_finops_agent_logic(AGENT_KEY, request.context)

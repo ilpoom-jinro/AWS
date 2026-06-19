@@ -5,8 +5,6 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 import psycopg
 from fastapi import FastAPI, HTTPException
@@ -25,29 +23,6 @@ DATABASE_URL = os.getenv(
 )
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
 TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "finops-agent-task-queue")
-AGENT_ENDPOINTS = {
-    "business_control": os.getenv(
-        "BUSINESS_CONTROL_AGENT_URL",
-        "http://finops-business-control-agent.finops-mas.svc.cluster.local",
-    ),
-    "demand_shaping": os.getenv(
-        "DEMAND_SHAPING_AGENT_URL",
-        "http://finops-demand-shaping-agent.finops-mas.svc.cluster.local",
-    ),
-    "traffic_forecast": os.getenv(
-        "TRAFFIC_FORECAST_AGENT_URL",
-        "http://finops-traffic-forecast-agent.finops-mas.svc.cluster.local",
-    ),
-    "bottleneck_capacity": os.getenv(
-        "BOTTLENECK_CAPACITY_AGENT_URL",
-        "http://finops-bottleneck-capacity-agent.finops-mas.svc.cluster.local",
-    ),
-    "cost": os.getenv("COST_AGENT_URL", "http://finops-cost-agent.finops-mas.svc.cluster.local"),
-    "policy_guardrail": os.getenv(
-        "POLICY_GUARDRAIL_AGENT_URL",
-        "http://finops-policy-guardrail-agent.finops-mas.svc.cluster.local",
-    ),
-}
 
 app = FastAPI(title="FinOps Orchestrator", version="0.4.0")
 temporal_client: Client | None = None
@@ -185,8 +160,138 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
             """,
             (event_id,),
         ).fetchone()
+        business_source = conn.execute(
+            """
+            select
+              event_id,
+              push_channel,
+              vip_audience_count,
+              general_audience_count,
+              campaign_importance,
+              crm_segment,
+              calendar_source
+            from business_source_detail
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+        traffic_source = conn.execute(
+            """
+            select
+              event_id,
+              alb_request_count_5m,
+              prometheus_rps,
+              p95_latency_ms,
+              queue_depth,
+              pod_cpu_percent,
+              pod_memory_percent,
+              hpa_current_replicas,
+              hpa_desired_replicas
+            from traffic_observability_signal
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+        infra_source = conn.execute(
+            """
+            select
+              event_id,
+              eks_deployment_replicas,
+              nodegroup_desired,
+              nodegroup_max,
+              rds_cpu_percent,
+              rds_connections,
+              rds_read_iops,
+              redis_cache_hit_ratio_percent,
+              alb_healthy_targets,
+              alb_unhealthy_targets,
+              nat_gateway_bytes_out_gb
+            from infra_capacity_signal
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+        cost_source = conn.execute(
+            """
+            select
+              event_id,
+              cost_explorer_month_to_date_usd,
+              cur_projected_monthly_usd,
+              kubecost_namespace_daily_usd,
+              cloudwatch_logs_daily_usd,
+              nat_alb_transfer_daily_usd,
+              event_incremental_budget_usd
+            from cost_signal
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+        policy_source = conn.execute(
+            """
+            select
+              event_id,
+              monthly_budget_limit_usd,
+              approval_required_over_usd,
+              forbidden_actions,
+              allowed_actions,
+              policy_version
+            from policy_guardrail_source
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
     if not event or not policy or not signals:
         raise ValueError(f"event context not found: {event_id}")
+    business = {
+        "event_id": business_source[0],
+        "push_channel": business_source[1],
+        "vip_audience_count": business_source[2],
+        "general_audience_count": business_source[3],
+        "campaign_importance": business_source[4],
+        "crm_segment": business_source[5],
+        "calendar_source": business_source[6],
+    } if business_source else {}
+    traffic = {
+        "event_id": traffic_source[0],
+        "alb_request_count_5m": traffic_source[1],
+        "prometheus_rps": traffic_source[2],
+        "p95_latency_ms": traffic_source[3],
+        "queue_depth": traffic_source[4],
+        "pod_cpu_percent": traffic_source[5],
+        "pod_memory_percent": traffic_source[6],
+        "hpa_current_replicas": traffic_source[7],
+        "hpa_desired_replicas": traffic_source[8],
+    } if traffic_source else {}
+    infra = {
+        "event_id": infra_source[0],
+        "eks_deployment_replicas": infra_source[1],
+        "nodegroup_desired": infra_source[2],
+        "nodegroup_max": infra_source[3],
+        "rds_cpu_percent": infra_source[4],
+        "rds_connections": infra_source[5],
+        "rds_read_iops": infra_source[6],
+        "redis_cache_hit_ratio_percent": infra_source[7],
+        "alb_healthy_targets": infra_source[8],
+        "alb_unhealthy_targets": infra_source[9],
+        "nat_gateway_bytes_out_gb": float(infra_source[10]),
+    } if infra_source else {}
+    cost = {
+        "event_id": cost_source[0],
+        "cost_explorer_month_to_date_usd": float(cost_source[1]),
+        "cur_projected_monthly_usd": float(cost_source[2]),
+        "kubecost_namespace_daily_usd": float(cost_source[3]),
+        "cloudwatch_logs_daily_usd": float(cost_source[4]),
+        "nat_alb_transfer_daily_usd": float(cost_source[5]),
+        "event_incremental_budget_usd": float(cost_source[6]),
+    } if cost_source else {}
+    policy_detail = {
+        "event_id": policy_source[0],
+        "monthly_budget_limit_usd": float(policy_source[1]),
+        "approval_required_over_usd": float(policy_source[2]),
+        "forbidden_actions": policy_source[3],
+        "allowed_actions": policy_source[4],
+        "policy_version": policy_source[5],
+    } if policy_source else {}
     return {
         "event": {
             "event_id": event[0],
@@ -217,31 +322,13 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
             "expected_value_usd": float(signals[11]),
             "scale_down_rps_threshold": signals[12],
         },
+        "business": business,
+        "traffic": traffic,
+        "infra": infra,
+        "cost_source": cost,
+        "policy_source": policy_detail,
         "agent_results": {},
     }
-
-
-def call_agent_pod(agent_key: str, workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
-    endpoint = AGENT_ENDPOINTS[agent_key]
-    body = json.dumps(
-        {
-            "workflow_id": workflow_id,
-            "context": context,
-            "available_results": context.get("agent_results", {}),
-            "requested_by": "finops_orchestrator",
-        }
-    ).encode("utf-8")
-    request = Request(
-        f"{endpoint}/run",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=10) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except URLError as exc:
-        raise RuntimeError(f"{agent_key} agent pod unavailable: {exc}") from exc
 
 
 def init_db() -> None:
@@ -286,6 +373,76 @@ def init_db() -> None:
                       push_cost_usd numeric not null,
                       expected_value_usd numeric not null,
                       scale_down_rps_threshold integer not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists business_source_detail (
+                      event_id text primary key,
+                      push_channel text not null,
+                      vip_audience_count integer not null,
+                      general_audience_count integer not null,
+                      campaign_importance text not null,
+                      crm_segment text not null,
+                      calendar_source text not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists traffic_observability_signal (
+                      event_id text primary key,
+                      alb_request_count_5m integer not null,
+                      prometheus_rps integer not null,
+                      p95_latency_ms integer not null,
+                      queue_depth integer not null,
+                      pod_cpu_percent integer not null,
+                      pod_memory_percent integer not null,
+                      hpa_current_replicas integer not null,
+                      hpa_desired_replicas integer not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists infra_capacity_signal (
+                      event_id text primary key,
+                      eks_deployment_replicas integer not null,
+                      nodegroup_desired integer not null,
+                      nodegroup_max integer not null,
+                      rds_cpu_percent integer not null,
+                      rds_connections integer not null,
+                      rds_read_iops integer not null,
+                      redis_cache_hit_ratio_percent integer not null,
+                      alb_healthy_targets integer not null,
+                      alb_unhealthy_targets integer not null,
+                      nat_gateway_bytes_out_gb numeric not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists cost_signal (
+                      event_id text primary key,
+                      cost_explorer_month_to_date_usd numeric not null,
+                      cur_projected_monthly_usd numeric not null,
+                      kubecost_namespace_daily_usd numeric not null,
+                      cloudwatch_logs_daily_usd numeric not null,
+                      nat_alb_transfer_daily_usd numeric not null,
+                      event_incremental_budget_usd numeric not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists policy_guardrail_source (
+                      event_id text primary key,
+                      monthly_budget_limit_usd numeric not null,
+                      approval_required_over_usd numeric not null,
+                      forbidden_actions jsonb not null,
+                      allowed_actions jsonb not null,
+                      policy_version text not null
                     )
                     """
                 )
@@ -400,6 +557,150 @@ def seed(conn) -> None:
           scale_down_rps_threshold = excluded.scale_down_rps_threshold
         """
     )
+    conn.execute(
+        """
+        insert into business_source_detail
+          (
+            event_id,
+            push_channel,
+            vip_audience_count,
+            general_audience_count,
+            campaign_importance,
+            crm_segment,
+            calendar_source
+          )
+        values
+          (
+            'fomc-briefing',
+            'mobile-push',
+            42000,
+            308000,
+            'tier-0-market-moving',
+            'domestic-equity-active-traders',
+            'temporary-business-calendar-fixture'
+          )
+        on conflict (event_id) do update set
+          push_channel = excluded.push_channel,
+          vip_audience_count = excluded.vip_audience_count,
+          general_audience_count = excluded.general_audience_count,
+          campaign_importance = excluded.campaign_importance,
+          crm_segment = excluded.crm_segment,
+          calendar_source = excluded.calendar_source
+        """
+    )
+    conn.execute(
+        """
+        insert into traffic_observability_signal
+          (
+            event_id,
+            alb_request_count_5m,
+            prometheus_rps,
+            p95_latency_ms,
+            queue_depth,
+            pod_cpu_percent,
+            pod_memory_percent,
+            hpa_current_replicas,
+            hpa_desired_replicas
+          )
+        values
+          ('fomc-briefing', 426000, 1420, 188, 7400, 63, 71, 18, 29)
+        on conflict (event_id) do update set
+          alb_request_count_5m = excluded.alb_request_count_5m,
+          prometheus_rps = excluded.prometheus_rps,
+          p95_latency_ms = excluded.p95_latency_ms,
+          queue_depth = excluded.queue_depth,
+          pod_cpu_percent = excluded.pod_cpu_percent,
+          pod_memory_percent = excluded.pod_memory_percent,
+          hpa_current_replicas = excluded.hpa_current_replicas,
+          hpa_desired_replicas = excluded.hpa_desired_replicas
+        """
+    )
+    conn.execute(
+        """
+        insert into infra_capacity_signal
+          (
+            event_id,
+            eks_deployment_replicas,
+            nodegroup_desired,
+            nodegroup_max,
+            rds_cpu_percent,
+            rds_connections,
+            rds_read_iops,
+            redis_cache_hit_ratio_percent,
+            alb_healthy_targets,
+            alb_unhealthy_targets,
+            nat_gateway_bytes_out_gb
+          )
+        values
+          ('fomc-briefing', 18, 12, 30, 68, 640, 12500, 91, 18, 0, 37.4)
+        on conflict (event_id) do update set
+          eks_deployment_replicas = excluded.eks_deployment_replicas,
+          nodegroup_desired = excluded.nodegroup_desired,
+          nodegroup_max = excluded.nodegroup_max,
+          rds_cpu_percent = excluded.rds_cpu_percent,
+          rds_connections = excluded.rds_connections,
+          rds_read_iops = excluded.rds_read_iops,
+          redis_cache_hit_ratio_percent = excluded.redis_cache_hit_ratio_percent,
+          alb_healthy_targets = excluded.alb_healthy_targets,
+          alb_unhealthy_targets = excluded.alb_unhealthy_targets,
+          nat_gateway_bytes_out_gb = excluded.nat_gateway_bytes_out_gb
+        """
+    )
+    conn.execute(
+        """
+        insert into cost_signal
+          (
+            event_id,
+            cost_explorer_month_to_date_usd,
+            cur_projected_monthly_usd,
+            kubecost_namespace_daily_usd,
+            cloudwatch_logs_daily_usd,
+            nat_alb_transfer_daily_usd,
+            event_incremental_budget_usd
+          )
+        values
+          ('fomc-briefing', 18420.55, 28600.00, 73.25, 11.80, 15.70, 95.00)
+        on conflict (event_id) do update set
+          cost_explorer_month_to_date_usd = excluded.cost_explorer_month_to_date_usd,
+          cur_projected_monthly_usd = excluded.cur_projected_monthly_usd,
+          kubecost_namespace_daily_usd = excluded.kubecost_namespace_daily_usd,
+          cloudwatch_logs_daily_usd = excluded.cloudwatch_logs_daily_usd,
+          nat_alb_transfer_daily_usd = excluded.nat_alb_transfer_daily_usd,
+          event_incremental_budget_usd = excluded.event_incremental_budget_usd
+        """
+    )
+    conn.execute(
+        """
+        insert into policy_guardrail_source
+          (
+            event_id,
+            monthly_budget_limit_usd,
+            approval_required_over_usd,
+            forbidden_actions,
+            allowed_actions,
+            policy_version
+          )
+        values
+          (
+            'fomc-briefing',
+            30000.00,
+            50.00,
+            %s,
+            %s,
+            'finops-policy-2026.06-temporary'
+          )
+        on conflict (event_id) do update set
+          monthly_budget_limit_usd = excluded.monthly_budget_limit_usd,
+          approval_required_over_usd = excluded.approval_required_over_usd,
+          forbidden_actions = excluded.forbidden_actions,
+          allowed_actions = excluded.allowed_actions,
+          policy_version = excluded.policy_version
+        """,
+        (
+            json.dumps(["disable_hpa", "scale_rds_down_during_event", "delete_warm_pool"]),
+            json.dumps(["scale_out", "prewarm", "spread_push", "add_read_replica"]),
+        ),
+    )
 
 
 @activity.defn(name="load_event_context")
@@ -432,15 +733,15 @@ async def record_data_request(workflow_id: str, phase: int, request: dict[str, A
         )
 
 
-@activity.defn(name="run_agent_step")
-async def run_agent_step(
+@activity.defn(name="record_agent_step_started")
+async def record_agent_step_started(
     workflow_id: str,
     phase: int,
     agent_key: str,
     agent_name: str,
     next_agent_name: str,
     context: dict[str, Any],
-) -> dict[str, Any]:
+) -> None:
     started_at = utcnow()
     with connect() as conn:
         conn.execute(
@@ -499,11 +800,27 @@ async def run_agent_step(
     if AGENT_STEP_DELAY_SECONDS > 0:
         await asyncio.sleep(AGENT_STEP_DELAY_SECONDS)
 
-    raw_output = (
-        call_agent_pod(agent_key, workflow_id, context)
-        if agent_key in AGENT_ENDPOINTS
-        else run_agent(agent_key, context)
-    )
+
+@activity.defn(name="run_local_agent_step")
+async def run_local_agent_step(
+    workflow_id: str,
+    agent_key: str,
+    agent_name: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    return run_agent(agent_key, context)
+
+
+@activity.defn(name="record_agent_step_completed")
+async def record_agent_step_completed(
+    workflow_id: str,
+    phase: int,
+    agent_key: str,
+    agent_name: str,
+    next_agent_name: str,
+    context: dict[str, Any],
+    raw_output: dict[str, Any],
+) -> dict[str, Any]:
     output = normalize_agent_output(agent_key, agent_name, raw_output)
     result = output["result"]
     context["agent_results"][agent_key] = result
@@ -620,7 +937,14 @@ async def start_temporal_worker() -> None:
         temporal_client,
         task_queue=TEMPORAL_TASK_QUEUE,
         workflows=[FinOpsEventWorkflow],
-        activities=[load_event_context, record_data_request, run_agent_step, finalize_finops_plan],
+        activities=[
+            load_event_context,
+            record_data_request,
+            record_agent_step_started,
+            run_local_agent_step,
+            record_agent_step_completed,
+            finalize_finops_plan,
+        ],
     )
     await worker.run()
 
@@ -667,6 +991,19 @@ def calendar() -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+@app.get("/api/data-sources/{event_id}")
+def data_sources(event_id: str) -> dict[str, Any]:
+    context = fetch_event_context(event_id)
+    return {
+        "event_id": event_id,
+        "business": context.get("business", {}),
+        "traffic": context.get("traffic", {}),
+        "infra": context.get("infra", {}),
+        "cost": context.get("cost_source", {}),
+        "policy": context.get("policy_source", {}),
+    }
 
 
 @app.post("/api/workflows/run")

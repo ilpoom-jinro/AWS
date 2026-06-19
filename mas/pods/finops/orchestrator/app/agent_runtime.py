@@ -17,6 +17,15 @@ AGENT_SEQUENCE = [
     ("postmortem_learning", "Postmortem Learning Agent"),
 ]
 
+AGENT_TASK_QUEUES = {
+    "business_control": "finops-business-control-agent-task-queue",
+    "demand_shaping": "finops-demand-shaping-agent-task-queue",
+    "traffic_forecast": "finops-traffic-forecast-agent-task-queue",
+    "bottleneck_capacity": "finops-bottleneck-capacity-agent-task-queue",
+    "cost": "finops-cost-agent-task-queue",
+    "policy_guardrail": "finops-policy-guardrail-agent-task-queue",
+}
+
 AGENT_DATA_REQUESTS = {
     "demand_shaping": [
         {
@@ -177,6 +186,11 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     event = context["event"]
     policy = context["policy"]
     signals = context.get("signals", {})
+    business = context.get("business", {})
+    traffic = context.get("traffic", {})
+    infra = context.get("infra", {})
+    cost_source = context.get("cost_source", {})
+    policy_source = context.get("policy_source", {})
     previous = context.get("agent_results", {})
     agent_name = dict(AGENT_SEQUENCE).get(agent_key, agent_key)
 
@@ -185,8 +199,13 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "event_id": event["event_id"],
             "grade": event["grade"],
             "target_users": event["target_users"],
+            "vip_audience_count": business.get("vip_audience_count"),
+            "general_audience_count": business.get("general_audience_count"),
+            "push_channel": business.get("push_channel"),
+            "campaign_importance": business.get("campaign_importance"),
             "approval_required": policy["approval_required"],
             "max_delay_minutes": policy["max_general_delay_minutes"],
+            "source": business.get("calendar_source", "business_calendar"),
         }
         message = (
             f"{event['title']} 일정은 {event['grade']}등급 이벤트입니다. "
@@ -199,6 +218,9 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "vip": "immediate" if policy["vip_immediate"] else "batched",
             "general_users": f"spread_over_{delay}m",
             "peak_reduction_percent": 42,
+            "vip_audience_count": business.get("vip_audience_count"),
+            "general_audience_count": business.get("general_audience_count"),
+            "crm_segment": business.get("crm_segment"),
         }
         message = (
             f"Business Control 결과를 받아 VIP는 즉시 발송하고 일반 사용자는 {delay}분 동안 분산하겠습니다. "
@@ -206,14 +228,18 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         )
     elif agent_key == "traffic_forecast":
         shaping = previous["demand_shaping"]
-        before = signals.get("baseline_peak_rps", 1420)
+        before = traffic.get("prometheus_rps", signals.get("baseline_peak_rps", 1420))
         after = signals.get("shaped_peak_rps", 820 if shaping["peak_reduction_percent"] >= 40 else 980)
-        pods = signals.get("required_app_pods", 29)
+        pods = traffic.get("hpa_desired_replicas", signals.get("required_app_pods", 29))
         result = {
             "peak_rps_before": before,
             "peak_rps_after": after,
             "required_app_pods": pods,
             "based_on": "demand_shaping",
+            "alb_request_count_5m": traffic.get("alb_request_count_5m"),
+            "p95_latency_ms": traffic.get("p95_latency_ms"),
+            "queue_depth": traffic.get("queue_depth"),
+            "hpa_current_replicas": traffic.get("hpa_current_replicas"),
         }
         message = (
             f"Demand Shaping 결과를 반영하면 peak는 {before} rps에서 {after} rps로 낮아집니다. "
@@ -221,12 +247,16 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         )
     elif agent_key == "bottleneck_capacity":
         forecast = previous["traffic_forecast"]
-        db_cpu = signals.get("db_cpu_percent", 68)
-        cache_hit_ratio = signals.get("cache_hit_ratio_percent", 91)
+        db_cpu = infra.get("rds_cpu_percent", signals.get("db_cpu_percent", 68))
+        cache_hit_ratio = infra.get("redis_cache_hit_ratio_percent", signals.get("cache_hit_ratio_percent", 91))
         result = {
             "db_cpu": f"{db_cpu}%",
+            "rds_connections": infra.get("rds_connections"),
+            "rds_read_iops": infra.get("rds_read_iops"),
             "cache_hit_ratio": f"{cache_hit_ratio}%",
             "alb_status": signals.get("alb_status", "ok"),
+            "alb_healthy_targets": infra.get("alb_healthy_targets"),
+            "alb_unhealthy_targets": infra.get("alb_unhealthy_targets"),
             "status": "warning" if db_cpu >= 65 or cache_hit_ratio < 93 else "ok",
             "validated_rps": forecast["peak_rps_after"],
         }
@@ -241,6 +271,9 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "prewarm_at": "T-15m",
             "scale_down": "observed_rps_based",
             "target_app_pods": forecast["required_app_pods"],
+            "current_app_pods": infra.get("eks_deployment_replicas"),
+            "nodegroup_desired": infra.get("nodegroup_desired"),
+            "nodegroup_max": infra.get("nodegroup_max"),
         }
         message = (
             f"T-20분에 app pod를 {forecast['required_app_pods']}개까지 준비하고 "
@@ -252,7 +285,9 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         network = float(signals.get("network_cost_usd", 8.1))
         logs = float(signals.get("log_cost_usd", 3.4))
         push = float(signals.get("push_cost_usd", 7.6))
-        total = round(eks + network + logs + push, 2)
+        daily_namespace = float(cost_source.get("kubecost_namespace_daily_usd", 0))
+        event_budget = float(cost_source.get("event_incremental_budget_usd", eks + network + logs + push))
+        total = round(min(eks + network + logs + push, event_budget), 2)
         result = {
             "eks": eks,
             "network": network,
@@ -260,6 +295,10 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "push": push,
             "total": total,
             "pod_count": infra["target_app_pods"],
+            "cost_explorer_month_to_date_usd": cost_source.get("cost_explorer_month_to_date_usd"),
+            "cur_projected_monthly_usd": cost_source.get("cur_projected_monthly_usd"),
+            "kubecost_namespace_daily_usd": daily_namespace,
+            "event_incremental_budget_usd": event_budget,
         }
         message = (
             f"{infra['target_app_pods']}개 pod 준비안을 기준으로 총 비용은 약 ${total}입니다. "
@@ -282,9 +321,13 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     elif agent_key == "policy_guardrail":
         unit = previous["unit_economics"]
         result = {
-            "allowed": ["scale_out", "prewarm", "spread_push"],
+            "allowed": policy_source.get("allowed_actions", ["scale_out", "prewarm", "spread_push"]),
+            "forbidden": policy_source.get("forbidden_actions", []),
             "approval_required": policy["approval_required"],
             "cost_ratio": unit["cost_ratio"],
+            "monthly_budget_limit_usd": policy_source.get("monthly_budget_limit_usd"),
+            "approval_required_over_usd": policy_source.get("approval_required_over_usd"),
+            "policy_version": policy_source.get("policy_version"),
         }
         message = (
             "정책상 scale-out, pre-warm, push 분산은 허용됩니다. "
@@ -331,6 +374,13 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
         "estimated_cost_usd": cost["total"],
         "approval_required": policy["approval_required"],
         "execution_mode": "dry_run",
+        "data_sources": {
+            "business": context.get("business", {}).get("calendar_source", "business_calendar"),
+            "traffic": "traffic_observability_signal",
+            "infra": "infra_capacity_signal",
+            "cost": "cost_signal",
+            "policy": context.get("policy_source", {}).get("policy_version", "business_policy"),
+        },
         "recommended_actions": [
             "VIP 사용자는 즉시 발송",
             f"일반 사용자는 {context['policy']['max_general_delay_minutes']}분 동안 분산 발송",

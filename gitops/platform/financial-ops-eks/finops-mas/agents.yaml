@@ -34,6 +34,10 @@ spec:
               value: business_control
             - name: AGENT_NAME
               value: Business Control Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-business-control-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
@@ -101,6 +105,10 @@ spec:
               value: demand_shaping
             - name: AGENT_NAME
               value: Demand Shaping Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-demand-shaping-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
@@ -168,6 +176,10 @@ spec:
               value: traffic_forecast
             - name: AGENT_NAME
               value: Traffic Forecast Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-traffic-forecast-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
@@ -235,6 +247,10 @@ spec:
               value: bottleneck_capacity
             - name: AGENT_NAME
               value: Bottleneck Capacity Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-bottleneck-capacity-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
@@ -302,6 +318,10 @@ spec:
               value: cost
             - name: AGENT_NAME
               value: Cost Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-cost-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
@@ -369,6 +389,10 @@ spec:
               value: policy_guardrail
             - name: AGENT_NAME
               value: Policy Guardrail Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-policy-guardrail-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
           ports:
             - name: http
               containerPort: 8000
