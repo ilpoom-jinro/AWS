@@ -119,21 +119,9 @@
       register: service_rds_endpoint
       changed_when: false
 
-    - name: Read the Service RDS password from Secrets Manager
-      ansible.builtin.command:
-        cmd: >
-          aws secretsmanager get-secret-value
-          --region {{ aws_region }}
-          --secret-id financial-service-rds-password
-          --query SecretString
-          --output text
-      register: service_rds_secret
-      changed_when: false
-      no_log: true
-
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
-        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, Service RDS endpoint, or Service RDS secret."
+        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, or Service RDS endpoint."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
         service_vpc_id.stdout in ["", "None"] or
@@ -141,8 +129,7 @@
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
-        service_rds_endpoint.stdout in ["", "None"] or
-        service_rds_secret.stdout in ["", "None"]
+        service_rds_endpoint.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -266,6 +253,15 @@
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
 
+    - name: Install ESO CRDs on Ops EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ ops_kube_context }} -f - --server-side
+      changed_when: false
+
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
@@ -281,6 +277,15 @@
           --alias {{ service_kube_context }}
       changed_when: false
 
+    - name: Install ESO CRDs on Service EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ service_kube_context }} -f - --server-side
+      changed_when: false
+
     - name: Ensure stock-demo namespace exists in Service EKS
       kubernetes.core.k8s:
         context: "{{ service_kube_context }}"
@@ -291,28 +296,116 @@
           metadata:
             name: stock-demo
 
-    - name: Recreate stock-api RDS password secret in Service EKS
-      ansible.builtin.shell: |
-        set -e
-        DB_PASSWORD="$(python3 - <<'PY'
-        import json
-        import os
-        print(json.loads(os.environ["SERVICE_RDS_SECRET"])["password"])
-        PY
-        )"
+    - name: Wait for ESO to create stock-api-db secret in Service EKS
+      kubernetes.core.k8s_info:
+        context: "{{ service_kube_context }}"
+        api_version: v1
+        kind: Secret
+        name: stock-api-db
+        namespace: stock-demo
+      register: stock_api_db_info
+      until: stock_api_db_info.resources | length > 0
+      retries: 60
+      delay: 30
 
-        kubectl --context {{ service_kube_context }} -n stock-demo \
-          delete secret stock-api-secret --ignore-not-found
+    - name: Remove legacy stock-api-secret from Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: stock-api-secret
+            namespace: stock-demo
 
-        kubectl --context {{ service_kube_context }} -n stock-demo \
-          create secret generic stock-api-secret \
-          --from-literal=DB_PASSWORD="${DB_PASSWORD}"
-      environment:
-        SERVICE_RDS_SECRET: "{{ service_rds_secret.stdout }}"
-      changed_when: true
-      no_log: false
+    - name: Delete previous stock-api RDS init job in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: absent
+        wait: true
+        wait_timeout: 60
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: stock-api-rds-init
+            namespace: stock-demo
 
-    - name: Restart stock-api after RDS password secret update
+    - name: Run stock-api RDS init job in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        wait: true
+        wait_condition:
+          type: Complete
+          status: "True"
+        wait_timeout: 300
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: stock-api-rds-init
+            namespace: stock-demo
+          spec:
+            backoffLimit: 1
+            ttlSecondsAfterFinished: 3600
+            template:
+              spec:
+                restartPolicy: Never
+                securityContext:
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: rds-init
+                    image: "{{ aws_account_id.stdout }}.dkr.ecr.{{ aws_region }}.amazonaws.com/financial/mas/finops/postgres:16-alpine"
+                    imagePullPolicy: IfNotPresent
+                    env:
+                      - name: PGPASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: stock-api-db
+                            key: DB_PASSWORD
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
+                      runAsNonRoot: true
+                      runAsUser: 999
+                      runAsGroup: 999
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        set -eu
+                        # user=financial_admin: SingleUser rotation replaces only the password; username never changes.
+                        psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
+                          -v ON_ERROR_STOP=1 <<'SQL'
+                        CREATE TABLE IF NOT EXISTS recommendations (
+                          id SERIAL PRIMARY KEY,
+                          name VARCHAR(100) NOT NULL,
+                          ticker VARCHAR(20) NOT NULL,
+                          current_price INTEGER NOT NULL,
+                          recommended_price INTEGER NOT NULL,
+                          recommendation_date DATE NOT NULL,
+                          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+
+                        TRUNCATE TABLE recommendations RESTART IDENTITY;
+
+                        INSERT INTO recommendations
+                          (name, ticker, current_price, recommended_price, recommendation_date)
+                        VALUES
+                          ('LG에너지솔루션', '373220', 450000, 500000, CURRENT_DATE),
+                          ('LS', '006260', 320000, 350000, CURRENT_DATE),
+                          ('한국금융지주', '071050', 110000, 130000, CURRENT_DATE),
+                          ('HD현대일렉트릭', '267260', 450000, 520000, CURRENT_DATE),
+                          ('삼성전자', '005930', 85000, 95000, CURRENT_DATE);
+                        SQL
+      no_log: true
+
+    - name: Restart stock-api deployment to pick up new credentials
       ansible.builtin.command:
         cmd: >
           kubectl --context {{ service_kube_context }}

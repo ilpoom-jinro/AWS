@@ -40,10 +40,11 @@ spec:
                   value: "5"
                 - name: LOKI_LIMIT
                   value: "100"
-                # TODO: Replace with the Aurora PostgreSQL writer endpoint after RDS is created.
-                # While this placeholder is present, the Indexer runs in dry-run mode.
                 - name: RDS_HOST
-                  value: rds-endpoint.example.ap-northeast-2.rds.amazonaws.com
+                  valueFrom:
+                    secretKeyRef:
+                      name: observability-indexer-db
+                      key: host
                 - name: RDS_PORT
                   value: "5432"
                 - name: RDS_DB
