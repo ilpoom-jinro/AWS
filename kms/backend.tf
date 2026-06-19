@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket       = "ilpumjinro-terraform-state-v2"
+    bucket       = "ilpumjinro-terraform-state-v3"
     key          = "kms/terraform.tfstate"
     region       = "ap-northeast-2"
     encrypt      = true
