@@ -6,6 +6,7 @@ resources:
   - serviceaccount.yaml
   - serviceaccount-orchestrator.yaml
   - serviceaccount-agent.yaml
+  - external-secret.yaml
   - postgres.yaml
   - temporal.yaml
   - agents.yaml

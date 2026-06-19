@@ -3,7 +3,7 @@ kind: Kustomization
 
 resources:
   - serviceaccount.yaml
-  - secret.yaml
+  - external-secret.yaml
   - cronjob.yaml
 
 images:
