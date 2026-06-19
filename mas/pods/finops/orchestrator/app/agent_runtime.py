@@ -316,7 +316,11 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "cur_projected_monthly_usd": cost_source.get("cur_projected_monthly_usd"),
             "kubecost_namespace_daily_usd": daily_namespace,
             "event_incremental_budget_usd": event_budget,
-            "source": "aws_cost_explorer+cost_signal" if cost_source.get("cost_explorer_month_to_date_usd") else "cost_signal",
+            "source": (
+                "aws_cost_explorer+cost_signal"
+                if cost_source.get("cost_explorer_source") == "aws_cost_explorer"
+                else "cost_signal"
+            ),
         }
         message = (
             f"{infra['target_app_pods']}개 pod 준비안을 기준으로 총 비용은 약 ${total}입니다. "
@@ -389,17 +393,10 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
     observer = context["agent_results"].get("observer", {})
     fallback = context["agent_results"].get("fallback", {})
     postmortem = context["agent_results"].get("postmortem_learning", {})
-    live_commands = context.get("live", {}).get("commands", {})
-    live_enabled = any(result.get("status") == "ok" for result in live_commands.values())
-    failed_collectors = [
-        name
-        for name, result in live_commands.items()
-        if result.get("status") not in {"ok", "disabled"}
-    ]
     data_sources = {
         "business": context.get("business", {}).get("calendar_source", "business_calendar"),
-        "traffic": "kubectl+traffic_observability_signal" if live_enabled else "traffic_observability_signal",
-        "infra": "kubectl/aws+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
+        "traffic": forecast.get("source", "traffic_observability_signal"),
+        "infra": infra.get("source", "infra_capacity_signal"),
         "cost": cost.get("source", "cost_signal"),
         "policy": context.get("policy_source", {}).get("policy_version", "business_policy"),
     }
@@ -429,8 +426,8 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
             ),
             "data_collection": {
                 "sources": data_sources,
-                "live_command_success_count": sum(1 for result in live_commands.values() if result.get("status") == "ok"),
-                "failed_collectors": failed_collectors,
+                "live_command_success_count": "see agent decision payloads",
+                "failed_collectors": "see agent decision payloads",
             },
             "traffic": {
                 "peak_rps_before": forecast["peak_rps_before"],

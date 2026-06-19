@@ -1,30 +1,49 @@
-# IAM permissions for the FinOps MAS orchestrator collectors.
+# IAM permissions for the FinOps MAS collectors.
 resource "aws_iam_role" "finops_mas_orchestrator" {
-  name = "${var.eks_cluster_name}-finops-mas-orchestrator-role"
+  name = "${var.eks_cluster_name}-finops-mas-collector-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowEksAuthToAssumeRoleForPodIdentity"
-      Effect = "Allow"
-      Principal = {
-        Service = "pods.eks.amazonaws.com"
-      }
-      Action = [
-        "sts:AssumeRole",
-        "sts:TagSession"
-      ]
-      Condition = {
-        StringEquals = {
-          "aws:RequestTag/kubernetes-namespace"       = "finops-mas"
-          "aws:RequestTag/kubernetes-service-account" = "finops-orchestrator"
+    Statement = [
+      {
+        Sid    = "AllowOrchestratorToAssumeRoleForPodIdentity"
+        Effect = "Allow"
+        Principal = {
+          Service = "pods.eks.amazonaws.com"
         }
-      }
-    }]
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession"
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestTag/kubernetes-namespace"       = "finops-mas"
+            "aws:RequestTag/kubernetes-service-account" = "finops-orchestrator"
+          }
+        }
+      },
+      {
+        Sid    = "AllowAgentsToAssumeRoleForPodIdentity"
+        Effect = "Allow"
+        Principal = {
+          Service = "pods.eks.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession"
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:RequestTag/kubernetes-namespace"       = "finops-mas"
+            "aws:RequestTag/kubernetes-service-account" = "finops-agent"
+          }
+        }
+      },
+    ]
   })
 
   tags = {
-    Name = "${var.eks_cluster_name}-finops-mas-orchestrator-role"
+    Name = "${var.eks_cluster_name}-finops-mas-collector-role"
   }
 }
 
@@ -102,7 +121,19 @@ resource "aws_eks_pod_identity_association" "finops_mas_orchestrator" {
   ]
 }
 
+resource "aws_eks_pod_identity_association" "finops_mas_agent" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "finops-mas"
+  service_account = "finops-agent"
+  role_arn        = aws_iam_role.finops_mas_orchestrator.arn
+
+  depends_on = [
+    aws_eks_addon.pod_identity_agent,
+    aws_iam_role_policy.finops_mas_orchestrator,
+  ]
+}
+
 output "finops_mas_orchestrator_role_arn" {
-  description = "IAM role ARN used by the FinOps MAS orchestrator through EKS Pod Identity"
+  description = "IAM role ARN used by the FinOps MAS collectors through EKS Pod Identity"
   value       = aws_iam_role.finops_mas_orchestrator.arn
 }

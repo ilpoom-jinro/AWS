@@ -38,6 +38,12 @@ spec:
               value: finops-business-control-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000
@@ -109,6 +115,12 @@ spec:
               value: finops-demand-shaping-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000
@@ -180,6 +192,12 @@ spec:
               value: finops-traffic-forecast-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000
@@ -251,6 +269,12 @@ spec:
               value: finops-bottleneck-capacity-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000
@@ -322,6 +346,12 @@ spec:
               value: finops-cost-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000
@@ -393,6 +423,12 @@ spec:
               value: finops-policy-guardrail-agent-task-queue
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
           ports:
             - name: http
               containerPort: 8000

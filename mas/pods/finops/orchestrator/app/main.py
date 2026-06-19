@@ -593,29 +593,6 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "allowed_actions": policy_source[4],
         "policy_version": policy_source[5],
     } if policy_source else {}
-    kubernetes_live = collect_kubernetes_live_context()
-    aws_live = collect_aws_live_context()
-    live = {
-        "collected_at": utcnow(),
-        "kubernetes": kubernetes_live,
-        "aws": aws_live,
-        "commands": {
-            **kubernetes_live.get("commands", {}),
-            **{f"aws_{key}": value for key, value in aws_live.get("commands", {}).items()},
-        },
-    }
-    for key, value in kubernetes_live.get("traffic", {}).items():
-        if value is not None:
-            traffic[key] = value
-    for key, value in kubernetes_live.get("infra", {}).items():
-        if value is not None:
-            infra[key] = value
-    for key, value in aws_live.get("infra", {}).items():
-        if value is not None:
-            infra[key] = value
-    for key, value in aws_live.get("cost", {}).items():
-        if value is not None:
-            cost[key] = value
     return {
         "event": {
             "event_id": event[0],
@@ -651,9 +628,31 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "infra": infra,
         "cost_source": cost,
         "policy_source": policy_detail,
-        "live": live,
+        "live": {},
         "agent_results": {},
     }
+
+
+def enrich_local_agent_context(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
+    if agent_key != "infra_execution":
+        return context
+    enriched = dict(context)
+    kubernetes_live = collect_kubernetes_live_context()
+    aws_live = collect_aws_live_context()
+    live = enriched.setdefault("live", {})
+    live["kubernetes"] = kubernetes_live
+    live["aws"] = aws_live
+    live.setdefault("commands", {}).update(kubernetes_live.get("commands", {}))
+    live.setdefault("commands", {}).update(
+        {f"aws_{key}": value for key, value in aws_live.get("commands", {}).items()}
+    )
+    for key, value in kubernetes_live.get("infra", {}).items():
+        if value is not None:
+            enriched.setdefault("infra", {})[key] = value
+    for key, value in aws_live.get("infra", {}).items():
+        if value is not None:
+            enriched.setdefault("infra", {})[key] = value
+    return enriched
 
 
 def init_db() -> None:
@@ -1133,7 +1132,7 @@ async def run_local_agent_step(
     agent_name: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    return run_agent(agent_key, context)
+    return run_agent(agent_key, enrich_local_agent_context(agent_key, context))
 
 
 @activity.defn(name="record_agent_step_completed")
