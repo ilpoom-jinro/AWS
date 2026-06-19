@@ -253,6 +253,15 @@
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
 
+    - name: Install ESO CRDs on Ops EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ ops_kube_context }} -f - --server-side
+      changed_when: false
+
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
@@ -266,6 +275,15 @@
           --region {{ aws_region }}
           --name {{ service_eks_cluster_name }}
           --alias {{ service_kube_context }}
+      changed_when: false
+
+    - name: Install ESO CRDs on Service EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ service_kube_context }} -f - --server-side
       changed_when: false
 
     - name: Ensure stock-demo namespace exists in Service EKS
