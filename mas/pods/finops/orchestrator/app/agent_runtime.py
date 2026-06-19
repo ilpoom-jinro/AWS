@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import concurrent.futures
+import json
+import logging
+import os
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
+LLM_TIMEOUT_SECONDS = 5
 
 
 AGENT_SEQUENCE = [
@@ -156,6 +164,156 @@ AGENT_CONFIDENCE = {
 }
 
 
+def parse_llm_json(text: str) -> dict[str, Any] | None:
+    payload = text.strip()
+    if payload.startswith("```"):
+        payload = payload.strip("`").strip()
+        if payload.lower().startswith("json"):
+            payload = payload[4:].strip()
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        start = payload.find("{")
+        end = payload.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        parsed = json.loads(payload[start : end + 1])
+    return parsed if isinstance(parsed, dict) else None
+
+
+def call_llm(prompt: str, context_data: dict) -> dict | None:
+    def invoke() -> dict | None:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        model_id = os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value)
+        response = client.converse(
+            modelId=model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                "Return only one valid JSON object. Do not wrap it in markdown.\n\n"
+                                f"Context:\n{json.dumps(context_data, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        text = "\n".join(item.get("text", "") for item in content if item.get("text"))
+        return parse_llm_json(text)
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            return future.result(timeout=LLM_TIMEOUT_SECONDS)
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_call_failed: %s", exc)
+        return None
+
+
+LLM_AGENT_PROMPTS = {
+    "business_control": (
+        "Review whether the allowed delay minutes and approval requirement are appropriate "
+        "for this event grade, target user count, and VIP ratio. "
+        'Return JSON exactly like {"assessment": "...", "risk_level": "low|medium|high"}.'
+    ),
+    "demand_shaping": (
+        "Given the VIP audience, general audience, and send window, assess whether the peak "
+        "reduction percent is appropriate and whether a better distribution strategy exists. "
+        'Return JSON exactly like {"recommended_window_minutes": 10, "strategy": "...", "reasoning": "..."}.'
+    ),
+    "traffic_forecast": (
+        "Review whether the forecast peak RPS after demand shaping and required pod count are "
+        "appropriate for the current RPS, current pods, and HPA desired replicas. "
+        'Return JSON exactly like {"peak_rps_assessment": "...", "pod_recommendation": "...", "risk": "..."}.'
+    ),
+    "bottleneck_capacity": (
+        "Assess bottleneck risk and recommended action from RDS CPU, Redis cache hit ratio, "
+        "ALB healthy targets, pod readiness, and forecast RPS. "
+        'Return JSON exactly like {"bottleneck_risk": "low|medium|high", "recommended_action": "..."}.'
+    ),
+    "policy_guardrail": (
+        "Review whether execution should proceed given event value, cost ratio, approval "
+        "requirement, allowed actions, and forbidden actions. "
+        'Return JSON exactly like {"proceed": true, "conditions": ["..."], "reasoning": "..."}.'
+    ),
+}
+
+
+def positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isdigit() and int(value) > 0:
+        return int(value)
+    return None
+
+
+def apply_llm_assessment(agent_key: str, result: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    prompt = LLM_AGENT_PROMPTS.get(agent_key)
+    if not prompt:
+        result["llm_assessment"] = None
+        result["reasoning_source"] = "rule_based"
+        return result
+
+    context_data = {
+        "agent_key": agent_key,
+        "event": context.get("event", {}),
+        "policy": context.get("policy", {}),
+        "business": context.get("business", {}),
+        "traffic": context.get("traffic", {}),
+        "infra": context.get("infra", {}),
+        "signals": context.get("signals", {}),
+        "cost_source": context.get("cost_source", {}),
+        "policy_source": context.get("policy_source", {}),
+        "previous_agent_results": context.get("agent_results", {}),
+        "rule_based_result": result,
+    }
+    llm_assessment = call_llm(prompt, context_data)
+    result["llm_assessment"] = llm_assessment
+    result["reasoning_source"] = "llm" if llm_assessment else "rule_based"
+    if not llm_assessment:
+        return result
+
+    if agent_key == "business_control":
+        result["assessment"] = llm_assessment.get("assessment")
+        result["risk_level"] = llm_assessment.get("risk_level")
+    elif agent_key == "demand_shaping":
+        recommended_window = positive_int(llm_assessment.get("recommended_window_minutes"))
+        if recommended_window:
+            result["send_window_minutes"] = recommended_window
+            result["general_users"] = f"spread_over_{recommended_window}m"
+            result["peak_reduction_percent"] = min(60, max(10, int(recommended_window * 4.2)))
+        result["strategy"] = llm_assessment.get("strategy")
+        result["strategy_reasoning"] = llm_assessment.get("reasoning")
+    elif agent_key == "traffic_forecast":
+        result["peak_rps_assessment"] = llm_assessment.get("peak_rps_assessment")
+        result["pod_recommendation"] = llm_assessment.get("pod_recommendation")
+        result["risk"] = llm_assessment.get("risk")
+    elif agent_key == "bottleneck_capacity":
+        bottleneck_risk = llm_assessment.get("bottleneck_risk")
+        result["bottleneck_risk"] = bottleneck_risk
+        result["recommended_action"] = llm_assessment.get("recommended_action")
+        if bottleneck_risk in {"medium", "high"}:
+            result["status"] = "warning"
+    elif agent_key == "policy_guardrail":
+        if isinstance(llm_assessment.get("proceed"), bool):
+            result["proceed"] = llm_assessment["proceed"]
+        result["conditions"] = llm_assessment.get("conditions", [])
+        result["policy_reasoning"] = llm_assessment.get("reasoning")
+    return result
+
+
 def get_agent_data_requests(agent_key: str, available_results: dict[str, Any]) -> list[dict[str, Any]]:
     requests = []
     for request in AGENT_DATA_REQUESTS.get(agent_key, []):
@@ -216,13 +374,23 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             f"{policy['max_general_delay_minutes']}분까지 지연할 수 있습니다."
         )
     elif agent_key == "demand_shaping":
-        delay = policy["max_general_delay_minutes"]
+        business_control = previous.get("business_control", {})
+        delay = business_control.get("max_delay_minutes", policy["max_general_delay_minutes"])
+        vip_audience_count = business_control.get("vip_audience_count", business.get("vip_audience_count"))
+        general_audience_count = business_control.get(
+            "general_audience_count",
+            business.get("general_audience_count"),
+        )
+        peak_reduction_percent = min(60, max(10, int(delay * 4.2)))
         result = {
             "vip": "immediate" if policy["vip_immediate"] else "batched",
             "general_users": f"spread_over_{delay}m",
-            "peak_reduction_percent": 42,
-            "vip_audience_count": business.get("vip_audience_count"),
-            "general_audience_count": business.get("general_audience_count"),
+            "vip_send_mode": "immediate" if policy["vip_immediate"] else "batched",
+            "general_send_mode": "spread",
+            "send_window_minutes": delay,
+            "peak_reduction_percent": peak_reduction_percent,
+            "vip_audience_count": vip_audience_count,
+            "general_audience_count": general_audience_count,
             "crm_segment": business.get("crm_segment"),
         }
         message = (
@@ -232,13 +400,22 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     elif agent_key == "traffic_forecast":
         shaping = previous["demand_shaping"]
         before = traffic.get("prometheus_rps", signals.get("baseline_peak_rps", 1420))
-        after = signals.get("shaped_peak_rps", 820 if shaping["peak_reduction_percent"] >= 40 else 980)
+        send_window_minutes = shaping.get("send_window_minutes", policy["max_general_delay_minutes"])
+        reduction_percent = shaping.get(
+            "peak_reduction_percent",
+            min(60, max(10, int(send_window_minutes * 4.2))),
+        )
+        after = max(1, int(before * (100 - reduction_percent) / 100))
         pods = traffic.get("hpa_desired_replicas", signals.get("required_app_pods", 29))
         result = {
             "peak_rps_before": before,
             "peak_rps_after": after,
             "required_app_pods": pods,
             "based_on": "demand_shaping",
+            "send_window_minutes": send_window_minutes,
+            "peak_reduction_percent": reduction_percent,
+            "vip_send_mode": shaping.get("vip_send_mode"),
+            "general_send_mode": shaping.get("general_send_mode"),
             "alb_request_count_5m": traffic.get("alb_request_count_5m"),
             "p95_latency_ms": traffic.get("p95_latency_ms"),
             "queue_depth": traffic.get("queue_depth"),
@@ -381,6 +558,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     else:
         raise ValueError(f"unknown agent: {agent_key}")
 
+    result = apply_llm_assessment(agent_key, result, context)
     return standard_response(agent_key, agent_name, result, message, previous)
 
 

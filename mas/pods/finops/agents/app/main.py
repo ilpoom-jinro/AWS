@@ -151,18 +151,20 @@ def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
     }
 
 
-def parse_command_json(result: dict[str, Any]) -> dict[str, Any]:
+def parse_command_json(result: dict[str, Any]) -> dict[str, Any] | None:
     if result.get("status") != "ok" or not result.get("stdout"):
-        return {}
+        return None
     try:
         return json.loads(result["stdout"])
     except json.JSONDecodeError as exc:
         result["status"] = "parse_failed"
         result["error"] = str(exc)
+        return None
+
+
+def first_kubernetes_item(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
         return {}
-
-
-def first_kubernetes_item(payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items")
     if isinstance(items, list) and items:
         return items[0]
@@ -354,15 +356,20 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
     hpa = first_kubernetes_item(parse_command_json(command_results["hpa"]))
     hpa_status = hpa.get("status", {})
     pods_payload = parse_command_json(command_results["pods"])
-    pod_items = pods_payload.get("items", [])
-    ready_pods = 0
-    running_pods = 0
-    for pod in pod_items:
-        if pod.get("status", {}).get("phase") == "Running":
-            running_pods += 1
-        container_statuses = pod.get("status", {}).get("containerStatuses", [])
-        if container_statuses and all(status.get("ready") for status in container_statuses):
-            ready_pods += 1
+    pod_items = pods_payload.get("items", []) if pods_payload else None
+    ready_pods = None
+    running_pods = None
+    pod_count = None
+    if pod_items is not None:
+        ready_pods = 0
+        running_pods = 0
+        pod_count = len(pod_items)
+        for pod in pod_items:
+            if pod.get("status", {}).get("phase") == "Running":
+                running_pods += 1
+            container_statuses = pod.get("status", {}).get("containerStatuses", [])
+            if container_statuses and all(status.get("ready") for status in container_statuses):
+                ready_pods += 1
     result: dict[str, Any] = {
         "live": {
             "kubernetes": {
@@ -381,13 +388,17 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
         else {},
     }
     result["infra"] = {
-        "pod_count": len(pod_items),
+        "pod_count": pod_count,
         "running_pods": running_pods,
         "ready_pods": ready_pods,
     }
     if "endpoints" in command_results:
         endpoints = parse_command_json(command_results["endpoints"])
-        ready_addresses = sum(len(subset.get("addresses", [])) for subset in endpoints.get("subsets", []))
+        ready_addresses = (
+            sum(len(subset.get("addresses", [])) for subset in endpoints.get("subsets", []))
+            if endpoints
+            else None
+        )
         result["infra"]["alb_healthy_targets"] = ready_addresses
     return result
 
@@ -423,7 +434,7 @@ def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
         }
     }
     if agent_key == "cost":
-        payload = parse_command_json(command_results["cost_explorer_mtd"])
+        payload = parse_command_json(command_results["cost_explorer_mtd"]) or {}
         rows = payload.get("ResultsByTime", [])
         amount = rows[0].get("Total", {}).get("UnblendedCost", {}).get("Amount") if rows else None
         result["cost_source"] = {
@@ -541,11 +552,23 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
             f"대상자는 {event['target_users']:,}명입니다. 운영자 승인은 필요합니다."
         )
     elif agent_key == "demand_shaping":
-        delay = policy["max_general_delay_minutes"]
+        business_control = previous.get("business_control", {})
+        delay = business_control.get("max_delay_minutes", policy["max_general_delay_minutes"])
+        vip_audience_count = business_control.get("vip_audience_count", context.get("business", {}).get("vip_audience_count"))
+        general_audience_count = business_control.get(
+            "general_audience_count",
+            context.get("business", {}).get("general_audience_count"),
+        )
+        peak_reduction_percent = min(60, max(10, int(delay * 4.2)))
         result = {
             "vip": "immediate" if policy["vip_immediate"] else "batched",
             "general_users": f"spread_over_{delay}m",
-            "peak_reduction_percent": 42,
+            "vip_send_mode": "immediate" if policy["vip_immediate"] else "batched",
+            "general_send_mode": "spread",
+            "send_window_minutes": delay,
+            "peak_reduction_percent": peak_reduction_percent,
+            "vip_audience_count": vip_audience_count,
+            "general_audience_count": general_audience_count,
         }
         message = (
             f"Business Control Agent가 준 허용 지연 시간 {delay}분을 사용하겠습니다. "
@@ -554,13 +577,22 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
     elif agent_key == "traffic_forecast":
         shaping = previous["demand_shaping"]
         before = signals.get("baseline_peak_rps", 1420)
-        after = signals.get("shaped_peak_rps", 820 if shaping["peak_reduction_percent"] >= 40 else 980)
+        send_window_minutes = shaping.get("send_window_minutes", policy["max_general_delay_minutes"])
+        reduction_percent = shaping.get(
+            "peak_reduction_percent",
+            min(60, max(10, int(send_window_minutes * 4.2))),
+        )
+        after = max(1, int(before * (100 - reduction_percent) / 100))
         pods = signals.get("required_app_pods", 29)
         result = {
             "peak_rps_before": before,
             "peak_rps_after": after,
             "required_app_pods": pods,
             "based_on": "demand_shaping",
+            "send_window_minutes": send_window_minutes,
+            "peak_reduction_percent": reduction_percent,
+            "vip_send_mode": shaping.get("vip_send_mode"),
+            "general_send_mode": shaping.get("general_send_mode"),
         }
         message = (
             f"Demand Shaping Agent의 감소율 {shaping['peak_reduction_percent']}%를 반영했습니다. "

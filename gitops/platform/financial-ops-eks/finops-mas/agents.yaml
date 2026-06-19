@@ -44,6 +44,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000
@@ -121,6 +125,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000
@@ -198,6 +206,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000
@@ -275,6 +287,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000
@@ -352,6 +368,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000
@@ -429,6 +449,10 @@ spec:
               value: ap-northeast-2
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000

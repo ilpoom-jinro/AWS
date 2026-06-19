@@ -91,18 +91,20 @@ def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
     }
 
 
-def parse_command_json(result: dict[str, Any]) -> dict[str, Any]:
+def parse_command_json(result: dict[str, Any]) -> dict[str, Any] | None:
     if result.get("status") != "ok" or not result.get("stdout"):
-        return {}
+        return None
     try:
         return json.loads(result["stdout"])
     except json.JSONDecodeError as exc:
         result["status"] = "parse_failed"
         result["error"] = str(exc)
+        return None
+
+
+def first_kubernetes_item(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
         return {}
-
-
-def first_kubernetes_item(payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items")
     if isinstance(items, list) and items:
         return items[0]
@@ -170,23 +172,30 @@ def collect_kubernetes_live_context() -> dict[str, Any]:
     endpoints = parse_command_json(command_results["endpoints"])
     top_result = command_results["pod_top"]
 
-    deployment_status = deployment.get("status", {})
-    deployment_spec = deployment.get("spec", {})
+    deployment_status = deployment.get("status", {}) if deployment else {}
+    deployment_spec = deployment.get("spec", {}) if deployment else {}
     hpa = first_kubernetes_item(hpa_payload)
     hpa_status = hpa.get("status", {})
-    pod_items = pods_payload.get("items", [])
-    ready_pods = 0
-    running_pods = 0
-    for pod in pod_items:
-        if pod.get("status", {}).get("phase") == "Running":
-            running_pods += 1
-        container_statuses = pod.get("status", {}).get("containerStatuses", [])
-        if container_statuses and all(status.get("ready") for status in container_statuses):
-            ready_pods += 1
+    pod_items = pods_payload.get("items", []) if pods_payload else None
+    ready_pods = None
+    running_pods = None
+    pod_count = None
+    if pod_items is not None:
+        ready_pods = 0
+        running_pods = 0
+        pod_count = len(pod_items)
+        for pod in pod_items:
+            if pod.get("status", {}).get("phase") == "Running":
+                running_pods += 1
+            container_statuses = pod.get("status", {}).get("containerStatuses", [])
+            if container_statuses and all(status.get("ready") for status in container_statuses):
+                ready_pods += 1
 
-    ready_addresses = 0
-    for subset in endpoints.get("subsets", []):
-        ready_addresses += len(subset.get("addresses", []))
+    ready_addresses = None
+    if endpoints:
+        ready_addresses = 0
+        for subset in endpoints.get("subsets", []):
+            ready_addresses += len(subset.get("addresses", []))
 
     return {
         "collected_at": utcnow(),
@@ -202,7 +211,7 @@ def collect_kubernetes_live_context() -> dict[str, Any]:
             "eks_deployment_replicas": deployment_spec.get("replicas"),
             "deployment_ready_replicas": deployment_status.get("readyReplicas"),
             "deployment_available_replicas": deployment_status.get("availableReplicas"),
-            "pod_count": len(pod_items),
+            "pod_count": pod_count,
             "running_pods": running_pods,
             "ready_pods": ready_pods,
             "alb_healthy_targets": ready_addresses,
@@ -304,11 +313,11 @@ def collect_aws_live_context() -> dict[str, Any]:
         ]
 
     command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
-    spot_history = parse_command_json(command_results["spot_price_history"]).get("SpotPriceHistory", [])
-    spot_scores = parse_command_json(command_results["spot_placement_score"]).get("SpotPlacementScores", [])
-    offerings = parse_command_json(command_results["instance_type_offerings"]).get("InstanceTypeOfferings", [])
-    cost_payload = parse_command_json(command_results["cost_explorer_mtd"])
-    nodegroup_payload = parse_command_json(command_results.get("eks_nodegroup", {}))
+    spot_history = (parse_command_json(command_results["spot_price_history"]) or {}).get("SpotPriceHistory", [])
+    spot_scores = (parse_command_json(command_results["spot_placement_score"]) or {}).get("SpotPlacementScores", [])
+    offerings = (parse_command_json(command_results["instance_type_offerings"]) or {}).get("InstanceTypeOfferings", [])
+    cost_payload = parse_command_json(command_results["cost_explorer_mtd"]) or {}
+    nodegroup_payload = parse_command_json(command_results.get("eks_nodegroup", {})) or {}
 
     latest_spot_prices = []
     for item in spot_history[:5]:
