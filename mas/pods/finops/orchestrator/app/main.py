@@ -48,9 +48,8 @@ AGENT_ENDPOINTS = {
         "http://finops-policy-guardrail-agent.finops-mas.svc.cluster.local",
     ),
 }
-AGENT_VALUE_REQUESTS = AGENT_DATA_REQUESTS
 
-app = FastAPI(title="FinOps Orchestrator", version="0.3.0")
+app = FastAPI(title="FinOps Orchestrator", version="0.4.0")
 temporal_client: Client | None = None
 temporal_worker_task: asyncio.Task | None = None
 AGENT_STEP_DELAY_SECONDS = float(os.getenv("AGENT_STEP_DELAY_SECONDS", "0.8"))
@@ -91,7 +90,7 @@ def build_agent_value_exchange(
 ) -> list[dict[str, Any]]:
     messages = []
     agent_results = context.get("agent_results", {})
-    for request in AGENT_VALUE_REQUESTS.get(agent_key, []):
+    for request in AGENT_DATA_REQUESTS.get(agent_key, []):
         source_key = request["source_key"]
         source_result = agent_results.get(source_key)
         if source_result is None or request["field"] not in source_result:
@@ -104,6 +103,7 @@ def build_agent_value_exchange(
             "source_name": request["source_name"],
             "field": request["field"],
             "label": request["label"],
+            "reason": request.get("reason", ""),
             "status": "fulfilled_from_workflow_state",
             "value": value,
         }
@@ -111,20 +111,39 @@ def build_agent_value_exchange(
         messages.append(
             {
                 "sender": agent_name,
-                "receiver": request["source_name"],
-                "message": f"{request['label']} 값이 필요합니다. 현재 단계 판단에 사용할 수 있도록 공유해 주세요.",
+                "receiver": "Temporal Data Broker",
+                "message": (
+                    f"{request['label']} 값이 필요합니다. "
+                    f"이유: {request.get('reason', '다음 판단에 필요한 입력값입니다.')}"
+                ),
                 "payload": {"type": "value_request", **data_request, "value": None},
             }
         )
         messages.append(
             {
-                "sender": request["source_name"],
+                "sender": "Temporal Data Broker",
                 "receiver": agent_name,
-                "message": f"{request['label']}은 {format_agent_value(value)}입니다. 이 값을 기준으로 다음 판단을 진행하세요.",
+                "message": (
+                    f"{request['source_name']}가 이미 만든 {request['label']} 값은 "
+                    f"{format_agent_value(value)}입니다. 이 값을 사용해서 계속 진행하세요."
+                ),
                 "payload": {"type": "value_response", **data_request},
             }
         )
     return messages
+
+
+def normalize_agent_output(agent_key: str, agent_name: str, output: dict[str, Any]) -> dict[str, Any]:
+    if "result" not in output:
+        raise RuntimeError(f"{agent_key} agent response does not include result")
+    return {
+        "agent": output.get("agent", agent_name),
+        "agent_key": output.get("agent_key", agent_key),
+        "result": output["result"],
+        "message": output.get("message", f"{agent_name} 작업을 완료했습니다."),
+        "data_requests": output.get("data_requests", []),
+        "confidence": output.get("confidence", 1.0),
+    }
 
 
 def fetch_event_context(event_id: str) -> dict[str, Any]:
@@ -145,7 +164,28 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
             """,
             (event_id,),
         ).fetchone()
-    if not event or not policy:
+        signals = conn.execute(
+            """
+            select
+              event_id,
+              baseline_peak_rps,
+              shaped_peak_rps,
+              required_app_pods,
+              db_cpu_percent,
+              cache_hit_ratio_percent,
+              alb_status,
+              eks_cost_usd,
+              network_cost_usd,
+              log_cost_usd,
+              push_cost_usd,
+              expected_value_usd,
+              scale_down_rps_threshold
+            from event_mock_signal
+            where event_id = %s
+            """,
+            (event_id,),
+        ).fetchone()
+    if not event or not policy or not signals:
         raise ValueError(f"event context not found: {event_id}")
     return {
         "event": {
@@ -162,13 +202,35 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
             "approval_required": policy[2],
             "max_general_delay_minutes": policy[3],
         },
+        "signals": {
+            "event_id": signals[0],
+            "baseline_peak_rps": signals[1],
+            "shaped_peak_rps": signals[2],
+            "required_app_pods": signals[3],
+            "db_cpu_percent": signals[4],
+            "cache_hit_ratio_percent": signals[5],
+            "alb_status": signals[6],
+            "eks_cost_usd": float(signals[7]),
+            "network_cost_usd": float(signals[8]),
+            "log_cost_usd": float(signals[9]),
+            "push_cost_usd": float(signals[10]),
+            "expected_value_usd": float(signals[11]),
+            "scale_down_rps_threshold": signals[12],
+        },
         "agent_results": {},
     }
 
 
 def call_agent_pod(agent_key: str, workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
     endpoint = AGENT_ENDPOINTS[agent_key]
-    body = json.dumps({"workflow_id": workflow_id, "context": context}).encode("utf-8")
+    body = json.dumps(
+        {
+            "workflow_id": workflow_id,
+            "context": context,
+            "available_results": context.get("agent_results", {}),
+            "requested_by": "finops_orchestrator",
+        }
+    ).encode("utf-8")
     request = Request(
         f"{endpoint}/run",
         data=body,
@@ -205,6 +267,25 @@ def init_db() -> None:
                       vip_immediate boolean not null,
                       approval_required boolean not null,
                       max_general_delay_minutes integer not null
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists event_mock_signal (
+                      event_id text primary key,
+                      baseline_peak_rps integer not null,
+                      shaped_peak_rps integer not null,
+                      required_app_pods integer not null,
+                      db_cpu_percent integer not null,
+                      cache_hit_ratio_percent integer not null,
+                      alb_status text not null,
+                      eks_cost_usd numeric not null,
+                      network_cost_usd numeric not null,
+                      log_cost_usd numeric not null,
+                      push_cost_usd numeric not null,
+                      expected_value_usd numeric not null,
+                      scale_down_rps_threshold integer not null
                     )
                     """
                 )
@@ -284,11 +365,71 @@ def seed(conn) -> None:
         on conflict (event_id) do nothing
         """
     )
+    conn.execute(
+        """
+        insert into event_mock_signal
+          (
+            event_id,
+            baseline_peak_rps,
+            shaped_peak_rps,
+            required_app_pods,
+            db_cpu_percent,
+            cache_hit_ratio_percent,
+            alb_status,
+            eks_cost_usd,
+            network_cost_usd,
+            log_cost_usd,
+            push_cost_usd,
+            expected_value_usd,
+            scale_down_rps_threshold
+          )
+        values
+          ('fomc-briefing', 1420, 820, 29, 68, 91, 'ok', 31.2, 8.1, 3.4, 7.6, 4200, 600)
+        on conflict (event_id) do update set
+          baseline_peak_rps = excluded.baseline_peak_rps,
+          shaped_peak_rps = excluded.shaped_peak_rps,
+          required_app_pods = excluded.required_app_pods,
+          db_cpu_percent = excluded.db_cpu_percent,
+          cache_hit_ratio_percent = excluded.cache_hit_ratio_percent,
+          alb_status = excluded.alb_status,
+          eks_cost_usd = excluded.eks_cost_usd,
+          network_cost_usd = excluded.network_cost_usd,
+          log_cost_usd = excluded.log_cost_usd,
+          push_cost_usd = excluded.push_cost_usd,
+          expected_value_usd = excluded.expected_value_usd,
+          scale_down_rps_threshold = excluded.scale_down_rps_threshold
+        """
+    )
 
 
 @activity.defn(name="load_event_context")
 async def load_event_context(event_id: str) -> dict[str, Any]:
     return fetch_event_context(event_id)
+
+
+@activity.defn(name="record_data_request")
+async def record_data_request(workflow_id: str, phase: int, request: dict[str, Any]) -> None:
+    status = request.get("status", "requested")
+    message = (
+        f"{request['requester_name']}가 {request['source_name']}에게 "
+        f"'{request['label']}' 값을 요청했습니다. Temporal data_request 상태는 {status}입니다."
+    )
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into agent_conversation_log
+              (workflow_id, phase, sender, receiver, message, payload, created_at)
+            values (%s, %s, 'Temporal Data Broker', %s, %s, %s, %s)
+            """,
+            (
+                workflow_id,
+                phase,
+                request["source_name"],
+                message,
+                json.dumps({"type": "data_request", **request}),
+                utcnow(),
+            ),
+        )
 
 
 @activity.defn(name="run_agent_step")
@@ -326,8 +467,14 @@ async def run_agent_step(
                 workflow_id,
                 phase,
                 agent_name,
-                f"{agent_name}에게 현재 이벤트 컨텍스트와 이전 agent 결과를 전달했습니다. 결과가 오면 다음 단계인 {next_agent_name}에게 넘기겠습니다.",
-                json.dumps({"agent_key": agent_key, "status": "calling"}),
+                f"{agent_name}에게 현재 이벤트 컨텍스트와 사용 가능한 이전 agent 결과를 전달했습니다.",
+                json.dumps(
+                    {
+                        "agent_key": agent_key,
+                        "status": "calling",
+                        "available_results": list(context.get("agent_results", {}).keys()),
+                    }
+                ),
                 started_at,
             ),
         )
@@ -348,16 +495,27 @@ async def run_agent_step(
                     utcnow(),
                 ),
             )
+
     if AGENT_STEP_DELAY_SECONDS > 0:
         await asyncio.sleep(AGENT_STEP_DELAY_SECONDS)
 
-    output = (
+    raw_output = (
         call_agent_pod(agent_key, workflow_id, context)
         if agent_key in AGENT_ENDPOINTS
         else run_agent(agent_key, context)
     )
+    output = normalize_agent_output(agent_key, agent_name, raw_output)
     result = output["result"]
     context["agent_results"][agent_key] = result
+    for request in output["data_requests"]:
+        context.setdefault("agent_declared_requests", []).append(
+            {
+                "requester_agent": agent_key,
+                "requester_name": agent_name,
+                **request,
+            }
+        )
+
     created_at = utcnow()
     with connect() as conn:
         conn.execute(
@@ -366,7 +524,19 @@ async def run_agent_step(
               (workflow_id, phase, agent, status, result, created_at)
             values (%s, %s, %s, 'completed', %s, %s)
             """,
-            (workflow_id, phase, agent_name, json.dumps(result), created_at),
+            (
+                workflow_id,
+                phase,
+                agent_name,
+                json.dumps(
+                    {
+                        "result": result,
+                        "data_requests": output["data_requests"],
+                        "confidence": output["confidence"],
+                    }
+                ),
+                created_at,
+            ),
         )
         conn.execute(
             """
@@ -380,7 +550,14 @@ async def run_agent_step(
                 agent_name,
                 next_agent_name,
                 output["message"],
-                json.dumps({"agent_key": agent_key, "result": result}),
+                json.dumps(
+                    {
+                        "agent_key": agent_key,
+                        "result": result,
+                        "data_requests": output["data_requests"],
+                        "confidence": output["confidence"],
+                    }
+                ),
                 created_at,
             ),
         )
@@ -391,6 +568,7 @@ async def run_agent_step(
 async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
     plan = build_final_plan(context)
     plan["data_requests"] = context.get("data_requests", [])
+    plan["agent_declared_requests"] = context.get("agent_declared_requests", [])
     created_at = utcnow()
     with connect() as conn:
         conn.execute(
@@ -411,6 +589,11 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
             insert into approval_request
               (workflow_id, status, requested_at)
             values (%s, 'waiting', %s)
+            on conflict (workflow_id) do update set
+              status = excluded.status,
+              requested_at = excluded.requested_at,
+              decided_at = null,
+              decided_by = null
             """,
             (workflow_id, created_at),
         )
@@ -418,20 +601,7 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
             """
             insert into agent_conversation_log
               (workflow_id, phase, sender, receiver, message, payload, created_at)
-            values (%s, 12, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
-            """,
-            (
-                workflow_id,
-                "최종 FinOps 계획을 만들었습니다. 운영자 승인을 기다립니다.",
-                json.dumps({"plan": plan}),
-                utcnow(),
-            ),
-        )
-        conn.execute(
-            """
-            insert into agent_conversation_log
-              (workflow_id, phase, sender, receiver, message, payload, created_at)
-            values (%s, 13, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
+            values (%s, 99, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
             """,
             (
                 workflow_id,
@@ -450,7 +620,7 @@ async def start_temporal_worker() -> None:
         temporal_client,
         task_queue=TEMPORAL_TASK_QUEUE,
         workflows=[FinOpsEventWorkflow],
-        activities=[load_event_context, run_agent_step, finalize_finops_plan],
+        activities=[load_event_context, record_data_request, run_agent_step, finalize_finops_plan],
     )
     await worker.run()
 
@@ -600,7 +770,7 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
             select phase, agent, status, result, created_at
             from agent_decision_log
             where workflow_id = %s
-            order by phase
+            order by phase, id
             """,
             (workflow_id,),
         ).fetchall()
@@ -613,12 +783,14 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
             """,
             (workflow_id,),
         ).fetchall()
+    plan_body = plan[3] if isinstance(plan[3], dict) else {}
     return {
         "workflow_id": plan[0],
         "event_id": plan[1],
         "status": plan[2],
         "plan": plan[3],
-        "data_requests": plan[3].get("data_requests", []) if isinstance(plan[3], dict) else [],
+        "data_requests": plan_body.get("data_requests", []),
+        "agent_declared_requests": plan_body.get("agent_declared_requests", []),
         "updated_at": plan[4],
         "timeline": [
             {
@@ -676,7 +848,7 @@ def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, str]:
                 """
                 insert into agent_decision_log
                   (workflow_id, phase, agent, status, result, created_at)
-                values (%s, 13, 'Dry-run Execution', 'completed', %s, %s)
+                values (%s, 100, 'Dry-run Execution', 'completed', %s, %s)
                 """,
                 (
                     workflow_id,
@@ -694,11 +866,11 @@ def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, str]:
                 """
                 insert into agent_conversation_log
                   (workflow_id, phase, sender, receiver, message, payload, created_at)
-                values (%s, 13, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
+                values (%s, 100, 'FinOps Orchestrator', 'Operator', %s, %s, %s)
                 """,
                 (
                     workflow_id,
-                    "승인이 확인되었습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.",
+                    "승인을 확인했습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.",
                     json.dumps({"status": "dry_run_completed"}),
                     utcnow(),
                 ),
@@ -718,5 +890,8 @@ def chat(request: ChatRequest) -> dict[str, Any]:
             "push_window_minutes": delay,
             "requires_replan_from": "Demand Shaping Agent",
         },
-        "answer": f"요청을 구조화했습니다. 일반 사용자 발송 구간을 {delay}분으로 재계획하려면 Demand Shaping 단계부터 다시 실행하면 됩니다.",
+        "answer": (
+            f"요청을 구조화했습니다. 일반 사용자 발송 구간을 {delay}분으로 넓히려면 "
+            "Demand Shaping 단계부터 다시 실행하면 됩니다."
+        ),
     }
