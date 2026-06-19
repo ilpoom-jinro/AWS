@@ -43,9 +43,9 @@ resource "aws_iam_role_policy" "eso" {
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*"
       },
       {
-        Sid    = "KMSDecrypt"
-        Effect = "Allow"
-        Action = ["kms:Decrypt", "kms:DescribeKey"]
+        Sid      = "KMSDecrypt"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:DescribeKey"]
         Resource = var.kms_key_secretsmanager_arn
       }
     ]
