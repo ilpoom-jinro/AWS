@@ -96,15 +96,28 @@
           --output text
       register: tempo_nlb_sg_id
       changed_when: false
+
+    - name: Read the Service RDS endpoint
+      ansible.builtin.command:
+        cmd: >
+          aws rds describe-db-instances
+          --region {{ aws_region }}
+          --db-instance-identifier financial-service-db
+          --query DBInstances[0].Endpoint.Address
+          --output text
+      register: service_rds_endpoint
+      changed_when: false
+
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
-        msg: "Failed to discover the Ops VPC ID or monitoring NLB security group IDs."
+        msg: "Failed to discover the Ops VPC ID, monitoring NLB security group IDs, or the Service RDS endpoint."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
         teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
-        tempo_nlb_sg_id.stdout in ["", "None"]
+        tempo_nlb_sg_id.stdout in ["", "None"] or
+        service_rds_endpoint.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -189,9 +202,11 @@
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
+            "REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX": os.environ["TELEPORT_APP_PUBLIC_SUFFIX"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
+            "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
         }
 
         for path in Path(".").rglob("*"):
@@ -218,9 +233,11 @@
         AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
+        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.{{ teleport_private_ip.stdout }}.nip.io"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
+        SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
         
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
@@ -280,6 +297,7 @@
       ansible.builtin.set_fact:
         loki_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[0] }}"
         thanos_receive_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[1] }}"
+        tempo_nlb_dns: "{{ monitoring_nlb_dns.stdout.split('|')[2] }}"
       when:
         - monitoring_svcs_check is defined
         - monitoring_svcs_check.rc == 0
@@ -318,6 +336,7 @@
         - monitoring_svcs_check.rc == 0
         - loki_nlb_dns is defined
         - thanos_receive_nlb_dns is defined
+        - tempo_nlb_dns is defined
       environment:
         LOKI_NLB_DNS: "{{ loki_nlb_dns }}"
         THANOS_RECEIVE_NLB_DNS: "{{ thanos_receive_nlb_dns }}"

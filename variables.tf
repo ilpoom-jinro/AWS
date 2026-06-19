@@ -115,6 +115,24 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
+variable "gitea_auth_debug_codebuild_project_name" {
+  description = "CodeBuild project name for debugging internal Gitea API authentication from inside the Ops VPC"
+  type        = string
+  default     = "financial-gitea-auth-debug"
+}
+
+variable "ops_command_codebuild_project_name" {
+  description = "CodeBuild project name for running temporary commands from inside the Ops VPC"
+  type        = string
+  default     = "financial-ops-command"
+}
+
+variable "ops_vpc_command" {
+  description = "Temporary shell command executed by the Ops VPC command CodeBuild project"
+  type        = string
+  default     = "kubectl --context $${OPS_CONTEXT} -n git get deploy,svc,pods -o wide"
+}
+
 variable "mas_status_codebuild_project_name" {
   description = "CodeBuild project name for checking MAS and Teleport app-service status"
   type        = string
@@ -185,13 +203,6 @@ variable "internal_git_admin_username" {
   description = "Internal Git username used by the manifest updater"
   type        = string
   default     = "gitadmin"
-}
-
-variable "internal_git_admin_password" {
-  description = "Internal Git password used by the manifest updater"
-  type        = string
-  sensitive   = true
-  default     = "ChangeMe1234"
 }
 
 variable "dev_mode" {

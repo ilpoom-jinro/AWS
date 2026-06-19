@@ -12,18 +12,42 @@ admissionController:
   podDisruptionBudget:
     # 노드 드레인·업그레이드 시에도 최소 2개 유지
     minAvailable: 2
+  tolerations:
+    # 모니터링 전용 노드(dedicated=monitoring:NoSchedule taint)에도 스케줄링 허용
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
 
 # Background Controller — 기존 리소스에 대한 정책 평가 (PolicyReport 생성)
 backgroundController:
   replicas: 2
+  tolerations:
+    # 모니터링 전용 노드(dedicated=monitoring:NoSchedule taint)에도 스케줄링 허용
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
 
 # Cleanup Controller — TTL 기반 리소스 자동 삭제 정책 처리
 cleanupController:
   replicas: 2
+  tolerations:
+    # 모니터링 전용 노드(dedicated=monitoring:NoSchedule taint)에도 스케줄링 허용
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
 
 # Reports Controller — PolicyReport / ClusterPolicyReport 생성·관리
 reportsController:
   replicas: 2
+  tolerations:
+    # 모니터링 전용 노드(dedicated=monitoring:NoSchedule taint)에도 스케줄링 허용
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
 
 # config.preserve: false — Kyverno ConfigMap을 ArgoCD가 덮어쓸 수 있도록 허용
 # true(기본값)이면 Kyverno가 ConfigMap을 자체 관리하여 ArgoCD sync 시 충돌 발생
