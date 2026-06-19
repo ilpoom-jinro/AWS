@@ -65,7 +65,7 @@ resource "aws_eks_pod_identity_association" "eso" {
 
 resource "aws_iam_role" "mas_orchestrator" {
   name        = "financial-ops-mas-orchestrator-role"
-  description = "FinOps Orchestrator — Bedrock, Secrets Manager"
+  description = "FinOps Orchestrator - Bedrock and Secrets Manager"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -102,7 +102,7 @@ resource "aws_eks_pod_identity_association" "mas_orchestrator" {
 
 resource "aws_iam_role" "mas_agent" {
   name        = "financial-ops-mas-agent-role"
-  description = "FinOps Agent Pods — Bedrock, Secrets Manager"
+  description = "FinOps Agent Pods - Bedrock and Secrets Manager"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
