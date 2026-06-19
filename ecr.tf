@@ -779,6 +779,40 @@ resource "aws_ecr_lifecycle_policy" "observability_indexer" {
   })
 }
 
+resource "aws_ecr_repository" "external_secrets" {
+  name                 = "external-secrets/external-secrets"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "external-secrets/external-secrets"
+    Purpose   = "eso-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "external_secrets" {
+  repository = aws_ecr_repository.external_secrets.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 ESO images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "kyverno" {
   name                 = "financial/kyverno/kyverno"
   image_tag_mutability = "MUTABLE"
