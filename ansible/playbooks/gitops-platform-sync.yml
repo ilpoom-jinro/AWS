@@ -119,21 +119,9 @@
       register: service_rds_endpoint
       changed_when: false
 
-    - name: Read the Service RDS password from Secrets Manager
-      ansible.builtin.command:
-        cmd: >
-          aws secretsmanager get-secret-value
-          --region {{ aws_region }}
-          --secret-id financial-service-rds-password
-          --query SecretString
-          --output text
-      register: service_rds_secret
-      changed_when: false
-      no_log: true
-
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
-        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, Service RDS endpoint, or Service RDS secret."
+        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, or Service RDS endpoint."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
         service_vpc_id.stdout in ["", "None"] or
@@ -141,8 +129,7 @@
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
-        service_rds_endpoint.stdout in ["", "None"] or
-        service_rds_secret.stdout in ["", "None"]
+        service_rds_endpoint.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -291,25 +278,29 @@
           metadata:
             name: stock-demo
 
-    - name: Extract Service RDS password
-      ansible.builtin.set_fact:
-        service_rds_password: "{{ (service_rds_secret.stdout | from_json).password }}"
-      no_log: true
+    - name: Wait for ESO to create stock-api-db secret in Service EKS
+      kubernetes.core.k8s_info:
+        context: "{{ service_kube_context }}"
+        api_version: v1
+        kind: Secret
+        name: stock-api-db
+        namespace: stock-demo
+      register: stock_api_db_info
+      until: stock_api_db_info.resources | length > 0
+      retries: 60
+      delay: 30
 
-    - name: Apply stock-api RDS password secret in Service EKS
+    - name: Remove legacy stock-api-secret from Service EKS
       kubernetes.core.k8s:
         context: "{{ service_kube_context }}"
-        state: present
+        state: absent
         definition:
           apiVersion: v1
           kind: Secret
           metadata:
             name: stock-api-secret
             namespace: stock-demo
-          type: Opaque
-          stringData:
-            DB_PASSWORD: "{{ service_rds_password }}"
-      no_log: true
+
     - name: Delete previous stock-api RDS init job in Service EKS
       kubernetes.core.k8s:
         context: "{{ service_kube_context }}"
@@ -355,7 +346,7 @@
                       - name: PGPASSWORD
                         valueFrom:
                           secretKeyRef:
-                            name: stock-api-secret
+                            name: stock-api-db
                             key: DB_PASSWORD
                     securityContext:
                       allowPrivilegeEscalation: false
@@ -370,6 +361,7 @@
                       - -c
                       - |
                         set -eu
+                        # user=financial_admin: SingleUser rotation replaces only the password; username never changes.
                         psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
                           -v ON_ERROR_STOP=1 <<'SQL'
                         CREATE TABLE IF NOT EXISTS recommendations (
@@ -395,7 +387,7 @@
                         SQL
       no_log: true
 
-    - name: Restart stock-api after RDS password secret update
+    - name: Restart stock-api deployment to pick up new credentials
       ansible.builtin.command:
         cmd: >
           kubectl --context {{ service_kube_context }}
