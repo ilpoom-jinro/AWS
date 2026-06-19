@@ -191,6 +191,9 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     infra = context.get("infra", {})
     cost_source = context.get("cost_source", {})
     policy_source = context.get("policy_source", {})
+    live = context.get("live", {})
+    live_commands = live.get("commands", {})
+    live_enabled = any(result.get("status") == "ok" for result in live_commands.values())
     previous = context.get("agent_results", {})
     agent_name = dict(AGENT_SEQUENCE).get(agent_key, agent_key)
 
@@ -240,6 +243,8 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "p95_latency_ms": traffic.get("p95_latency_ms"),
             "queue_depth": traffic.get("queue_depth"),
             "hpa_current_replicas": traffic.get("hpa_current_replicas"),
+            "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
+            "source": "kubectl" if live_enabled else "traffic_observability_signal",
         }
         message = (
             f"Demand Shaping 결과를 반영하면 peak는 {before} rps에서 {after} rps로 낮아집니다. "
@@ -257,6 +262,9 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "alb_status": signals.get("alb_status", "ok"),
             "alb_healthy_targets": infra.get("alb_healthy_targets"),
             "alb_unhealthy_targets": infra.get("alb_unhealthy_targets"),
+            "ready_pods": infra.get("ready_pods"),
+            "running_pods": infra.get("running_pods"),
+            "source": "kubectl+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
             "status": "warning" if db_cpu >= 65 or cache_hit_ratio < 93 else "ok",
             "validated_rps": forecast["peak_rps_after"],
         }
@@ -272,8 +280,17 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "scale_down": "observed_rps_based",
             "target_app_pods": forecast["required_app_pods"],
             "current_app_pods": infra.get("eks_deployment_replicas"),
+            "ready_app_pods": infra.get("ready_pods"),
+            "deployment_ready_replicas": infra.get("deployment_ready_replicas"),
             "nodegroup_desired": infra.get("nodegroup_desired"),
             "nodegroup_max": infra.get("nodegroup_max"),
+            "spot_instance_types": infra.get("spot_instance_types", []),
+            "latest_spot_prices": infra.get("latest_spot_prices", []),
+            "spot_placement_scores": infra.get("spot_placement_scores", []),
+            "instance_type_offering_count": infra.get("instance_type_offering_count"),
+            "eks_nodegroup_capacity_type": infra.get("eks_nodegroup_capacity_type"),
+            "eks_nodegroup_status": infra.get("eks_nodegroup_status"),
+            "source": "kubectl+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
         }
         message = (
             f"T-20분에 app pod를 {forecast['required_app_pods']}개까지 준비하고 "
@@ -299,6 +316,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             "cur_projected_monthly_usd": cost_source.get("cur_projected_monthly_usd"),
             "kubecost_namespace_daily_usd": daily_namespace,
             "event_incremental_budget_usd": event_budget,
+            "source": "aws_cost_explorer+cost_signal" if cost_source.get("cost_explorer_month_to_date_usd") else "cost_signal",
         }
         message = (
             f"{infra['target_app_pods']}개 pod 준비안을 기준으로 총 비용은 약 ${total}입니다. "
@@ -366,6 +384,25 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
     forecast = context["agent_results"]["traffic_forecast"]
     cost = context["agent_results"]["cost"]
     policy = context["agent_results"]["policy_guardrail"]
+    infra = context["agent_results"].get("infra_execution", {})
+    bottleneck = context["agent_results"].get("bottleneck_capacity", {})
+    observer = context["agent_results"].get("observer", {})
+    fallback = context["agent_results"].get("fallback", {})
+    postmortem = context["agent_results"].get("postmortem_learning", {})
+    live_commands = context.get("live", {}).get("commands", {})
+    live_enabled = any(result.get("status") == "ok" for result in live_commands.values())
+    failed_collectors = [
+        name
+        for name, result in live_commands.items()
+        if result.get("status") not in {"ok", "disabled"}
+    ]
+    data_sources = {
+        "business": context.get("business", {}).get("calendar_source", "business_calendar"),
+        "traffic": "kubectl+traffic_observability_signal" if live_enabled else "traffic_observability_signal",
+        "infra": "kubectl/aws+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
+        "cost": cost.get("source", "cost_signal"),
+        "policy": context.get("policy_source", {}).get("policy_version", "business_policy"),
+    }
     return {
         "event_id": context["event"]["event_id"],
         "peak_rps_before": forecast["peak_rps_before"],
@@ -374,12 +411,64 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
         "estimated_cost_usd": cost["total"],
         "approval_required": policy["approval_required"],
         "execution_mode": "dry_run",
-        "data_sources": {
-            "business": context.get("business", {}).get("calendar_source", "business_calendar"),
-            "traffic": "traffic_observability_signal",
-            "infra": "infra_capacity_signal",
-            "cost": "cost_signal",
-            "policy": context.get("policy_source", {}).get("policy_version", "business_policy"),
+        "data_sources": data_sources,
+        "report": {
+            "title": "FinOps Event Readiness Report",
+            "event": {
+                "event_id": context["event"]["event_id"],
+                "title": context["event"]["title"],
+                "grade": context["event"]["grade"],
+                "target_users": context["event"]["target_users"],
+                "scheduled_at": context["event"]["scheduled_at"],
+            },
+            "executive_summary": (
+                f"Peak RPS is expected to move from {forecast['peak_rps_before']} to "
+                f"{forecast['peak_rps_after']} after demand shaping. Prepare "
+                f"{forecast['required_app_pods']} app pods with dry-run execution mode. "
+                f"Estimated incremental event cost is ${cost['total']}."
+            ),
+            "data_collection": {
+                "sources": data_sources,
+                "live_command_success_count": sum(1 for result in live_commands.values() if result.get("status") == "ok"),
+                "failed_collectors": failed_collectors,
+            },
+            "traffic": {
+                "peak_rps_before": forecast["peak_rps_before"],
+                "peak_rps_after": forecast["peak_rps_after"],
+                "required_app_pods": forecast["required_app_pods"],
+                "queue_depth": forecast.get("queue_depth"),
+                "p95_latency_ms": forecast.get("p95_latency_ms"),
+            },
+            "capacity": {
+                "target_app_pods": infra.get("target_app_pods"),
+                "current_app_pods": infra.get("current_app_pods"),
+                "ready_app_pods": infra.get("ready_app_pods"),
+                "bottleneck_status": bottleneck.get("status"),
+                "rds_cpu": bottleneck.get("db_cpu"),
+                "cache_hit_ratio": bottleneck.get("cache_hit_ratio"),
+                "spot_candidates": infra.get("spot_instance_types", []),
+                "spot_placement_scores": infra.get("spot_placement_scores", []),
+            },
+            "cost": {
+                "estimated_event_cost_usd": cost["total"],
+                "month_to_date_usd": cost.get("cost_explorer_month_to_date_usd"),
+                "projected_monthly_usd": cost.get("cur_projected_monthly_usd"),
+                "event_budget_usd": cost.get("event_incremental_budget_usd"),
+            },
+            "policy": {
+                "approval_required": policy["approval_required"],
+                "allowed_actions": policy.get("allowed", []),
+                "forbidden_actions": policy.get("forbidden", []),
+                "policy_version": policy.get("policy_version"),
+            },
+            "operations": {
+                "scale_out_at": infra.get("scale_out_at"),
+                "prewarm_at": infra.get("prewarm_at"),
+                "scale_down": infra.get("scale_down"),
+                "observer_recommendation": observer.get("recommendation"),
+                "fallback": fallback,
+                "postmortem": postmortem,
+            },
         },
         "recommended_actions": [
             "VIP 사용자는 즉시 발송",

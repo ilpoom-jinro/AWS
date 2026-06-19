@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 import time
 import uuid
 from datetime import datetime, timezone
@@ -23,6 +25,21 @@ DATABASE_URL = os.getenv(
 )
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
 TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "finops-agent-task-queue")
+FINOPS_NAMESPACE = os.getenv("FINOPS_NAMESPACE", "finops-mas")
+FINOPS_APP_LABEL = os.getenv("FINOPS_APP_LABEL", "app.kubernetes.io/part-of=finops-mas")
+FINOPS_UI_DEPLOYMENT = os.getenv("FINOPS_UI_DEPLOYMENT", "finops-ui")
+FINOPS_KUBECTL_BIN = os.getenv("FINOPS_KUBECTL_BIN", "kubectl")
+FINOPS_AWS_BIN = os.getenv("FINOPS_AWS_BIN", "aws")
+AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2"))
+FINOPS_EKS_CLUSTER_NAME = os.getenv("FINOPS_EKS_CLUSTER_NAME", "financial-ops-eks")
+FINOPS_EKS_NODEGROUP_NAME = os.getenv("FINOPS_EKS_NODEGROUP_NAME", "")
+FINOPS_SPOT_INSTANCE_TYPES = [
+    item.strip()
+    for item in os.getenv("FINOPS_SPOT_INSTANCE_TYPES", "m7i-flex.large,m7i.large,m6i.large").split(",")
+    if item.strip()
+]
+COMMAND_COLLECTORS_ENABLED = os.getenv("FINOPS_COMMAND_COLLECTORS_ENABLED", "true").lower() == "true"
+COMMAND_COLLECTOR_TIMEOUT_SECONDS = float(os.getenv("FINOPS_COMMAND_COLLECTOR_TIMEOUT_SECONDS", "5"))
 
 app = FastAPI(title="FinOps Orchestrator", version="0.4.0")
 temporal_client: Client | None = None
@@ -46,6 +63,290 @@ def utcnow() -> str:
 
 def connect():
     return psycopg.connect(DATABASE_URL, autocommit=True)
+
+
+def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
+    if not COMMAND_COLLECTORS_ENABLED:
+        return {"name": name, "status": "disabled", "command": command}
+    executable = shutil.which(command[0])
+    if executable is None:
+        return {"name": name, "status": "unavailable", "command": command, "error": f"{command[0]} not found"}
+    try:
+        completed = subprocess.run(
+            [executable, *command[1:]],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=COMMAND_COLLECTOR_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {"name": name, "status": "timeout", "command": command, "error": str(exc)}
+    return {
+        "name": name,
+        "status": "ok" if completed.returncode == 0 else "failed",
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+    }
+
+
+def parse_command_json(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("status") != "ok" or not result.get("stdout"):
+        return {}
+    try:
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError as exc:
+        result["status"] = "parse_failed"
+        result["error"] = str(exc)
+        return {}
+
+
+def first_kubernetes_item(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items")
+    if isinstance(items, list) and items:
+        return items[0]
+    return payload if payload.get("kind") else {}
+
+
+def parse_kubectl_top_pods(stdout: str) -> dict[str, Any]:
+    pods = []
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] != "NAME":
+            pods.append({"name": parts[0], "cpu": parts[1], "memory": parts[2]})
+    return {"pods": pods, "sample_count": len(pods)}
+
+
+def collect_kubernetes_live_context() -> dict[str, Any]:
+    commands = {
+        "deployment": [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "deployment",
+            FINOPS_UI_DEPLOYMENT,
+            "-n",
+            FINOPS_NAMESPACE,
+            "-o",
+            "json",
+        ],
+        "hpa": [FINOPS_KUBECTL_BIN, "get", "hpa", "-n", FINOPS_NAMESPACE, "-o", "json"],
+        "pods": [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "pods",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "-o",
+            "json",
+        ],
+        "endpoints": [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "endpoints",
+            FINOPS_UI_DEPLOYMENT,
+            "-n",
+            FINOPS_NAMESPACE,
+            "-o",
+            "json",
+        ],
+        "pod_top": [
+            FINOPS_KUBECTL_BIN,
+            "top",
+            "pods",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "--no-headers",
+        ],
+    }
+    command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
+    deployment = parse_command_json(command_results["deployment"])
+    hpa_payload = parse_command_json(command_results["hpa"])
+    pods_payload = parse_command_json(command_results["pods"])
+    endpoints = parse_command_json(command_results["endpoints"])
+    top_result = command_results["pod_top"]
+
+    deployment_status = deployment.get("status", {})
+    deployment_spec = deployment.get("spec", {})
+    hpa = first_kubernetes_item(hpa_payload)
+    hpa_status = hpa.get("status", {})
+    pod_items = pods_payload.get("items", [])
+    ready_pods = 0
+    running_pods = 0
+    for pod in pod_items:
+        if pod.get("status", {}).get("phase") == "Running":
+            running_pods += 1
+        container_statuses = pod.get("status", {}).get("containerStatuses", [])
+        if container_statuses and all(status.get("ready") for status in container_statuses):
+            ready_pods += 1
+
+    ready_addresses = 0
+    for subset in endpoints.get("subsets", []):
+        ready_addresses += len(subset.get("addresses", []))
+
+    return {
+        "collected_at": utcnow(),
+        "namespace": FINOPS_NAMESPACE,
+        "commands": command_results,
+        "traffic": {
+            "hpa_current_replicas": hpa_status.get("currentReplicas"),
+            "hpa_desired_replicas": hpa_status.get("desiredReplicas"),
+            "hpa_current_cpu_utilization_percent": hpa_status.get("currentCPUUtilizationPercentage"),
+            "pod_top": parse_kubectl_top_pods(top_result.get("stdout", "")) if top_result.get("status") == "ok" else {},
+        },
+        "infra": {
+            "eks_deployment_replicas": deployment_spec.get("replicas"),
+            "deployment_ready_replicas": deployment_status.get("readyReplicas"),
+            "deployment_available_replicas": deployment_status.get("availableReplicas"),
+            "pod_count": len(pod_items),
+            "running_pods": running_pods,
+            "ready_pods": ready_pods,
+            "alb_healthy_targets": ready_addresses,
+        },
+    }
+
+
+def month_start_utc() -> str:
+    now = datetime.now(timezone.utc)
+    return now.replace(day=1).strftime("%Y-%m-%d")
+
+
+def today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def collect_aws_live_context() -> dict[str, Any]:
+    commands = {
+        "identity": [
+            FINOPS_AWS_BIN,
+            "sts",
+            "get-caller-identity",
+            "--region",
+            AWS_REGION,
+            "--output",
+            "json",
+        ],
+        "spot_price_history": [
+            FINOPS_AWS_BIN,
+            "ec2",
+            "describe-spot-price-history",
+            "--region",
+            AWS_REGION,
+            "--instance-types",
+            *FINOPS_SPOT_INSTANCE_TYPES,
+            "--product-descriptions",
+            "Linux/UNIX",
+            "--max-results",
+            "10",
+            "--output",
+            "json",
+        ],
+        "spot_placement_score": [
+            FINOPS_AWS_BIN,
+            "ec2",
+            "get-spot-placement-scores",
+            "--region",
+            AWS_REGION,
+            "--instance-types",
+            *FINOPS_SPOT_INSTANCE_TYPES,
+            "--target-capacity",
+            "1",
+            "--single-availability-zone",
+            "--output",
+            "json",
+        ],
+        "instance_type_offerings": [
+            FINOPS_AWS_BIN,
+            "ec2",
+            "describe-instance-type-offerings",
+            "--region",
+            AWS_REGION,
+            "--location-type",
+            "availability-zone",
+            "--filters",
+            f"Name=instance-type,Values={','.join(FINOPS_SPOT_INSTANCE_TYPES)}",
+            "--output",
+            "json",
+        ],
+        "cost_explorer_mtd": [
+            FINOPS_AWS_BIN,
+            "ce",
+            "get-cost-and-usage",
+            "--region",
+            "us-east-1",
+            "--time-period",
+            f"Start={month_start_utc()},End={today_utc()}",
+            "--granularity",
+            "MONTHLY",
+            "--metrics",
+            "UnblendedCost",
+            "--output",
+            "json",
+        ],
+    }
+    if FINOPS_EKS_NODEGROUP_NAME:
+        commands["eks_nodegroup"] = [
+            FINOPS_AWS_BIN,
+            "eks",
+            "describe-nodegroup",
+            "--region",
+            AWS_REGION,
+            "--cluster-name",
+            FINOPS_EKS_CLUSTER_NAME,
+            "--nodegroup-name",
+            FINOPS_EKS_NODEGROUP_NAME,
+            "--output",
+            "json",
+        ]
+
+    command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
+    spot_history = parse_command_json(command_results["spot_price_history"]).get("SpotPriceHistory", [])
+    spot_scores = parse_command_json(command_results["spot_placement_score"]).get("SpotPlacementScores", [])
+    offerings = parse_command_json(command_results["instance_type_offerings"]).get("InstanceTypeOfferings", [])
+    cost_payload = parse_command_json(command_results["cost_explorer_mtd"])
+    nodegroup_payload = parse_command_json(command_results.get("eks_nodegroup", {}))
+
+    latest_spot_prices = []
+    for item in spot_history[:5]:
+        latest_spot_prices.append(
+            {
+                "instance_type": item.get("InstanceType"),
+                "availability_zone": item.get("AvailabilityZone"),
+                "spot_price_usd_per_hour": float(item["SpotPrice"]) if item.get("SpotPrice") else None,
+                "timestamp": item.get("Timestamp"),
+            }
+        )
+
+    mtd_cost = None
+    results_by_time = cost_payload.get("ResultsByTime", [])
+    if results_by_time:
+        amount = results_by_time[0].get("Total", {}).get("UnblendedCost", {}).get("Amount")
+        if amount is not None:
+            mtd_cost = float(amount)
+
+    nodegroup = nodegroup_payload.get("nodegroup", {})
+    return {
+        "collected_at": utcnow(),
+        "region": AWS_REGION,
+        "commands": command_results,
+        "infra": {
+            "spot_instance_types": FINOPS_SPOT_INSTANCE_TYPES,
+            "latest_spot_prices": latest_spot_prices,
+            "spot_placement_scores": spot_scores[:5],
+            "instance_type_offering_count": len(offerings),
+            "eks_nodegroup_status": nodegroup.get("status"),
+            "eks_nodegroup_capacity_type": nodegroup.get("capacityType"),
+            "eks_nodegroup_desired": nodegroup.get("scalingConfig", {}).get("desiredSize"),
+            "eks_nodegroup_max": nodegroup.get("scalingConfig", {}).get("maxSize"),
+        },
+        "cost": {
+            "cost_explorer_month_to_date_usd": mtd_cost,
+        },
+    }
 
 
 def format_agent_value(value: Any) -> str:
@@ -292,6 +593,29 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "allowed_actions": policy_source[4],
         "policy_version": policy_source[5],
     } if policy_source else {}
+    kubernetes_live = collect_kubernetes_live_context()
+    aws_live = collect_aws_live_context()
+    live = {
+        "collected_at": utcnow(),
+        "kubernetes": kubernetes_live,
+        "aws": aws_live,
+        "commands": {
+            **kubernetes_live.get("commands", {}),
+            **{f"aws_{key}": value for key, value in aws_live.get("commands", {}).items()},
+        },
+    }
+    for key, value in kubernetes_live.get("traffic", {}).items():
+        if value is not None:
+            traffic[key] = value
+    for key, value in kubernetes_live.get("infra", {}).items():
+        if value is not None:
+            infra[key] = value
+    for key, value in aws_live.get("infra", {}).items():
+        if value is not None:
+            infra[key] = value
+    for key, value in aws_live.get("cost", {}).items():
+        if value is not None:
+            cost[key] = value
     return {
         "event": {
             "event_id": event[0],
@@ -327,6 +651,7 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "infra": infra,
         "cost_source": cost,
         "policy_source": policy_detail,
+        "live": live,
         "agent_results": {},
     }
 
@@ -1003,6 +1328,7 @@ def data_sources(event_id: str) -> dict[str, Any]:
         "infra": context.get("infra", {}),
         "cost": context.get("cost_source", {}),
         "policy": context.get("policy_source", {}),
+        "live": context.get("live", {}),
     }
 
 
