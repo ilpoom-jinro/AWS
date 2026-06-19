@@ -96,7 +96,7 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 resource "aws_cloudtrail" "main" {
   name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v2"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
   kms_key_id                    = var.kms_key_cloudtrail_arn
   include_global_service_events = true
   is_multi_region_trail         = true
