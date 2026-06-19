@@ -257,9 +257,14 @@
       ansible.builtin.shell: >
         helm template external-secrets
         {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        --namespace external-secrets
         -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/clusterexternalsecret.yaml
         -s templates/crds/externalsecret.yaml
+        -s templates/crds/secretstore.yaml
+        -s templates/crds/pushsecret.yaml
         | kubectl apply --context {{ ops_kube_context }} -f - --server-side --force-conflicts
+        --field-manager=external-secrets
       changed_when: false
 
     - name: Register the platform app-of-apps in Argo CD
@@ -281,9 +286,14 @@
       ansible.builtin.shell: >
         helm template external-secrets
         {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        --namespace external-secrets
         -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/clusterexternalsecret.yaml
         -s templates/crds/externalsecret.yaml
+        -s templates/crds/secretstore.yaml
+        -s templates/crds/pushsecret.yaml
         | kubectl apply --context {{ service_kube_context }} -f - --server-side --force-conflicts
+        --field-manager=external-secrets
       changed_when: false
 
     - name: Ensure stock-demo namespace exists in Service EKS
