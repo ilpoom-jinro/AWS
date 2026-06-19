@@ -259,7 +259,7 @@
         {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
         -s templates/crds/clustersecretstore.yaml
         -s templates/crds/externalsecret.yaml
-        | kubectl apply --context {{ ops_kube_context }} -f - --server-side
+        | kubectl apply --context {{ ops_kube_context }} -f - --server-side --force-conflicts
       changed_when: false
 
     - name: Register the platform app-of-apps in Argo CD
@@ -283,7 +283,7 @@
         {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
         -s templates/crds/clustersecretstore.yaml
         -s templates/crds/externalsecret.yaml
-        | kubectl apply --context {{ service_kube_context }} -f - --server-side
+        | kubectl apply --context {{ service_kube_context }} -f - --server-side --force-conflicts
       changed_when: false
 
     - name: Ensure stock-demo namespace exists in Service EKS
