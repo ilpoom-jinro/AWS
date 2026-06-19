@@ -1,0 +1,51 @@
+# 데모앱(stock-web) 외부 노출용 ALB Ingress.
+# - ilpumjinro.store        : 사용자 접속 메인 (Route53 Failover PRIMARY → 이 ALB)
+# - aws.ilpumjinro.store    : AWS 직접 접속
+# 두 호스트 모두 같은 ALB로 stock-web에 라우팅한다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stock-web
+  namespace: stock-demo
+  labels:
+    app: stock-web
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # target-type: ip → ALB가 파드 IP에 직접 연결. 노드/NodePort를 거치지 않아
+    # single→multi 노드 전환과 무관하게 동작 (Ingress 변경 불필요).
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # HTTP(80)로 들어오면 HTTPS(443)로 리다이렉트.
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # certificate-arn 미지정 → ALB Controller가 host(ilpumjinro.store,
+    # aws.ilpumjinro.store)와 매칭되는 ACM 인증서(ilpumjinro.store + *.ilpumjinro.store)를
+    # 자동 디스커버리. 계정/재배포 시 ARN 하드코딩 불필요.
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    # 파드 교체 시 무중단 (등록 해제 대기 단축)
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    # TLS 1.2 미만 차단 및 취약 Cipher Suite 제거 (ELBSecurityPolicy-2016-08 기본값 대체)
+    alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: ilpumjinro.store
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stock-gw-istio
+                port:
+                  number: 80
+    - host: aws.ilpumjinro.store
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stock-gw-istio
+                port:
+                  number: 80

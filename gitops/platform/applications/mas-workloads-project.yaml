@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: mas-workloads-project
+  namespace: argocd
+spec:
+  description: MAS application workloads
+  sourceRepos:
+    - http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+  destinations:
+    - namespace: "*mas*"
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: ServiceAccount
+    - group: external-secrets.io
+      kind: ExternalSecret

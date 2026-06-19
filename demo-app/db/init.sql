@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS recommendations (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
-  ticker VARCHAR(20) NOT NULL,
+  ticker VARCHAR(20) NOT NULL UNIQUE,
   current_price INTEGER NOT NULL,
   recommended_price INTEGER NOT NULL,
   recommendation_date DATE NOT NULL,
@@ -45,4 +45,9 @@ VALUES
     85000,
     95000,
     CURRENT_DATE
-  );
+  )
+ON CONFLICT (ticker) DO UPDATE SET
+  name = EXCLUDED.name,
+  current_price = EXCLUDED.current_price,
+  recommended_price = EXCLUDED.recommended_price,
+  recommendation_date = EXCLUDED.recommendation_date;

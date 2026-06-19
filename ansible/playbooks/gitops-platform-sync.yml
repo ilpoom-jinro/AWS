@@ -36,6 +36,17 @@
       register: ops_vpc_id
       changed_when: false
 
+    - name: Read the Service VPC ID from the EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks describe-cluster
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --query cluster.resourcesVpcConfig.vpcId
+          --output text
+      register: service_vpc_id
+      changed_when: false
+
     - name: Read the AWS account ID for the private ECR registry
       ansible.builtin.command:
         cmd: >
@@ -110,9 +121,10 @@
 
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
-        msg: "Failed to discover the Ops VPC ID, monitoring NLB security group IDs, or the Service RDS endpoint."
+        msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, or Service RDS endpoint."
       when: >
         ops_vpc_id.stdout in ["", "None"] or
+        service_vpc_id.stdout in ["", "None"] or
         teleport_private_ip.stdout in ["", "None"] or
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
@@ -201,6 +213,7 @@
         replacements = {
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
+            "REPLACE_WITH_SERVICE_VPC_ID": os.environ["SERVICE_VPC_ID"],
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],
             "REPLACE_WITH_TELEPORT_APP_PUBLIC_SUFFIX": os.environ["TELEPORT_APP_PUBLIC_SUFFIX"],
             "REPLACE_WITH_OPS_LOKI_NLB_SG_ID": os.environ["LOKI_NLB_SG_ID"],
@@ -232,18 +245,174 @@
         AWS_ACCOUNT_ID: "{{ aws_account_id.stdout }}"
         AWS_REGION: "{{ aws_region }}"
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
+        SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
         TELEPORT_APP_PUBLIC_SUFFIX: "teleport.{{ teleport_private_ip.stdout }}.nip.io"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
-        
+
+    - name: Install ESO CRDs on Ops EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ ops_kube_context }} -f - --server-side
+      changed_when: false
+
     - name: Register the platform app-of-apps in Argo CD
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
         state: present
         src: "{{ gitops_platform_seed_dir }}/bootstrap/platform-app-of-apps.yaml"
+
+    - name: Update kubeconfig for the Service EKS cluster
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ service_eks_cluster_name }}
+          --alias {{ service_kube_context }}
+      changed_when: false
+
+    - name: Install ESO CRDs on Service EKS
+      ansible.builtin.shell: >
+        helm template external-secrets
+        {{ gitops_platform_seed_dir }}/helmChart/charts/external-secrets
+        -s templates/crds/clustersecretstore.yaml
+        -s templates/crds/externalsecret.yaml
+        | kubectl apply --context {{ service_kube_context }} -f - --server-side
+      changed_when: false
+
+    - name: Ensure stock-demo namespace exists in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: stock-demo
+
+    - name: Wait for ESO to create stock-api-db secret in Service EKS
+      kubernetes.core.k8s_info:
+        context: "{{ service_kube_context }}"
+        api_version: v1
+        kind: Secret
+        name: stock-api-db
+        namespace: stock-demo
+      register: stock_api_db_info
+      until: stock_api_db_info.resources | length > 0
+      retries: 60
+      delay: 30
+
+    - name: Remove legacy stock-api-secret from Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: stock-api-secret
+            namespace: stock-demo
+
+    - name: Delete previous stock-api RDS init job in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: absent
+        wait: true
+        wait_timeout: 60
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: stock-api-rds-init
+            namespace: stock-demo
+
+    - name: Run stock-api RDS init job in Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: present
+        wait: true
+        wait_condition:
+          type: Complete
+          status: "True"
+        wait_timeout: 300
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: stock-api-rds-init
+            namespace: stock-demo
+          spec:
+            backoffLimit: 1
+            ttlSecondsAfterFinished: 3600
+            template:
+              spec:
+                restartPolicy: Never
+                securityContext:
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: rds-init
+                    image: "{{ aws_account_id.stdout }}.dkr.ecr.{{ aws_region }}.amazonaws.com/financial/mas/finops/postgres:16-alpine"
+                    imagePullPolicy: IfNotPresent
+                    env:
+                      - name: PGPASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: stock-api-db
+                            key: DB_PASSWORD
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
+                      runAsNonRoot: true
+                      runAsUser: 999
+                      runAsGroup: 999
+                    command:
+                      - /bin/sh
+                      - -c
+                      - |
+                        set -eu
+                        # user=financial_admin: SingleUser rotation replaces only the password; username never changes.
+                        psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
+                          -v ON_ERROR_STOP=1 <<'SQL'
+                        CREATE TABLE IF NOT EXISTS recommendations (
+                          id SERIAL PRIMARY KEY,
+                          name VARCHAR(100) NOT NULL,
+                          ticker VARCHAR(20) NOT NULL,
+                          current_price INTEGER NOT NULL,
+                          recommended_price INTEGER NOT NULL,
+                          recommendation_date DATE NOT NULL,
+                          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+
+                        TRUNCATE TABLE recommendations RESTART IDENTITY;
+
+                        INSERT INTO recommendations
+                          (name, ticker, current_price, recommended_price, recommendation_date)
+                        VALUES
+                          ('LG에너지솔루션', '373220', 450000, 500000, CURRENT_DATE),
+                          ('LS', '006260', 320000, 350000, CURRENT_DATE),
+                          ('한국금융지주', '071050', 110000, 130000, CURRENT_DATE),
+                          ('HD현대일렉트릭', '267260', 450000, 520000, CURRENT_DATE),
+                          ('삼성전자', '005930', 85000, 95000, CURRENT_DATE);
+                        SQL
+      no_log: true
+
+    - name: Restart stock-api deployment to pick up new credentials
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n stock-demo
+          rollout restart deployment/stock-api
+      changed_when: true
+      failed_when: false
 
     - name: Check if Loki, Thanos Receive and Tempo services exist in observability namespace
       ansible.builtin.shell: |

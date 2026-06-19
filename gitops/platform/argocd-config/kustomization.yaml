@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - argocd-cm.yaml
+  - projects/ops-infra-project.yaml
+  - projects/service-project.yaml
+  - projects/mas-project.yaml
+  # default-project.yaml 의도적 제외 —
+  # 모든 Application이 새 프로젝트에서 정상 동작 확인 후 1회 수동 적용할 것

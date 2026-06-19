@@ -86,3 +86,13 @@ output "tempo_nlb_sg_id" {
   description = "Security group ID to attach to the Tempo internal NLB"
   value       = aws_security_group.tempo_nlb.id
 }
+
+output "rds_address" {
+  description = "financial-ops RDS 호스트명 (포트 제외)"
+  value       = aws_db_instance.ops.address
+}
+
+output "rotation_lambda_arn" {
+  description = "ops RDS rotation Lambda ARN"
+  value       = data.aws_lambda_function.ops_rotation.arn
+}

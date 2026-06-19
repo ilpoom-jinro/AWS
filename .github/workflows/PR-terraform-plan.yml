@@ -40,15 +40,15 @@ jobs:
         shell: bash
         run: |
           git fetch origin ${{ github.base_ref }} --depth=1
-          changed=$(git diff --name-only FETCH_HEAD HEAD)
+          changed="$(git diff --name-only FETCH_HEAD HEAD)"
           echo "${changed}"
-          if echo "${changed}" | grep -qE '\.tf$|\.terraform\.lock\.hcl$|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$'; then
+          if echo "${changed}" | grep -qE '\.tf$|\.tpl$|\.terraform\.lock\.hcl$|^kms/|^ansible/|^gitops/|^buildspec-ansible\.yml$|^buildspec-gitops-bootstrap\.yml$|^buildspec-debug\.yml$|^tools/|^\.github/workflows/terraform-operations\.yml$|^\.github/workflows/PR-terraform-plan\.yml$'; then
             echo "tf=true" >> "${GITHUB_OUTPUT}"
           else
             echo "tf=false" >> "${GITHUB_OUTPUT}"
           fi
 
-      - name: Skip — no Terraform changes
+      - name: Skip when no Terraform changes
         if: steps.changes.outputs.tf == 'false'
         run: echo "No Terraform-related files changed. Skipping plan."
 
@@ -86,6 +86,21 @@ jobs:
         if: steps.changes.outputs.tf == 'true'
         run: terraform validate -no-color
 
+      - name: KMS Plan
+        if: steps.changes.outputs.tf == 'true'
+        shell: bash
+        working-directory: kms
+        run: |
+          terraform init -reconfigure
+          set +e
+          terraform plan -input=false -lock-timeout=5m -detailed-exitcode
+          exitcode=$?
+          if [ "${exitcode}" -eq 1 ]; then
+            echo "::error::KMS terraform plan failed."
+            exit 1
+          fi
+          exit 0
+
       - name: Terraform Plan
         if: steps.changes.outputs.tf == 'true'
         id: plan
@@ -117,8 +132,11 @@ jobs:
         with:
           script: |
             const marker = '<!-- terraform-plan -->';
+            const hasTerraformChanges = '${{ steps.changes.outputs.tf }}' === 'true';
             const exitCode = '${{ steps.plan.outputs.exitcode }}';
-            const status = exitCode === '0'
+            const status = !hasTerraformChanges
+              ? 'Skipped - no Terraform changes'
+              : exitCode === '0'
               ? 'No changes'
               : exitCode === '2'
                 ? 'Changes pending'

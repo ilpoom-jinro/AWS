@@ -112,3 +112,18 @@ variable "kms_key_rds_arn" {
   description = "RDS 암호화에 사용할 KMS CMK ARN"
   type        = string
 }
+
+variable "kms_key_eks_arn" {
+  description = "EKS etcd Secrets 암호화 및 EBS 노드 볼륨 암호화에 사용할 KMS CMK ARN"
+  type        = string
+}
+
+variable "kms_key_secretsmanager_arn" {
+  description = "Secrets Manager CMK ARN — rotation Lambda가 CMK 복호화에 사용"
+  type        = string
+}
+
+variable "account_id" {
+  description = "AWS 계정 ID"
+  type        = string
+}

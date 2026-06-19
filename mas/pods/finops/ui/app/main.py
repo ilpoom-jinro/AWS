@@ -1,22 +1,44 @@
+import json
+import os
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 
-app = FastAPI(title="FinOps UI Agent", version="0.1.0")
+ORCHESTRATOR_URL = os.getenv(
+    "ORCHESTRATOR_URL",
+    "http://finops-orchestrator.finops-mas.svc.cluster.local",
+)
+
+app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
 
 class ChatRequest(BaseModel):
-    prompt: str
+    message: str
+    event_id: str = "fomc-briefing"
 
 
-class ChatResponse(BaseModel):
-    answer: str
-    suggested_actions: list[str]
-    generated_at: str
+class ApprovalRequest(BaseModel):
+    approved_by: str = "operator"
+    decision: str = "approved"
+
+
+def call_orchestrator(path: str, method: str = "GET", body: dict[str, Any] | None = None) -> Any:
+    data = None
+    headers = {"Content-Type": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+    request = Request(f"{ORCHESTRATOR_URL}{path}", data=data, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except URLError as exc:
+        raise HTTPException(status_code=503, detail=f"orchestrator unavailable: {exc}") from exc
 
 
 @app.get("/health")
@@ -26,158 +48,614 @@ def health() -> dict[str, str]:
 
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
+    workflows = call_orchestrator("/api/workflows")
+    calendar = call_orchestrator("/api/calendar")
+    active = workflows[0] if workflows else None
     return {
         "scenario": "finops",
         "agent": "ui",
         "namespace": "finops-mas",
-        "signals": [
-            {"name": "Monthly cost trend", "status": "watch", "value": "+8.4%"},
-            {"name": "Idle compute", "status": "actionable", "value": "3 node groups"},
-            {"name": "RDS utilization", "status": "review", "value": "22% avg CPU"},
-        ],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "calendar": calendar,
+        "active_workflow": active,
     }
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    prompt = request.prompt.strip()
-    lowered = prompt.lower()
+@app.get("/api/calendar")
+def calendar() -> Any:
+    return call_orchestrator("/api/calendar")
 
-    if any(token in lowered for token in ["cost", "비용", "절감", "saving"]):
-        answer = "현재 비용 최적화 관점에서는 유휴 컴퓨트와 낮은 RDS 사용률을 먼저 확인하는 것이 좋습니다."
-        actions = [
-            "노드 그룹별 요청량/사용량 비교",
-            "RDS 인스턴스 클래스와 평균 CPU 확인",
-            "최근 7일 비용 증가 서비스 분해",
-        ]
-    elif any(token in lowered for token in ["pod", "eks", "kubernetes", "cluster"]):
-        answer = "EKS 관점에서는 namespace별 리소스 요청량과 실제 사용량 차이를 우선 확인할 수 있습니다."
-        actions = [
-            "finops-mas namespace Pod 상태 확인",
-            "requests/limits 미설정 workload 점검",
-            "노드 풀별 bin packing 상태 확인",
-        ]
-    else:
-        answer = "FinOps 분석을 위해 비용, EKS, RDS, 트래픽 중 어떤 영역을 볼지 알려주세요."
-        actions = [
-            "이번 달 비용 증가 원인 질문",
-            "유휴 리소스 조회 질문",
-            "특정 namespace 비용 분석 질문",
-        ]
 
-    return ChatResponse(
-        answer=answer,
-        suggested_actions=actions,
-        generated_at=datetime.now(timezone.utc).isoformat(),
+@app.post("/api/workflows/run")
+def run_workflow() -> Any:
+    return call_orchestrator("/api/workflows/run", method="POST")
+
+
+@app.get("/api/workflows")
+def workflows() -> Any:
+    return call_orchestrator("/api/workflows")
+
+
+@app.get("/api/workflows/{workflow_id}")
+def workflow_detail(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}")
+
+
+@app.post("/api/workflows/{workflow_id}/approve")
+def approve(workflow_id: str, request: ApprovalRequest) -> Any:
+    return call_orchestrator(
+        f"/api/workflows/{workflow_id}/approve",
+        method="POST",
+        body=request.model_dump(),
     )
+
+
+@app.post("/api/chat")
+def chat(request: ChatRequest) -> Any:
+    return call_orchestrator("/api/chat", method="POST", body=request.model_dump())
 
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return """
 <!doctype html>
-<html lang="ko">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>FinOps UI Agent</title>
+    <title>FinOps MAS Control</title>
     <style>
-      body {
-        margin: 0;
-        font-family: Arial, sans-serif;
-        background: #f6f8fb;
-        color: #1f2937;
+      :root {
+        --bg: #f7f9fc;
+        --panel: #fff;
+        --line: #d8e0ea;
+        --text: #172033;
+        --muted: #64748b;
+        --accent: #2563eb;
+        --accent-soft: #dbeafe;
+        --warn: #b45309;
       }
-      main {
-        max-width: 1040px;
-        margin: 0 auto;
-        padding: 32px 20px;
-      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
       header {
-        margin-bottom: 24px;
+        padding: 16px 22px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
       }
-      h1 {
-        margin: 0 0 8px;
-        font-size: 28px;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 12px;
-        margin-bottom: 20px;
-      }
-      .card, .chat {
-        background: #ffffff;
-        border: 1px solid #d9e0ea;
-        border-radius: 8px;
-        padding: 16px;
-      }
-      .label {
-        color: #64748b;
-        font-size: 13px;
-      }
-      .value {
-        margin-top: 8px;
-        font-size: 22px;
-        font-weight: 700;
-      }
-      textarea {
+      h1, h2, h3 { margin: 0; }
+      h1 { font-size: 22px; }
+      h2 { font-size: 16px; }
+      h3 { font-size: 14px; }
+      main {
         width: 100%;
-        min-height: 96px;
-        box-sizing: border-box;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        padding: 12px;
-        font: inherit;
+        margin: 0;
+        padding: 16px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      section, .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+      .stack { display: grid; gap: 12px; }
+      .summary {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 16px;
+        align-items: center;
+      }
+      .content-grid {
+        display: grid;
+        grid-template-columns: minmax(560px, 34vw) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .muted { color: var(--muted); }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: #e0f2fe;
+        color: #075985;
+        font-size: 12px;
+        font-weight: 700;
       }
       button {
-        margin-top: 10px;
-        padding: 10px 14px;
         border: 0;
         border-radius: 6px;
-        background: #2563eb;
-        color: #ffffff;
+        background: var(--accent);
+        color: #fff;
         font-weight: 700;
+        padding: 10px 14px;
         cursor: pointer;
       }
-      #answer {
-        margin-top: 16px;
+      button.secondary { background: #e2e8f0; color: var(--text); }
+      button:disabled { opacity: .55; cursor: not-allowed; }
+      textarea {
+        width: 100%;
+        min-height: 82px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px;
+        font: inherit;
+      }
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .day-name { color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }
+      .day {
+        min-height: 118px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+      .day.empty {
+        border-color: transparent;
+        background: transparent;
+      }
+      .day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+      .date-number { font-size: 12px; font-weight: 700; }
+      .event-pill {
+        margin-top: 6px;
+        border-radius: 6px;
+        background: var(--accent-soft);
+        color: #1e3a8a;
+        padding: 7px;
+        font-size: 12px;
+        line-height: 1.25;
+        font-weight: 700;
+        white-space: normal;
+        overflow-wrap: break-word;
+      }
+      .chat-room {
+        min-height: 620px;
+        max-height: calc(100vh - 332px);
+        overflow: auto;
+        display: grid;
+        gap: 10px;
+        align-content: start;
+        padding-right: 4px;
+      }
+      .bubble {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fff;
+      }
+      .bubble.operator {
+        margin-left: 48px;
+        background: #eff6ff;
+        border-color: #bfdbfe;
+      }
+      .bubble.agent { margin-right: 48px; }
+      .speaker { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 700; }
+      .bubble p { margin: 8px 0 0; color: #334155; line-height: 1.45; }
+      .metric { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; }
+      .metric .card { padding: 12px; }
+      .value { font-size: 23px; font-weight: 700; margin-top: 6px; }
+      pre {
+        margin: 8px 0 0;
         white-space: pre-wrap;
-        line-height: 1.5;
+        word-break: break-word;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      #toast { color: var(--warn); font-size: 13px; }
+      @media (max-width: 1020px) {
+        .summary { grid-template-columns: 1fr; }
+        .content-grid { grid-template-columns: 1fr; }
+        .metric { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .chat-room { max-height: none; }
+        .day { min-height: 104px; }
       }
     </style>
   </head>
   <body>
+    <header>
+      <div>
+        <h1>FinOps MAS Control</h1>
+        <div class="muted">Demand shaping first, infrastructure second.</div>
+      </div>
+      <button onclick="runPlan()">Run FinOps Plan</button>
+    </header>
     <main>
-      <header>
-        <h1>FinOps UI Agent</h1>
-        <p>Ops VPC에서 비용 현황을 보고 채팅으로 분석 요청을 입력하는 UI입니다.</p>
-      </header>
-      <section class="grid">
-        <div class="card"><div class="label">Monthly cost trend</div><div class="value">+8.4%</div></div>
-        <div class="card"><div class="label">Idle compute</div><div class="value">3 groups</div></div>
-        <div class="card"><div class="label">RDS utilization</div><div class="value">22%</div></div>
+      <section>
+        <div class="summary">
+          <div>
+            <h2>Final Plan</h2>
+            <div id="status" class="badge" style="margin-top: 8px;">idle</div>
+          </div>
+          <div class="metric">
+            <div class="card"><div class="muted">Before Peak</div><div id="before" class="value">-</div></div>
+            <div class="card"><div class="muted">After Peak</div><div id="after" class="value">-</div></div>
+            <div class="card"><div class="muted">Required Pods</div><div id="pods" class="value">-</div></div>
+            <div class="card"><div class="muted">Cost</div><div id="cost" class="value">-</div></div>
+          </div>
+          <button id="approve" onclick="approvePlan()" disabled>Approve Dry-run</button>
+        </div>
       </section>
-      <section class="chat">
-        <h2>Chat Prompt</h2>
-        <textarea id="prompt" placeholder="예: 이번 달 비용 증가 원인을 요약해줘"></textarea>
-        <button onclick="sendPrompt()">Send</button>
-        <div id="answer"></div>
-      </section>
+
+      <div class="content-grid">
+        <section>
+          <div class="row">
+            <h2>Business Calendar</h2>
+            <span id="calendar-month" class="badge">Month</span>
+          </div>
+          <div id="calendar" class="calendar-grid"></div>
+        </section>
+
+        <div class="stack">
+          <section>
+            <div class="row">
+              <h2>Agent Chat</h2>
+              <span id="conversation-status" class="badge">idle</span>
+            </div>
+            <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
+          </section>
+          <section>
+            <h2>ChatOps</h2>
+          <p class="muted">선택한 비즈니스 이벤트에 대해 agent들에게 재계획을 요청합니다.</p>
+          <textarea id="chat-message">일반 사용자를 20분 동안 분산 발송해줘</textarea>
+            <div class="row" style="margin-top: 10px;">
+              <button class="secondary" onclick="sendChat()">Send Change Request</button>
+              <div id="toast"></div>
+            </div>
+          </section>
+        </div>
+      </div>
     </main>
     <script>
-      async function sendPrompt() {
-        const prompt = document.getElementById("prompt").value;
-        const answer = document.getElementById("answer");
-        answer.textContent = "분석 중...";
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({prompt})
-        });
-        const data = await res.json();
-        answer.textContent = `${data.answer}\\n\\n추천 작업:\\n- ${data.suggested_actions.join("\\n- ")}`;
+      let currentWorkflow = null;
+      let calendarItems = [];
+      let workflowPoller = null;
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
       }
+
+      function showError(error) {
+        document.getElementById("toast").textContent = error.message || String(error);
+      }
+
+      async function loadDashboard() {
+        try {
+          const data = await api("/api/dashboard");
+          calendarItems = data.calendar || [];
+          renderCalendar(calendarItems);
+          if (data.active_workflow) {
+            currentWorkflow = data.active_workflow.workflow_id;
+            const done = await loadWorkflow(currentWorkflow);
+            if (!done) startWorkflowPolling(currentWorkflow);
+          } else {
+            renderEmptyConversation();
+          }
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      function renderCalendar(items) {
+        const el = document.getElementById("calendar");
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        document.getElementById("calendar-month").textContent =
+          now.toLocaleString("en", {month: "short", year: "numeric"});
+        const first = new Date(year, month, 1);
+        const last = new Date(year, month + 1, 0);
+        const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const headers = names.map(name => `<div class="day-name">${name}</div>`).join("");
+        const days = [];
+        for (let i = 0; i < first.getDay(); i++) {
+          days.push('<div class="day empty"></div>');
+        }
+        for (let day = 1; day <= last.getDate(); day++) {
+          const date = new Date(year, month, day);
+          const isToday = date.toDateString() === now.toDateString();
+          const events = isToday ? items.map(item => `
+            <div class="event-pill">${item.title}<br>${item.scheduled_at} / Grade ${item.grade}</div>
+          `).join("") : "";
+          days.push(`
+            <div class="day ${isToday ? "today" : ""}">
+              <div class="date-number">${day}</div>${events}
+            </div>
+          `);
+        }
+        el.innerHTML = headers + days.join("");
+      }
+
+      async function runPlan() {
+        try {
+          document.getElementById("toast").textContent = "Running FinOps plan...";
+          const result = await api("/api/workflows/run", {method: "POST"});
+          currentWorkflow = result.workflow_id;
+          await loadWorkflow(currentWorkflow);
+          document.getElementById("toast").textContent = "";
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      async function loadWorkflow(workflowId) {
+        const data = await api(`/api/workflows/${workflowId}`);
+        renderPlan(data);
+        renderConversation(data);
+      }
+
+      function renderPlan(data) {
+        const plan = data.plan || {};
+        document.getElementById("status").textContent = data.status || "unknown";
+        document.getElementById("before").textContent = plan.peak_rps_before ? `${plan.peak_rps_before} rps` : "-";
+        document.getElementById("after").textContent = plan.peak_rps_after ? `${plan.peak_rps_after} rps` : "-";
+        document.getElementById("pods").textContent = plan.required_app_pods || "-";
+        document.getElementById("cost").textContent = plan.estimated_cost_usd ? `$${plan.estimated_cost_usd}` : "-";
+        document.getElementById("approve").disabled = data.status !== "waiting_approval";
+      }
+
+      function renderEmptyConversation() {
+        document.getElementById("conversation-status").textContent = "waiting";
+        document.getElementById("agent-chat").innerHTML = `
+          <div class="bubble agent">
+            <div class="speaker"><span>Business Control Agent</span><span class="badge">ready</span></div>
+            <p>비즈니스 캘린더를 확인했습니다. FinOps 계획을 실행하면 오늘 이벤트에 맞춰 agent들을 순서대로 조율하겠습니다.</p>
+          </div>
+        `;
+      }
+
+      function narrate(item) {
+        const r = item.result || {};
+        switch (item.agent) {
+          case "Business Control Agent":
+            return `${r.event_id || "일정 이벤트"}를 확인했고 등급은 ${r.grade || "unknown"}입니다. 실행 전 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Demand Shaping Agent":
+            return `VIP 사용자는 ${r.vip || "우선"} 처리하고 일반 사용자는 ${r.general_users || "분산 구간"}으로 이동하겠습니다. 이 방식으로 피크를 약 ${r.peak_reduction || r.peak_reduction_percent || "의미 있게"} 낮출 수 있습니다.`;
+          case "Traffic Forecast Agent":
+            return `평탄화 전 예상 피크는 ${r.peak_rps_before || "-"} rps이고, 평탄화 후에는 ${r.peak_rps_after || "-"} rps입니다. 앱 계층은 ${r.required_app_pods || "-"}개 pod를 준비해야 합니다.`;
+          case "Bottleneck Capacity Agent":
+            return `병목을 확인했습니다. DB CPU는 약 ${r.db_cpu || "-"}, 캐시 hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
+          case "Infra Execution Planner":
+            return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실제 관측 트래픽"} 기준으로 진행합니다.`;
+          case "Cost Agent":
+            return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
+          case "Unit Economics Agent":
+            return `예상 비즈니스 가치는 약 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
+          case "Policy Guardrail Agent":
+            return `정책상 ${(r.allowed || []).join(", ") || "제안 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Final Plan":
+            return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
+          case "Observer Agent":
+            return `실행 중 관측을 준비했습니다. 첫 권고는 ${r.recommendation || "실제 트래픽을 보고 용량을 조정"}입니다.`;
+          case "Fallback Planner":
+            return "실행이 안전하지 않으면 VIP 발송만 유지하고 일반 사용자는 hold하며 static report fallback을 제공합니다.";
+          case "Postmortem Learning Agent":
+            return `이벤트 종료 후 예측과 실제 결과를 비교합니다. 프로필 업데이트 상태는 ${r.profile_update || "pending"}입니다.`;
+          case "Dry-run Execution":
+            return "승인을 확인했습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.";
+          default:
+            return JSON.stringify(r);
+        }
+      }
+
+      function renderConversation(data) {
+        const el = document.getElementById("agent-chat");
+        document.getElementById("conversation-status").textContent = data.status || "running";
+        const event = calendarItems[0];
+        const intro = event ? `
+          <div class="bubble operator">
+            <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
+            <p>${event.scheduled_at}에 예정된 ${event.title} 이벤트의 FinOps 계획을 준비해줘. 대상자는 ${event.target_users.toLocaleString()}명이야.</p>
+          </div>
+        ` : "";
+        const messages = data.conversation && data.conversation.length
+          ? data.conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${item.sender}</span><span class="badge">to ${item.receiver}</span></div>
+              <p>${item.message}</p>
+            </div>
+          `).join("")
+          : (data.timeline || []).map(item => `
+          <div class="bubble agent">
+            <div class="speaker"><span>${item.agent}</span><span class="badge">${item.status}</span></div>
+            <p>${narrate(item)}</p>
+          </div>
+        `).join("");
+        el.innerHTML = intro + messages;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      async function approvePlan() {
+        if (!currentWorkflow) return;
+        try {
+          await api(`/api/workflows/${currentWorkflow}/approve`, {
+            method: "POST",
+            body: JSON.stringify({approved_by: "operator", decision: "approved"})
+          });
+          await loadWorkflow(currentWorkflow);
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      async function sendChat() {
+        try {
+          const message = document.getElementById("chat-message").value;
+          const data = await api("/api/chat", {
+            method: "POST",
+            body: JSON.stringify({event_id: "fomc-briefing", message})
+          });
+          const el = document.getElementById("agent-chat");
+          el.innerHTML += `
+            <div class="bubble operator">
+              <div class="speaker"><span>Operator</span><span class="badge">change</span></div>
+              <p>${message}</p>
+            </div>
+            <div class="bubble agent">
+              <div class="speaker"><span>${data.agent}</span><span class="badge">reply</span></div>
+              <p>${data.answer}</p>
+            </div>
+          `;
+          el.scrollTop = el.scrollHeight;
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function eventIntroBubble(label = "요청") {
+        const event = calendarItems[0];
+        if (!event) return "";
+        const users = Number(event.target_users || 0).toLocaleString();
+        return `
+          <div class="bubble operator">
+            <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
+            <p>${escapeHtml(event.scheduled_at)} 예정된 ${escapeHtml(event.title)} 일정으로 FinOps 계획을 ${label}합니다. 대상자는 ${users}명입니다.</p>
+          </div>
+        `;
+      }
+
+      function renderEmptyConversation() {
+        document.getElementById("conversation-status").textContent = "ready";
+        document.getElementById("agent-chat").innerHTML = `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps MAS</span><span class="badge">ready</span></div>
+            <p>아직 agent를 호출하지 않았습니다. Run FinOps Plan을 누르면 일정 확인부터 정책 검증까지 agent 호출과 결과만 순서대로 표시합니다.</p>
+          </div>
+        `;
+      }
+
+      function renderCallingConversation() {
+        document.getElementById("conversation-status").textContent = "calling_agents";
+        document.getElementById("agent-chat").innerHTML = eventIntroBubble("요청") + `
+          <div class="bubble agent">
+            <div class="speaker"><span>Orchestrator</span><span class="badge">calling</span></div>
+            <p>Temporal workflow를 시작했고, Business Control Agent부터 순서대로 호출하고 있습니다.</p>
+          </div>
+        `;
+      }
+
+      function narrate(item) {
+        const r = item.result || {};
+        switch (item.agent) {
+          case "Business Control Agent":
+            return `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "unknown"}이고, 실행 전 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Demand Shaping Agent":
+            return `VIP는 ${r.vip || "즉시"} 처리하고, 일반 사용자는 ${r.general_users || "분산 발송"} 전략으로 낮춥니다. 예상 peak 감소폭은 ${r.peak_reduction || r.peak_reduction_percent || "계산 중"}입니다.`;
+          case "Traffic Forecast Agent":
+            return `평탄화 전 peak는 ${r.peak_rps_before || "-"} rps, 평탄화 후 peak는 ${r.peak_rps_after || "-"} rps입니다. 필요한 app pod는 ${r.required_app_pods || "-"}개입니다.`;
+          case "Bottleneck Capacity Agent":
+            return `병목을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}, cache hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
+          case "Infra Execution Planner":
+            return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실측 트래픽"} 기준으로 진행합니다.`;
+          case "Cost Agent":
+            return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
+          case "Unit Economics Agent":
+            return `예상 비즈니스 가치는 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
+          case "Policy Guardrail Agent":
+            return `정책상 ${(r.allowed || []).join(", ") || "필요 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
+          case "Final Plan":
+            return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
+          case "Observer Agent":
+            return `실행 중 관측을 준비했습니다. 첫 권고는 ${r.recommendation || "실제 RPS를 보고 용량을 조정"}입니다.`;
+          case "Fallback Planner":
+            return "실행이 안전하지 않으면 VIP 발송만 유지하고 일반 사용자는 hold하며 static report fallback을 제공합니다.";
+          case "Postmortem Learning Agent":
+            return `이벤트 종료 후 예측과 실제 결과를 비교합니다. 프로필 업데이트 상태는 ${r.profile_update || "pending"}입니다.`;
+          case "Dry-run Execution":
+            return "승인을 확인했습니다. scale-out, pre-warm, push schedule 등록을 dry-run으로 검증했습니다.";
+          default:
+            return JSON.stringify(r);
+        }
+      }
+
+      function renderConversation(data) {
+        const el = document.getElementById("agent-chat");
+        document.getElementById("conversation-status").textContent = data.status || "running";
+        const messages = data.conversation && data.conversation.length
+          ? data.conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.sender)}</span><span class="badge">to ${escapeHtml(item.receiver)}</span></div>
+              <p>${escapeHtml(item.message)}</p>
+            </div>
+          `).join("")
+          : (data.timeline || []).map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.agent)}</span><span class="badge">${escapeHtml(item.status)}</span></div>
+              <p>${escapeHtml(narrate(item))}</p>
+            </div>
+          `).join("");
+        el.innerHTML = eventIntroBubble("요청") + messages;
+        el.scrollTop = el.scrollHeight;
+      }
+
+      function stopWorkflowPolling() {
+        if (workflowPoller) {
+          clearInterval(workflowPoller);
+          workflowPoller = null;
+        }
+      }
+
+      function startWorkflowPolling(workflowId) {
+        stopWorkflowPolling();
+        workflowPoller = setInterval(async () => {
+          try {
+            const done = await loadWorkflow(workflowId);
+            if (done) {
+              stopWorkflowPolling();
+              document.getElementById("toast").textContent = "";
+            }
+          } catch (error) {
+            showError(error);
+          }
+        }, 1000);
+      }
+
+      async function loadWorkflow(workflowId) {
+        const data = await api(`/api/workflows/${workflowId}`);
+        renderPlan(data);
+        renderConversation(data);
+        return !["running", "starting"].includes(data.status || "running");
+      }
+
+      async function runPlan() {
+        try {
+          stopWorkflowPolling();
+          document.getElementById("toast").textContent = "Temporal workflow 시작 중...";
+          renderCallingConversation();
+          const result = await api("/api/workflows/run", {method: "POST"});
+          currentWorkflow = result.workflow_id;
+          await loadWorkflow(currentWorkflow);
+          startWorkflowPolling(currentWorkflow);
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      loadDashboard();
     </script>
   </body>
 </html>

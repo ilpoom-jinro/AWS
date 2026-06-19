@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-temporal
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-temporal
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-temporal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-temporal
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: temporal
+          image: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/temporal:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - temporal
+            - server
+            - start-dev
+            - --ip
+            - 0.0.0.0
+            - --db-filename
+            - /tmp/temporal.db
+          ports:
+            - name: grpc
+              containerPort: 7233
+            - name: web
+              containerPort: 8233
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-temporal
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-temporal
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-temporal
+  ports:
+    - name: grpc
+      port: 7233
+      targetPort: grpc
+    - name: web
+      port: 8233
+      targetPort: web

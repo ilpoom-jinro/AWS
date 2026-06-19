@@ -1,0 +1,23 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-ingress-ssl-policy
+  annotations:
+    policies.kyverno.io/title: Mutate Ingress SSL Policy
+    policies.kyverno.io/description: >
+      ssl-policy annotation이 없는 Ingress에 ELBSecurityPolicy-TLS13-1-2-2021-06을 자동 주입.
+      TLS 1.2 미만 및 취약 Cipher Suite 차단 목적.
+spec:
+  rules:
+    - name: add-ssl-policy-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Ingress
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              # ssl-policy가 없을 때만 기본값 주입
+              +(alb.ingress.kubernetes.io/ssl-policy): "ELBSecurityPolicy-TLS13-1-2-2021-06"

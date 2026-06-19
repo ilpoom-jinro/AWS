@@ -1,0 +1,401 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-business-control-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-business-control-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-business-control-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-business-control-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-business-control-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: business_control
+            - name: AGENT_NAME
+              value: Business Control Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-business-control-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-business-control-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-demand-shaping-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-demand-shaping-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-demand-shaping-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-demand-shaping-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-demand-shaping-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: demand_shaping
+            - name: AGENT_NAME
+              value: Demand Shaping Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-demand-shaping-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-demand-shaping-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-traffic-forecast-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-traffic-forecast-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-traffic-forecast-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-traffic-forecast-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-traffic-forecast-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: traffic_forecast
+            - name: AGENT_NAME
+              value: Traffic Forecast Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-traffic-forecast-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-traffic-forecast-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-bottleneck-capacity-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-bottleneck-capacity-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-bottleneck-capacity-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-bottleneck-capacity-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-bottleneck-capacity-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: bottleneck_capacity
+            - name: AGENT_NAME
+              value: Bottleneck Capacity Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-bottleneck-capacity-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-bottleneck-capacity-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-cost-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-cost-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-cost-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-cost-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-cost-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: cost
+            - name: AGENT_NAME
+              value: Cost Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-cost-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-cost-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-policy-guardrail-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-policy-guardrail-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-policy-guardrail-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-policy-guardrail-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-policy-guardrail-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: policy_guardrail
+            - name: AGENT_NAME
+              value: Policy Guardrail Agent
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-policy-guardrail-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-policy-guardrail-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

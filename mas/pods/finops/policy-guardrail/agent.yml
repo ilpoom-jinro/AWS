@@ -1,0 +1,16 @@
+name: finops-policy-guardrail-agent
+scenario: finops
+role: policy-guardrail
+image_repository: financial/mas/finops/policy-guardrail-agent
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/finops/policy-guardrail/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/finops-mas/kustomization.yaml
+target_container: finops-policy-guardrail-agent-image
+service_account_name: finops-agent
+service_name: finops-policy-guardrail-agent
+namespace: finops-mas
+target_cluster: financial-ops-eks
+container_port: "8000"
+service_port: "80"
+replicas: "1"

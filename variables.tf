@@ -3,6 +3,18 @@ variable "gcp_fixed_ip" {
   type        = string
 }
 
+variable "gcp_service_ip" {
+  description = "GCP 서비스 LB 정적 IP — Route53 Failover SECONDARY 및 gcp.ilpumjinro.store 대상 (plain IP, e.g. 1.2.3.4). GCP LB 배포 후 입력"
+  type        = string
+  default     = ""
+}
+
+variable "aiops_alb_dns_name" {
+  description = "financial-ops-eks AIOps Ingress ALB DNS name — AIOps 배포 후 kubectl get ingress -n aiops 로 확인"
+  type        = string
+  default     = ""
+}
+
 variable "oci_headscale_ip" {
   description = "OCI Headscale server IP (CIDR format, e.g. 1.2.3.4/32)"
   type        = string
@@ -115,20 +127,14 @@ variable "cluster_status_codebuild_project_name" {
   default     = "financial-cluster-status"
 }
 
-variable "gitea_auth_debug_codebuild_project_name" {
-  description = "CodeBuild project name for debugging internal Gitea API authentication from inside the Ops VPC"
+variable "debug_codebuild_project_name" {
+  description = "CodeBuild project name for running debug commands from inside the Ops VPC"
   type        = string
-  default     = "financial-gitea-auth-debug"
-}
-
-variable "ops_command_codebuild_project_name" {
-  description = "CodeBuild project name for running temporary commands from inside the Ops VPC"
-  type        = string
-  default     = "financial-ops-command"
+  default     = "financial-debug"
 }
 
 variable "ops_vpc_command" {
-  description = "Temporary shell command executed by the Ops VPC command CodeBuild project"
+  description = "Temporary shell command executed by the Gitea auth debug CodeBuild project"
   type        = string
   default     = "kubectl --context $${OPS_CONTEXT} -n git get deploy,svc,pods -o wide"
 }

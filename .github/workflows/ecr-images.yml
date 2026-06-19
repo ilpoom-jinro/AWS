@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - feature/eks
     paths:
       - "ansible/**"
       - "gitops/**"
+      - "ecr.tf"
+      - "variables.tf"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
-      - "kyverno/**"
       - ".github/workflows/ecr-images.yml"
   workflow_dispatch:
     inputs:
@@ -44,6 +44,16 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_finops_runtime:
+        description: "Mirror FinOps runtime images such as Temporal and Postgres into ECR"
+        required: true
+        default: false
+        type: boolean
+      mirror_external_secrets:
+        description: "Mirror External Secrets Operator image into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -72,9 +82,18 @@ env:
   ISTIO_REPOSITORY_PREFIX: financial/istio
   AWS_LOAD_BALANCER_CONTROLLER_REPOSITORY: financial/monitoring/aws-load-balancer-controller
   OBSERVABILITY_INDEXER_REPOSITORY: financial/monitoring/observability-indexer
-  KYVERNO_VERSION: "latest"
+  KYVERNO_VERSION: "v1.13.2"  # Note: Helm chart 3.3.4 appVersion. Keep in sync with helm chart version in Packer AMI (/opt/helm-charts/kyverno)
   KYVERNO_REPOSITORY_PREFIX: financial/kyverno
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
+  KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
+  KUBECTL_REPOSITORY: financial/kyverno/kubectl
+  EXTERNAL_SECRETS_VERSION: "v0.10.7"
+  EXTERNAL_SECRETS_REPOSITORY: external-secrets/external-secrets
+  EXTERNAL_SECRETS_SOURCE_IMAGE: ghcr.io/external-secrets/external-secrets
+  FINOPS_TEMPORAL_REPOSITORY: financial/mas/finops/temporal
+  FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
+  FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
+  FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
 
 jobs:
   images:
@@ -97,6 +116,7 @@ jobs:
             echo "ecr=false" >> "${GITHUB_OUTPUT}"
             echo "istio=false" >> "${GITHUB_OUTPUT}"
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
+            echo "kubectl=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -136,6 +156,12 @@ jobs:
             echo "kyverno=true" >> "${GITHUB_OUTPUT}"
           else
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+KUBECTL_VERSION:'; then
+            echo "kubectl=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "kubectl=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -187,6 +213,16 @@ jobs:
           -target=aws_ecr_lifecycle_policy.aws_load_balancer_controller_monitoring
           -target=aws_ecr_repository.monitoring_tempo
           -target=aws_ecr_lifecycle_policy.monitoring_tempo
+          -target=aws_ecr_repository.monitoring_grafana
+          -target=aws_ecr_lifecycle_policy.monitoring_grafana
+          -target=aws_ecr_repository.monitoring_loki
+          -target=aws_ecr_lifecycle_policy.monitoring_loki
+          -target=aws_ecr_repository.monitoring_thanos
+          -target=aws_ecr_lifecycle_policy.monitoring_thanos
+          -target=aws_ecr_repository.monitoring_alertmanager
+          -target=aws_ecr_lifecycle_policy.monitoring_alertmanager
+          -target=aws_ecr_repository.monitoring_alloy
+          -target=aws_ecr_lifecycle_policy.monitoring_alloy
           -target=aws_ecr_repository.observability_indexer
           -target=aws_ecr_lifecycle_policy.observability_indexer
           -target=aws_ecr_repository.kyverno
@@ -201,6 +237,14 @@ jobs:
           -target=aws_ecr_lifecycle_policy.kyverno_reports_controller
           -target=aws_ecr_repository.kyverno_cli
           -target=aws_ecr_lifecycle_policy.kyverno_cli
+          -target=aws_ecr_repository.kyverno_kubectl
+          -target=aws_ecr_lifecycle_policy.kyverno_kubectl
+          -target=aws_ecr_repository.finops_temporal
+          -target=aws_ecr_lifecycle_policy.finops_temporal
+          -target=aws_ecr_repository.finops_postgres
+          -target=aws_ecr_lifecycle_policy.finops_postgres
+          -target=aws_ecr_repository.external_secrets
+          -target=aws_ecr_lifecycle_policy.external_secrets
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -228,6 +272,10 @@ jobs:
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/background-controller"
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/cleanup-controller"
           aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/reports-controller"
+          aws ecr describe-repositories --repository-names "${KYVERNO_REPOSITORY_PREFIX}/kyverno-cli"
+          aws ecr describe-repositories --repository-names "${KUBECTL_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${FINOPS_TEMPORAL_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${FINOPS_POSTGRES_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -304,8 +352,54 @@ jobs:
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
+            docker tag "${source_image}" "${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
             docker push "${target_image}"
+            docker push "${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
           done
+
+      - name: Mirror Kyverno kubectl image to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.kubectl == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_kyverno == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          source_image="registry.k8s.io/kubectl:${KUBECTL_VERSION}"
+          target_image="${REGISTRY}/${KUBECTL_REPOSITORY}:${KUBECTL_VERSION}"
+
+          docker pull "${source_image}"
+          docker tag "${source_image}" "${target_image}"
+          docker push "${target_image}"
+
+      - name: Mirror FinOps runtime images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          temporal_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:latest"
+          postgres_target="${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:16-alpine"
+
+          docker pull "${FINOPS_TEMPORAL_SOURCE_IMAGE}"
+          docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${temporal_target}"
+          docker push "${temporal_target}"
+
+          docker pull "${FINOPS_POSTGRES_SOURCE_IMAGE}"
+          docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${postgres_target}"
+          docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
+          docker push "${postgres_target}"
+          docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
+
+      - name: Mirror External Secrets Operator image to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_external_secrets == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          source_image="${EXTERNAL_SECRETS_SOURCE_IMAGE}:${EXTERNAL_SECRETS_VERSION}"
+          target_image="${REGISTRY}/${EXTERNAL_SECRETS_REPOSITORY}:${EXTERNAL_SECRETS_VERSION}"
+
+          docker pull "${source_image}"
+          docker tag "${source_image}" "${target_image}"
+          docker push "${target_image}"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true
