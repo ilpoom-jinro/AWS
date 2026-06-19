@@ -7,7 +7,7 @@
 
 resource "aws_iam_role" "eso" {
   name        = "financial-ops-eso-role"
-  description = "External Secrets Operator — Secrets Manager 읽기 전용"
+  description = "External Secrets Operator - read-only access to Secrets Manager"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -139,7 +139,7 @@ resource "aws_eks_pod_identity_association" "mas_agent" {
 
 resource "aws_iam_role" "observability_indexer" {
   name        = "financial-ops-observability-indexer-role"
-  description = "Observability Indexer CronJob — Secrets Manager 읽기"
+  description = "Observability Indexer CronJob - read-only access to Secrets Manager"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
