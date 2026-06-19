@@ -63,3 +63,33 @@ data:
       - apiextensions.k8s.io
       kinds:
       - CustomResourceDefinition
+  # ExternalSecret health check: ArgoCD는 기본적으로 CRD의 readiness를 모름.
+  # ESO가 Secrets Manager에서 값을 가져와 K8s Secret을 실제로 생성한 뒤에야
+  # Healthy로 전환되도록 Lua 스크립트로 status.conditions[Ready]=True를 확인한다.
+  # 이 설정이 없으면 sync-wave -1(ExternalSecret) → 0(Deployment) 순서가 무력화된다.
+  resource.customizations: |
+    external-secrets.io/ExternalSecret:
+      health.lua: |
+        local hs = {}
+        if obj.status == nil then
+          hs.status = "Progressing"
+          hs.message = "Waiting for ExternalSecret to be reconciled"
+          return hs
+        end
+        if obj.status.conditions ~= nil then
+          for i, condition in ipairs(obj.status.conditions) do
+            if condition.type == "Ready" then
+              if condition.status == "True" then
+                hs.status = "Healthy"
+                hs.message = condition.message
+              else
+                hs.status = "Degraded"
+                hs.message = condition.message
+              end
+              return hs
+            end
+          end
+        end
+        hs.status = "Progressing"
+        hs.message = "Waiting for Ready condition"
+        return hs

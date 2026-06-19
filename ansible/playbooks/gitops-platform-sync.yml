@@ -278,6 +278,29 @@
           metadata:
             name: stock-demo
 
+    - name: Wait for ESO to create stock-api-db secret in Service EKS
+      kubernetes.core.k8s_info:
+        context: "{{ service_kube_context }}"
+        api_version: v1
+        kind: Secret
+        name: stock-api-db
+        namespace: stock-demo
+      register: stock_api_db_info
+      until: stock_api_db_info.resources | length > 0
+      retries: 30
+      delay: 20
+
+    - name: Remove legacy stock-api-secret from Service EKS
+      kubernetes.core.k8s:
+        context: "{{ service_kube_context }}"
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: stock-api-secret
+            namespace: stock-demo
+
     - name: Delete previous stock-api RDS init job in Service EKS
       kubernetes.core.k8s:
         context: "{{ service_kube_context }}"
@@ -338,6 +361,7 @@
                       - -c
                       - |
                         set -eu
+                        # user=financial_admin: SingleUser rotation replaces only the password; username never changes.
                         psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
                           -v ON_ERROR_STOP=1 <<'SQL'
                         CREATE TABLE IF NOT EXISTS recommendations (
