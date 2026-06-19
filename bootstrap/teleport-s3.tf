@@ -4,10 +4,10 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "aws_s3_bucket" "teleport_sessions" {
-  bucket = "ilpumjinro-teleport-v2"
+  bucket = "ilpumjinro-teleport-v3"
 
   tags = {
-    Name      = "ilpumjinro-teleport-v2"
+    Name      = "ilpumjinro-teleport-v3"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
     Purpose   = "teleport-session-logs"
