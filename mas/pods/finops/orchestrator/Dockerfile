@@ -9,10 +9,9 @@ RUN apt-get update \
     && chmod +x /usr/local/bin/kubectl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "awscli==1.36.40" "boto3" "psycopg[binary]==3.2.3" "pydantic-settings" "temporalio==1.9.0"
+    && pip install --no-cache-dir "awscli==1.36.40" "psycopg[binary]==3.2.3" "temporalio==1.9.0"
 
 COPY pods/finops/orchestrator/app ./app
-COPY shared ./shared
 
 EXPOSE 8000
 
