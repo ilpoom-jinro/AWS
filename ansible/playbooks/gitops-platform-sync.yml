@@ -287,8 +287,8 @@
         namespace: stock-demo
       register: stock_api_db_info
       until: stock_api_db_info.resources | length > 0
-      retries: 30
-      delay: 20
+      retries: 60
+      delay: 30
 
     - name: Remove legacy stock-api-secret from Service EKS
       kubernetes.core.k8s:
