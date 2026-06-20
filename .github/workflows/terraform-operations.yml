@@ -201,6 +201,13 @@ jobs:
           terraform init -reconfigure
           terraform apply -auto-approve -input=false -lock-timeout=5m
 
+      - name: Apply security module
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.security
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Destroy CodeBuild project
         if: inputs.action == 'destroy'
         run: >
