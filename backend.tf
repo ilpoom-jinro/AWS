@@ -4,6 +4,7 @@ terraform {
     key          = "global/terraform.tfstate"
     region       = "ap-northeast-2"
     encrypt      = true
+    kms_key_id   = "alias/key-s3"
     use_lockfile = true
   }
 
