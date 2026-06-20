@@ -1,0 +1,20 @@
+title = "gitleaks config -- AWS repo"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives in this repo"
+regexes = [
+  # thanos/values.yaml: YAML comment lines documenting TLS format (## -----BEGIN RSA PRIVATE KEY-----)
+  '''##.*BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY''',
+  # grafana/ci/with-image-renderer-values.yaml: raw base64 value
+  '''UExBQ0VIT0xERVIgQ0VSVElGSUNBVEU=''',
+]
+# grafana/ci/with-image-renderer-values.yaml: gitleaks also base64-decodes the value and re-scans;
+# stopwords catches the decoded form "PLACEHOLDER CERTIFICATE" that regexes above cannot reach.
+stopwords = [
+  # "PLACEHOLDER" appears in the decoded base64 of the grafana CI fixture.
+  # Real secrets never contain the literal word PLACEHOLDER.
+  "PLACEHOLDER",
+]
