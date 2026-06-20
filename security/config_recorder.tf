@@ -34,6 +34,18 @@ resource "aws_s3_bucket_public_access_block" "config_snapshot" {
   restrict_public_buckets = true
 }
 
+# Config 스냅샷 버킷 기본 암호화: AES256 → SSE-KMS(key-s3)  [#29]
+resource "aws_s3_bucket_server_side_encryption_configuration" "config_snapshot" {
+  bucket = aws_s3_bucket.config_snapshot.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = var.key_s3_arn # key-s3 CMK
+    }
+    bucket_key_enabled = true # 버킷 레벨 DEK 캐싱 → KMS 요청비 절감
+  }
+}
+
 # Config 서비스가 S3에 스냅샷을 쓸 수 있도록 버킷 정책 설정
 resource "aws_s3_bucket_policy" "config_snapshot" {
   bucket = aws_s3_bucket.config_snapshot.id
@@ -117,19 +129,32 @@ resource "aws_iam_role_policy" "config_s3_delivery" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowS3Delivery"
-      Effect = "Allow"
-      Action = [
-        "s3:PutObject"
-      ]
-      Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${var.account_id}/Config/*"
-      Condition = {
-        StringEquals = {
-          "s3:x-amz-acl" = "bucket-owner-full-control"
+    Statement = [
+      {
+        Sid    = "AllowS3Delivery"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject"
+        ]
+        Resource = "${aws_s3_bucket.config_snapshot.arn}/AWSLogs/${var.account_id}/Config/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
         }
+      },
+      {
+        # s3_kms_key_arn 지정 시 Config가 recorder role 자격으로 PutObject 전 KMS를 직접 호출.
+        # 이 role에 key-s3 사용 권한이 없으면 전송 실패 후 서비스 프린시팔로 폴백(매번 실패-재시도). [#29]
+        Sid    = "AllowKMSForConfigDelivery"
+        Effect = "Allow"
+        Action = [
+          "kms:GenerateDataKey*", # DEK 생성
+          "kms:Decrypt"           # DEK 복호화
+        ]
+        Resource = var.key_s3_arn
       }
-    }]
+    ]
   })
 }
 
@@ -163,6 +188,7 @@ resource "aws_config_configuration_recorder" "main" {
 resource "aws_config_delivery_channel" "main" {
   name           = "financial-config-delivery-channel"
   s3_bucket_name = aws_s3_bucket.config_snapshot.bucket
+  s3_kms_key_arn = var.key_s3_arn # Config가 key-s3로 명시적 암호화 (#29) # Config가 key-s3로 명시적 암호화 (#29)
 
   # 1시간마다 S3로 스냅샷 자동 전달
   snapshot_delivery_properties {
