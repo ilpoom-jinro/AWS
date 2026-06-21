@@ -29,7 +29,8 @@ resource "aws_secretsmanager_secret" "service_rds_password" {
   kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
-    Name = "financial-service-rds-password"
+    Name               = "financial-service-rds-password"
+    DataClassification = "Restricted"
   }
 
   lifecycle {
@@ -67,7 +68,8 @@ resource "aws_secretsmanager_secret" "ops_rds_password" {
   kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
-    Name = "financial-ops-rds-password"
+    Name               = "financial-ops-rds-password"
+    DataClassification = "Restricted"
   }
 
   lifecycle {

@@ -21,11 +21,12 @@ resource "aws_s3_bucket" "alb_logs" {
   bucket = "financial-alb-access-logs-${var.account_id}"
 
   tags = {
-    Project     = "ilpumjinro"
-    ManagedBy   = "terraform"
-    Owner       = "security"
-    Service     = "ALB"
-    Environment = "all"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
+    Owner              = "security"
+    Service            = "ALB"
+    Environment        = "all"
+    DataClassification = "Internal"
   }
 }
 

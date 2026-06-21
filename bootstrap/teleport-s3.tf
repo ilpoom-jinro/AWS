@@ -10,10 +10,11 @@ resource "aws_s3_bucket" "teleport_sessions" {
     prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-teleport-v3"
-    Project   = "ilpumjinro"
-    ManagedBy = "terraform"
-    Purpose   = "teleport-session-logs"
+    Name               = "ilpumjinro-teleport-v3"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
+    Purpose            = "teleport-session-logs"
+    DataClassification = "Restricted"
   }
 }
 
