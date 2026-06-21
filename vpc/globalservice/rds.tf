@@ -47,6 +47,7 @@ resource "aws_db_instance" "service" {
   db_subnet_group_name   = aws_db_subnet_group.service.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = aws_db_parameter_group.service.name
+  publicly_accessible    = false
 
   allocated_storage = 100
   storage_type      = "gp3"
