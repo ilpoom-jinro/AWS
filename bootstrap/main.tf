@@ -14,9 +14,9 @@ resource "aws_s3_bucket" "terraform_state" {
     prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-terraform-state-v3"
-    Project   = "ilpumjinro"
-    ManagedBy = "terraform"
+    Name               = "ilpumjinro-terraform-state-v3"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
     Purpose            = "terraform-state"
     DataClassification = "Restricted"
   }
@@ -71,9 +71,9 @@ resource "aws_s3_bucket" "cloudtrail_logs_locked" {
     prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-cloudtrail-logs-locked-v3"
-    Project   = "ilpumjinro"
-    ManagedBy = "terraform"
+    Name               = "ilpumjinro-cloudtrail-logs-locked-v3"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
     Purpose            = "cloudtrail-logs-immutable"
     DataClassification = "Restricted"
   }
