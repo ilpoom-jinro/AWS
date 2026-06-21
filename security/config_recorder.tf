@@ -176,6 +176,10 @@ resource "aws_config_configuration_recorder" "main" {
       "AWS::IAM::Group",  # IAM 그룹
       "AWS::IAM::Role",   # IAM 역할
       "AWS::IAM::Policy", # IAM 정책
+      # #8 변경 이력 추적 — VPC/SG/NACL 설정 변경 이력(전자금융감독규정·ISMS-P)
+      "AWS::EC2::VPC",
+      "AWS::EC2::SecurityGroup",
+      "AWS::EC2::NetworkAcl",
     ]
   }
 }
