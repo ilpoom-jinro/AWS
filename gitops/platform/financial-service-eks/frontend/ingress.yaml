@@ -26,6 +26,8 @@ metadata:
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
     # TLS 1.2 미만 차단 및 취약 Cipher Suite 제거 (ELBSecurityPolicy-2016-08 기본값 대체)
     alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+    # ALB Access Logs → S3 (#13). 버킷은 security/alb_access_logs.tf에서 Terraform 관리
+    alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=financial-alb-access-logs-797715838244,access_logs.s3.prefix=alb
 spec:
   ingressClassName: alb
   rules:
