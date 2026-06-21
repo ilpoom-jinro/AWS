@@ -178,14 +178,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
       - name: Apply ECR repositories
         if: >
           github.event_name == 'workflow_dispatch' ||

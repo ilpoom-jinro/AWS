@@ -89,14 +89,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
@@ -161,14 +153,6 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
@@ -521,14 +505,6 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
 
       - name: Terraform Validate
         run: terraform validate -no-color

@@ -260,34 +260,6 @@ resource "aws_vpc_endpoint" "rds" {
   }
 }
 
-# CodeCommit API endpoint for repository metadata and auth flows.
-resource "aws_vpc_endpoint" "codecommit" {
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.aws_region}.codecommit"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "financial-vpc2-endpoint-codecommit"
-  }
-}
-
-# Git endpoint used by Argo CD when pulling manifests from CodeCommit.
-resource "aws_vpc_endpoint" "git_codecommit" {
-  vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.aws_region}.git-codecommit"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
-  security_group_ids  = [aws_security_group.endpoints.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "financial-vpc2-endpoint-git-codecommit"
-  }
-}
-
 # EKS Auth
 resource "aws_vpc_endpoint" "eks_auth" {
   vpc_id              = aws_vpc.this.id
