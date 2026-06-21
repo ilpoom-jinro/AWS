@@ -47,6 +47,7 @@ resource "aws_db_instance" "ops" {
   db_subnet_group_name   = aws_db_subnet_group.ops.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = aws_db_parameter_group.ops.name
+  publicly_accessible    = false
 
   allocated_storage = 100
   storage_type      = "gp3"
