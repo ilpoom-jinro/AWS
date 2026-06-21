@@ -5,10 +5,11 @@ metadata:
   annotations:
     policies.kyverno.io/title: Mutate Ingress SSL Policy
     policies.kyverno.io/description: >
-      ssl-policy annotation이 없는 Ingress에 ELBSecurityPolicy-TLS13-1-2-2021-06을 자동 주입.
-      TLS 1.2 미만 및 취약 Cipher Suite 차단 목적.
+      ssl-policy/ssl-redirect annotation이 없는 Ingress에 기본값 자동 주입.
+      TLS 1.2 미만 차단 + 외부 노출 Ingress의 HTTP→HTTPS 강제.
 spec:
   rules:
+    # [기존] 모든 Ingress에 ssl-policy 주입
     - name: add-ssl-policy-annotation
       match:
         any:
@@ -19,5 +20,24 @@ spec:
         patchStrategicMerge:
           metadata:
             annotations:
-              # ssl-policy가 없을 때만 기본값 주입
               +(alb.ingress.kubernetes.io/ssl-policy): "ELBSecurityPolicy-TLS13-1-2-2021-06"
+
+    # [추가] internet-facing Ingress에만 ssl-redirect 주입
+    - name: add-ssl-redirect-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Ingress
+      preconditions:
+        all:
+          # scheme annotation이 internet-facing일 때만 적용 (없으면 '' → skip)
+          - key: "{{ request.object.metadata.annotations.\"alb.ingress.kubernetes.io/scheme\" || '' }}"
+            operator: Equals
+            value: "internet-facing"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              # ssl-redirect가 없을 때만 443 주입 → HTTP를 HTTPS로 강제 리다이렉트
+              +(alb.ingress.kubernetes.io/ssl-redirect): "443"
