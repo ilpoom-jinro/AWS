@@ -48,6 +48,16 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "alb_logs" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  rule {
+    id     = "expire-old-logs"
+    status = "Enabled"
+    filter { prefix = "alb/" }
+    expiration { days = 7 }
+  }
+}
+
 # Principal = ELB 서비스 계정(600734575887, 고정)
 # Resource 경로의 account_id = var.account_id(본인 계정, 797715838244)
 resource "aws_s3_bucket_policy" "alb_logs" {
