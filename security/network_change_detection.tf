@@ -65,6 +65,7 @@ resource "aws_sns_topic_policy" "network_change_alert" {
       },
       {
         # EventBridge 룰 트리거 시 발행
+        # aws:SourceArn: 이 토픽을 타깃으로 지정한 룰만 발행 허용 (confused deputy 방지)
         Sid    = "AllowEventBridgePublish"
         Effect = "Allow"
         Principal = {
@@ -72,6 +73,14 @@ resource "aws_sns_topic_policy" "network_change_alert" {
         }
         Action   = "SNS:Publish"
         Resource = aws_sns_topic.network_change_alert.arn
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = aws_cloudwatch_event_rule.network_change.arn
+          }
+          StringEquals = {
+            "aws:SourceAccount" = var.account_id
+          }
+        }
       }
     ]
   })
@@ -116,7 +125,22 @@ resource "aws_cloudwatch_event_rule" "network_change" {
         "ModifyVpcAttribute",
         "CreateVpcPeeringConnection",
         "AcceptVpcPeeringConnection",
-        "DeleteVpcPeeringConnection"
+        "DeleteVpcPeeringConnection",
+        # Internet Gateway — VPC 인터넷 연결 변경 (전자금융감독규정·ISMS-P 네트워크 보안)
+        "CreateInternetGateway",
+        "DeleteInternetGateway",
+        "AttachInternetGateway",
+        "DetachInternetGateway",
+        # Route Table — private 서브넷에 IGW 경로 추가 시 인터넷 노출 가능
+        "CreateRouteTable",
+        "DeleteRouteTable",
+        "AssociateRouteTable",
+        "DisassociateRouteTable",
+        "CreateRoute",
+        "DeleteRoute",
+        "ReplaceRoute",
+        # Subnet — MapPublicIpOnLaunch 변경 시 신규 인스턴스 퍼블릭 IP 자동 할당
+        "ModifySubnetAttribute"
       ]
     }
   })
