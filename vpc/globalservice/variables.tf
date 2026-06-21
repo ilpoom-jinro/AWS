@@ -108,6 +108,12 @@ variable "rds_password" {
   sensitive   = true
 }
 
+variable "deletion_protection" {
+  description = "RDS 삭제 방지. 빌드=false(destroy 사이클용), go-live=true"
+  type        = bool
+  default     = false
+}
+
 variable "kms_key_rds_arn" {
   description = "RDS 암호화에 사용할 KMS CMK ARN"
   type        = string

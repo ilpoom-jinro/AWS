@@ -59,7 +59,7 @@ resource "aws_db_instance" "ops" {
   maintenance_window      = "sun:19:00-sun:20:00"
 
   auto_minor_version_upgrade = false
-  deletion_protection        = false
+  deletion_protection        = var.deletion_protection
   skip_final_snapshot        = true
 
   performance_insights_enabled = true
