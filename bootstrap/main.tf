@@ -17,7 +17,8 @@ resource "aws_s3_bucket" "terraform_state" {
     Name      = "ilpumjinro-terraform-state-v3"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
-    Purpose   = "terraform-state"
+    Purpose            = "terraform-state"
+    DataClassification = "Restricted"
   }
 }
 
@@ -73,7 +74,8 @@ resource "aws_s3_bucket" "cloudtrail_logs_locked" {
     Name      = "ilpumjinro-cloudtrail-logs-locked-v3"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
-    Purpose   = "cloudtrail-logs-immutable"
+    Purpose            = "cloudtrail-logs-immutable"
+    DataClassification = "Restricted"
   }
 }
 

@@ -25,7 +25,8 @@ resource "aws_s3_bucket" "alb_logs" {
     ManagedBy   = "terraform"
     Owner       = "security"
     Service     = "ALB"
-    Environment = "all"
+    Environment        = "all"
+    DataClassification = "Internal"
   }
 }
 

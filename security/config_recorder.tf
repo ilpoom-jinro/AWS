@@ -23,7 +23,8 @@ resource "aws_s3_bucket" "config_snapshot" {
     ManagedBy   = "terraform"
     Owner       = "security"
     Service     = "Config"
-    Environment = "all"
+    Environment        = "all"
+    DataClassification = "Internal"
   }
 }
 

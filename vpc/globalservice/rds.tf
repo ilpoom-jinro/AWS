@@ -65,6 +65,7 @@ resource "aws_db_instance" "service" {
   performance_insights_enabled = true
 
   tags = {
-    Name = "financial-service-db"
+    Name               = "financial-service-db"
+    DataClassification = "Confidential"
   }
 }

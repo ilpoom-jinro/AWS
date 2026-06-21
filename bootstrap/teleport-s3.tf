@@ -13,7 +13,8 @@ resource "aws_s3_bucket" "teleport_sessions" {
     Name      = "ilpumjinro-teleport-v3"
     Project   = "ilpumjinro"
     ManagedBy = "terraform"
-    Purpose   = "teleport-session-logs"
+    Purpose            = "teleport-session-logs"
+    DataClassification = "Restricted"
   }
 }
 
