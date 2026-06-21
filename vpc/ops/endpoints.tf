@@ -273,3 +273,19 @@ resource "aws_vpc_endpoint" "eks_auth" {
     Name = "financial-vpc2-endpoint-eks-auth"
   }
 }
+
+# Bedrock Runtime — finops-mas 에이전트가 InvokeModel(Claude)을 호출하는 PrivateLink 통로.
+# VPC2는 IGW/NAT 없는 망분리 환경이므로 이 endpoint 없이는 Bedrock 호출 불가.
+# (#4 안전한 네트워크 경로)
+resource "aws_vpc_endpoint" "bedrock_runtime" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.bedrock-runtime"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-bedrock-runtime"
+  }
+}
