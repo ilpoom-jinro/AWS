@@ -114,6 +114,18 @@ resource "aws_s3_bucket_object_lock_configuration" "cloudtrail_logs_locked" {
   }
 }
 
+# CloudTrail 버킷 — Object Lock 365일이 이미 보존·무결성 담당
+# lifecycle은 잠금 풀린 뒤 무한 누적만 막으면 됨
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_logs_locked" {
+  bucket = aws_s3_bucket.cloudtrail_logs_locked.id
+  rule {
+    id     = "expire-after-lock"
+    status = "Enabled"
+    filter { prefix = "" }
+    expiration { days = 370 } # 365일 잠금 직후 삭제 → 보존 1년 캡, 누적 방지
+  }
+}
+
 resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
   bucket = aws_s3_bucket.cloudtrail_logs_locked.id
   policy = jsonencode({
