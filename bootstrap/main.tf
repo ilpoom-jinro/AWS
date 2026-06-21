@@ -66,7 +66,8 @@ resource "aws_s3_bucket" "cloudtrail_logs_locked" {
   bucket              = "ilpumjinro-cloudtrail-logs-locked-v3"
   object_lock_enabled = true
   lifecycle {
-    prevent_destroy = false
+    # #12 로그 장기보존 — 버킷 실수 삭제 방지
+    prevent_destroy = true
   }
   tags = {
     Name      = "ilpumjinro-cloudtrail-logs-locked-v3"
@@ -106,8 +107,9 @@ resource "aws_s3_bucket_object_lock_configuration" "cloudtrail_logs_locked" {
   bucket = aws_s3_bucket.cloudtrail_logs_locked.id
   rule {
     default_retention {
+      # #12 로그 장기보존 — 학습 환경이라 GOVERNANCE, prod에선 COMPLIANCE 전환 예정
       mode = "GOVERNANCE"
-      days = 90
+      days = 365
     }
   }
 }

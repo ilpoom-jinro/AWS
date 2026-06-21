@@ -14,13 +14,24 @@
 # =============================================
 resource "aws_s3_bucket" "config_snapshot" {
   bucket = "financial-config-snapshot-${var.account_id}"
-
+  lifecycle {
+    # #12 로그 장기보존 — 버킷 실수 삭제 방지
+    prevent_destroy = true
+  }
   tags = {
     Project     = "ilpumjinro"
     ManagedBy   = "terraform"
     Owner       = "security"
     Service     = "Config"
     Environment = "all"
+  }
+}
+
+# #12 로그 장기보존 — 학습 환경이라 GOVERNANCE, prod에선 COMPLIANCE 전환 예정
+resource "aws_s3_bucket_versioning" "config_snapshot" {
+  bucket = aws_s3_bucket.config_snapshot.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
