@@ -12,7 +12,7 @@ RUN apt-get update \
     && pip install --no-cache-dir "awscli==1.36.40" "boto3" "psycopg[binary]==3.2.3" "pydantic-settings" "temporalio==1.9.0"
 
 COPY pods/finops/agents/app ./app
-COPY pods/finops/orchestrator/app/agent_runtime.py ./app/agent_runtime.py
+COPY pods/finops/business-control/app/agent_logic.py ./app/agent_logic.py
 COPY shared ./shared
 
 EXPOSE 8000

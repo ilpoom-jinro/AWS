@@ -15,7 +15,7 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import AGENT_DATA_REQUESTS, build_final_plan, run_agent
+from app.agent_runtime import AGENT_DATA_REQUESTS, build_final_plan
 from app.workflows import FinOpsEventWorkflow
 
 
@@ -1134,16 +1134,6 @@ async def record_agent_step_started(
         await asyncio.sleep(AGENT_STEP_DELAY_SECONDS)
 
 
-@activity.defn(name="run_local_agent_step")
-async def run_local_agent_step(
-    workflow_id: str,
-    agent_key: str,
-    agent_name: str,
-    context: dict[str, Any],
-) -> dict[str, Any]:
-    return run_agent(agent_key, enrich_local_agent_context(agent_key, context))
-
-
 @activity.defn(name="record_agent_step_completed")
 async def record_agent_step_completed(
     workflow_id: str,
@@ -1274,7 +1264,6 @@ async def start_temporal_worker() -> None:
             load_event_context,
             record_data_request,
             record_agent_step_started,
-            run_local_agent_step,
             record_agent_step_completed,
             finalize_finops_plan,
         ],

@@ -1,0 +1,16 @@
+name: finops-unit-economics-agent
+scenario: finops
+role: unit-economics
+image_repository: financial/mas/finops/unit-economics-agent
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/finops/unit-economics/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/finops-mas/kustomization.yaml
+target_container: finops-unit-economics-agent-image
+service_account_name: finops-agent
+service_name: finops-unit-economics-agent
+namespace: finops-mas
+target_cluster: financial-ops-eks
+container_port: "8000"
+service_port: "80"
+replicas: "1"
