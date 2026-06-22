@@ -1,12 +1,45 @@
+import asyncio
+import json
 import os
+import shutil
+import subprocess
+from datetime import datetime, timezone
 from typing import Any
 
+import psycopg
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+from temporalio import activity
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from app.agent_runtime import AGENT_TASK_QUEUES, run_agent as run_finops_agent_logic
 
 
 AGENT_KEY = os.getenv("AGENT_KEY", "business_control")
 AGENT_NAME = os.getenv("AGENT_NAME", "Business Control Agent")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops",
+)
+TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
+AGENT_TASK_QUEUE = os.getenv(
+    "AGENT_TASK_QUEUE",
+    AGENT_TASK_QUEUES.get(AGENT_KEY, f"finops-{AGENT_KEY.replace('_', '-')}-agent-task-queue"),
+)
+FINOPS_NAMESPACE = os.getenv("FINOPS_NAMESPACE", "finops-mas")
+FINOPS_APP_LABEL = os.getenv("FINOPS_APP_LABEL", "app.kubernetes.io/part-of=finops-mas")
+FINOPS_UI_DEPLOYMENT = os.getenv("FINOPS_UI_DEPLOYMENT", "finops-ui")
+FINOPS_KUBECTL_BIN = os.getenv("FINOPS_KUBECTL_BIN", "kubectl")
+FINOPS_AWS_BIN = os.getenv("FINOPS_AWS_BIN", "aws")
+AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2"))
+FINOPS_SPOT_INSTANCE_TYPES = [
+    item.strip()
+    for item in os.getenv("FINOPS_SPOT_INSTANCE_TYPES", "m7i-flex.large,m7i.large,m6i.large").split(",")
+    if item.strip()
+]
+COMMAND_COLLECTORS_ENABLED = os.getenv("FINOPS_COMMAND_COLLECTORS_ENABLED", "true").lower() == "true"
+COMMAND_COLLECTOR_TIMEOUT_SECONDS = float(os.getenv("FINOPS_COMMAND_COLLECTOR_TIMEOUT_SECONDS", "5"))
 
 AGENT_DATA_REQUESTS = {
     "demand_shaping": [
@@ -73,6 +106,8 @@ AGENT_CONFIDENCE = {
 }
 
 app = FastAPI(title=AGENT_NAME, version="0.3.0")
+temporal_worker_task: asyncio.Task | None = None
+temporal_client: Client | None = None
 
 
 class AgentRequest(BaseModel):
@@ -80,6 +115,394 @@ class AgentRequest(BaseModel):
     context: dict[str, Any]
     available_results: dict[str, Any] = Field(default_factory=dict)
     requested_by: str | None = None
+
+
+def utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def connect():
+    return psycopg.connect(DATABASE_URL, autocommit=True)
+
+
+def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
+    if not COMMAND_COLLECTORS_ENABLED:
+        return {"name": name, "status": "disabled", "command": command}
+    executable = shutil.which(command[0])
+    if executable is None:
+        return {"name": name, "status": "unavailable", "command": command, "error": f"{command[0]} not found"}
+    try:
+        completed = subprocess.run(
+            [executable, *command[1:]],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=COMMAND_COLLECTOR_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {"name": name, "status": "timeout", "command": command, "error": str(exc)}
+    return {
+        "name": name,
+        "status": "ok" if completed.returncode == 0 else "failed",
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+    }
+
+
+def parse_command_json(result: dict[str, Any]) -> dict[str, Any] | None:
+    if result.get("status") != "ok" or not result.get("stdout"):
+        return None
+    try:
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError as exc:
+        result["status"] = "parse_failed"
+        result["error"] = str(exc)
+        return None
+
+
+def first_kubernetes_item(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+    items = payload.get("items")
+    if isinstance(items, list) and items:
+        return items[0]
+    return payload if payload.get("kind") else {}
+
+
+def parse_kubectl_top_pods(stdout: str) -> dict[str, Any]:
+    pods = []
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] != "NAME":
+            pods.append({"name": parts[0], "cpu": parts[1], "memory": parts[2]})
+    return {"pods": pods, "sample_count": len(pods)}
+
+
+def month_start_utc() -> str:
+    now = datetime.now(timezone.utc)
+    return now.replace(day=1).strftime("%Y-%m-%d")
+
+
+def today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def merge_present(target: dict[str, Any], updates: dict[str, Any]) -> None:
+    for key, value in updates.items():
+        if value is not None:
+            target[key] = value
+
+
+def read_agent_source_tables(event_id: str, agent_key: str) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    try:
+        with connect() as conn:
+            if agent_key in {"business_control", "demand_shaping"}:
+                row = conn.execute(
+                    """
+                    select event_id, push_channel, vip_audience_count, general_audience_count,
+                           campaign_importance, crm_segment, calendar_source
+                    from business_source_detail
+                    where event_id = %s
+                    """,
+                    (event_id,),
+                ).fetchone()
+                if row:
+                    updates["business"] = {
+                        "event_id": row[0],
+                        "push_channel": row[1],
+                        "vip_audience_count": row[2],
+                        "general_audience_count": row[3],
+                        "campaign_importance": row[4],
+                        "crm_segment": row[5],
+                        "calendar_source": row[6],
+                    }
+            if agent_key == "traffic_forecast":
+                row = conn.execute(
+                    """
+                    select event_id, alb_request_count_5m, prometheus_rps, p95_latency_ms,
+                           queue_depth, pod_cpu_percent, pod_memory_percent,
+                           hpa_current_replicas, hpa_desired_replicas
+                    from traffic_observability_signal
+                    where event_id = %s
+                    """,
+                    (event_id,),
+                ).fetchone()
+                if row:
+                    updates["traffic"] = {
+                        "event_id": row[0],
+                        "alb_request_count_5m": row[1],
+                        "prometheus_rps": row[2],
+                        "p95_latency_ms": row[3],
+                        "queue_depth": row[4],
+                        "pod_cpu_percent": row[5],
+                        "pod_memory_percent": row[6],
+                        "hpa_current_replicas": row[7],
+                        "hpa_desired_replicas": row[8],
+                    }
+            if agent_key == "bottleneck_capacity":
+                row = conn.execute(
+                    """
+                    select event_id, eks_deployment_replicas, nodegroup_desired, nodegroup_max,
+                           rds_cpu_percent, rds_connections, rds_read_iops,
+                           redis_cache_hit_ratio_percent, alb_healthy_targets,
+                           alb_unhealthy_targets, nat_gateway_bytes_out_gb
+                    from infra_capacity_signal
+                    where event_id = %s
+                    """,
+                    (event_id,),
+                ).fetchone()
+                if row:
+                    updates["infra"] = {
+                        "event_id": row[0],
+                        "eks_deployment_replicas": row[1],
+                        "nodegroup_desired": row[2],
+                        "nodegroup_max": row[3],
+                        "rds_cpu_percent": row[4],
+                        "rds_connections": row[5],
+                        "rds_read_iops": row[6],
+                        "redis_cache_hit_ratio_percent": row[7],
+                        "alb_healthy_targets": row[8],
+                        "alb_unhealthy_targets": row[9],
+                        "nat_gateway_bytes_out_gb": float(row[10]),
+                    }
+            if agent_key == "cost":
+                row = conn.execute(
+                    """
+                    select event_id, cost_explorer_month_to_date_usd, cur_projected_monthly_usd,
+                           kubecost_namespace_daily_usd, cloudwatch_logs_daily_usd,
+                           nat_alb_transfer_daily_usd, event_incremental_budget_usd
+                    from cost_signal
+                    where event_id = %s
+                    """,
+                    (event_id,),
+                ).fetchone()
+                if row:
+                    updates["cost_source"] = {
+                        "event_id": row[0],
+                        "cost_explorer_month_to_date_usd": float(row[1]),
+                        "cur_projected_monthly_usd": float(row[2]),
+                        "kubecost_namespace_daily_usd": float(row[3]),
+                        "cloudwatch_logs_daily_usd": float(row[4]),
+                        "nat_alb_transfer_daily_usd": float(row[5]),
+                        "event_incremental_budget_usd": float(row[6]),
+                        "cost_explorer_source": "postgres_fixture",
+                    }
+            if agent_key == "policy_guardrail":
+                row = conn.execute(
+                    """
+                    select event_id, monthly_budget_limit_usd, approval_required_over_usd,
+                           forbidden_actions, allowed_actions, policy_version
+                    from policy_guardrail_source
+                    where event_id = %s
+                    """,
+                    (event_id,),
+                ).fetchone()
+                if row:
+                    updates["policy_source"] = {
+                        "event_id": row[0],
+                        "monthly_budget_limit_usd": float(row[1]),
+                        "approval_required_over_usd": float(row[2]),
+                        "forbidden_actions": row[3],
+                        "allowed_actions": row[4],
+                        "policy_version": row[5],
+                    }
+    except psycopg.Error as exc:
+        updates.setdefault("collector_errors", []).append({"source": "postgres", "error": str(exc)})
+    return updates
+
+
+def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
+    if agent_key not in {"traffic_forecast", "bottleneck_capacity"}:
+        return {}
+    commands = {
+        "hpa": [FINOPS_KUBECTL_BIN, "get", "hpa", "-n", FINOPS_NAMESPACE, "-o", "json"],
+        "pods": [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "pods",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "-o",
+            "json",
+        ],
+        "pod_top": [
+            FINOPS_KUBECTL_BIN,
+            "top",
+            "pods",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "--no-headers",
+        ],
+    }
+    if agent_key == "bottleneck_capacity":
+        commands["endpoints"] = [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "endpoints",
+            FINOPS_UI_DEPLOYMENT,
+            "-n",
+            FINOPS_NAMESPACE,
+            "-o",
+            "json",
+        ]
+    command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
+    hpa = first_kubernetes_item(parse_command_json(command_results["hpa"]))
+    hpa_status = hpa.get("status", {})
+    pods_payload = parse_command_json(command_results["pods"])
+    pod_items = pods_payload.get("items", []) if pods_payload else None
+    ready_pods = None
+    running_pods = None
+    pod_count = None
+    if pod_items is not None:
+        ready_pods = 0
+        running_pods = 0
+        pod_count = len(pod_items)
+        for pod in pod_items:
+            if pod.get("status", {}).get("phase") == "Running":
+                running_pods += 1
+            container_statuses = pod.get("status", {}).get("containerStatuses", [])
+            if container_statuses and all(status.get("ready") for status in container_statuses):
+                ready_pods += 1
+    result: dict[str, Any] = {
+        "live": {
+            "kubernetes": {
+                "collected_at": utcnow(),
+                "namespace": FINOPS_NAMESPACE,
+                "commands": command_results,
+            }
+        }
+    }
+    result["traffic"] = {
+        "hpa_current_replicas": hpa_status.get("currentReplicas"),
+        "hpa_desired_replicas": hpa_status.get("desiredReplicas"),
+        "hpa_current_cpu_utilization_percent": hpa_status.get("currentCPUUtilizationPercentage"),
+        "pod_top": parse_kubectl_top_pods(command_results["pod_top"].get("stdout", ""))
+        if command_results["pod_top"].get("status") == "ok"
+        else {},
+    }
+    result["infra"] = {
+        "pod_count": pod_count,
+        "running_pods": running_pods,
+        "ready_pods": ready_pods,
+    }
+    if "endpoints" in command_results:
+        endpoints = parse_command_json(command_results["endpoints"])
+        ready_addresses = (
+            sum(len(subset.get("addresses", [])) for subset in endpoints.get("subsets", []))
+            if endpoints
+            else None
+        )
+        result["infra"]["alb_healthy_targets"] = ready_addresses
+    return result
+
+
+def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
+    commands: dict[str, list[str]] = {}
+    if agent_key == "cost":
+        commands["cost_explorer_mtd"] = [
+            FINOPS_AWS_BIN,
+            "ce",
+            "get-cost-and-usage",
+            "--region",
+            "us-east-1",
+            "--time-period",
+            f"Start={month_start_utc()},End={today_utc()}",
+            "--granularity",
+            "MONTHLY",
+            "--metrics",
+            "UnblendedCost",
+            "--output",
+            "json",
+        ]
+    if not commands:
+        return {}
+    command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
+    result: dict[str, Any] = {
+        "live": {
+            "aws": {
+                "collected_at": utcnow(),
+                "region": AWS_REGION,
+                "commands": command_results,
+            }
+        }
+    }
+    if agent_key == "cost":
+        payload = parse_command_json(command_results["cost_explorer_mtd"]) or {}
+        rows = payload.get("ResultsByTime", [])
+        amount = rows[0].get("Total", {}).get("UnblendedCost", {}).get("Amount") if rows else None
+        result["cost_source"] = {
+            "cost_explorer_month_to_date_usd": float(amount) if amount is not None else None,
+            "cost_explorer_source": "aws_cost_explorer" if amount is not None else None,
+        }
+    return result
+
+
+def enrich_context_for_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(context)
+    event_id = enriched.get("event", {}).get("event_id")
+    if event_id:
+        for section, value in read_agent_source_tables(event_id, agent_key).items():
+            if section == "collector_errors":
+                enriched.setdefault("collector_errors", []).extend(value)
+            elif isinstance(value, dict):
+                merge_present(enriched.setdefault(section, {}), value)
+    for collector_result in (collect_kubernetes_for_agent(agent_key), collect_aws_for_agent(agent_key)):
+        for section, value in collector_result.items():
+            if section == "live":
+                live = enriched.setdefault("live", {})
+                for provider, provider_value in value.items():
+                    live.setdefault(provider, {}).update(provider_value)
+                    live.setdefault("commands", {}).update(
+                        {
+                            f"{provider}_{name}": command
+                            for name, command in provider_value.get("commands", {}).items()
+                        }
+                    )
+            elif isinstance(value, dict):
+                merge_present(enriched.setdefault(section, {}), value)
+    return enriched
+
+
+@activity.defn(name="run_finops_agent")
+async def run_finops_agent(
+    workflow_id: str,
+    agent_key: str,
+    agent_name: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    if agent_key != AGENT_KEY:
+        raise ValueError(f"{AGENT_NAME} cannot run agent '{agent_key}'")
+    return run_finops_agent_logic(agent_key, enrich_context_for_agent(agent_key, context))
+
+
+async def start_temporal_worker() -> None:
+    global temporal_client
+    temporal_client = await Client.connect(TEMPORAL_ADDRESS)
+    worker = Worker(
+        temporal_client,
+        task_queue=AGENT_TASK_QUEUE,
+        activities=[run_finops_agent],
+    )
+    await worker.run()
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    global temporal_worker_task
+    temporal_worker_task = asyncio.create_task(start_temporal_worker())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    if temporal_worker_task:
+        temporal_worker_task.cancel()
 
 
 def event_policy(context: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -129,11 +552,23 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
             f"대상자는 {event['target_users']:,}명입니다. 운영자 승인은 필요합니다."
         )
     elif agent_key == "demand_shaping":
-        delay = policy["max_general_delay_minutes"]
+        business_control = previous.get("business_control", {})
+        delay = business_control.get("max_delay_minutes", policy["max_general_delay_minutes"])
+        vip_audience_count = business_control.get("vip_audience_count", context.get("business", {}).get("vip_audience_count"))
+        general_audience_count = business_control.get(
+            "general_audience_count",
+            context.get("business", {}).get("general_audience_count"),
+        )
+        peak_reduction_percent = min(60, max(10, int(delay * 4.2)))
         result = {
             "vip": "immediate" if policy["vip_immediate"] else "batched",
             "general_users": f"spread_over_{delay}m",
-            "peak_reduction_percent": 42,
+            "vip_send_mode": "immediate" if policy["vip_immediate"] else "batched",
+            "general_send_mode": "spread",
+            "send_window_minutes": delay,
+            "peak_reduction_percent": peak_reduction_percent,
+            "vip_audience_count": vip_audience_count,
+            "general_audience_count": general_audience_count,
         }
         message = (
             f"Business Control Agent가 준 허용 지연 시간 {delay}분을 사용하겠습니다. "
@@ -142,13 +577,22 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
     elif agent_key == "traffic_forecast":
         shaping = previous["demand_shaping"]
         before = signals.get("baseline_peak_rps", 1420)
-        after = signals.get("shaped_peak_rps", 820 if shaping["peak_reduction_percent"] >= 40 else 980)
+        send_window_minutes = shaping.get("send_window_minutes", policy["max_general_delay_minutes"])
+        reduction_percent = shaping.get(
+            "peak_reduction_percent",
+            min(60, max(10, int(send_window_minutes * 4.2))),
+        )
+        after = max(1, int(before * (100 - reduction_percent) / 100))
         pods = signals.get("required_app_pods", 29)
         result = {
             "peak_rps_before": before,
             "peak_rps_after": after,
             "required_app_pods": pods,
             "based_on": "demand_shaping",
+            "send_window_minutes": send_window_minutes,
+            "peak_reduction_percent": reduction_percent,
+            "vip_send_mode": shaping.get("vip_send_mode"),
+            "general_send_mode": shaping.get("general_send_mode"),
         }
         message = (
             f"Demand Shaping Agent의 감소율 {shaping['peak_reduction_percent']}%를 반영했습니다. "
@@ -206,9 +650,14 @@ def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[s
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "agent": AGENT_NAME, "agent_key": AGENT_KEY}
+    return {
+        "status": "ok",
+        "agent": AGENT_NAME,
+        "agent_key": AGENT_KEY,
+        "task_queue": AGENT_TASK_QUEUE,
+    }
 
 
 @app.post("/run")
 def run(request: AgentRequest) -> dict[str, Any]:
-    return run_agent(AGENT_KEY, request.context, request.available_results)
+    return run_finops_agent_logic(AGENT_KEY, enrich_context_for_agent(AGENT_KEY, request.context))

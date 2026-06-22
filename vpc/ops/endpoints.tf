@@ -142,7 +142,21 @@ resource "aws_vpc_endpoint" "monitoring" {
   }
 }
 
-# SSM — Systems Manager (노드 관리)
+# Cost Explorer API for FinOps cost collectors.
+resource "aws_vpc_endpoint" "cost_explorer" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.ce"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-cost-explorer"
+  }
+}
+
+# SSM Systems Manager endpoint.
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.ssm"

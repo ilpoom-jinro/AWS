@@ -37,6 +37,18 @@ spec:
                   key: DATABASE_URL
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_EKS_CLUSTER_NAME
+              value: financial-ops-eks
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
           ports:
             - name: http
               containerPort: 8000

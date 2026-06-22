@@ -6,7 +6,7 @@ from typing import Any
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
-    from app.agent_runtime import AGENT_DATA_REQUESTS, AGENT_SEQUENCE
+    from app.agent_runtime import AGENT_DATA_REQUESTS, AGENT_SEQUENCE, AGENT_TASK_QUEUES
 
 
 AGENT_NAMES = dict(AGENT_SEQUENCE)
@@ -47,9 +47,27 @@ class FinOpsEventWorkflow:
 
         async def execute_agent(agent_key: str, agent_name: str, next_agent_name: str) -> None:
             nonlocal context, phase
-            context = await workflow.execute_activity(
-                "run_agent_step",
+            await workflow.execute_activity(
+                "record_agent_step_started",
                 args=[workflow_id, phase, agent_key, agent_name, next_agent_name, context],
+                start_to_close_timeout=timedelta(seconds=10),
+            )
+            if agent_key in AGENT_TASK_QUEUES:
+                raw_output = await workflow.execute_activity(
+                    "run_finops_agent",
+                    args=[workflow_id, agent_key, agent_name, context],
+                    task_queue=AGENT_TASK_QUEUES[agent_key],
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
+            else:
+                raw_output = await workflow.execute_activity(
+                    "run_local_agent_step",
+                    args=[workflow_id, agent_key, agent_name, context],
+                    start_to_close_timeout=timedelta(seconds=20),
+                )
+            context = await workflow.execute_activity(
+                "record_agent_step_completed",
+                args=[workflow_id, phase, agent_key, agent_name, next_agent_name, context, raw_output],
                 start_to_close_timeout=timedelta(seconds=20),
             )
             completed_agents.add(agent_key)
