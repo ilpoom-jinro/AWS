@@ -1,197 +1,314 @@
 # 작성자 : 김민수
-# 최종 수정일 : 6월 13일
-# 계속 수정하면서 진행하겠습니다 ..
+# 최종 수정일 : 6월 18일
 
 """
-Activity Options 헬퍼
-=====================
-
-Temporal ActivityOptions를 생성하는 유틸리티
+Temporal ActivityOptions
 
 위치:
     mas/workflows/activity_options.py
 
-레이어 구조:
-    contracts ──────────────────────── (temporalio 의존성 없음, 순수 계약)
-        ↑
-    workflows/activity_options.py ──── (temporalio 의존성 있음, 실행 정책)
-        ↑
-    workflows/*.py
+원칙:
+    contracts 레이어는 Temporal을 모른다
+    Timeout / RetryPolicy 는 workflows 레이어에서 관리한다
+    Activity는 재실행 가능(Idempotent)하도록 구현한다
+    재시도는 Temporal에 위임하되 무한 재시도는 방지한다
 
-ACTIVITY_TIMEOUTS 이전 이유:
-    timeout은 입출력 계약이 아닌 Workflow 실행 정책
-    contracts는 순수 계약 레이어로 유지
+상태 변경 Activity 주의:
+    apply_terraform, apply_isolation, execute_remediation, execute_rollback
+    이 4개는 RetryPolicy로 중복 실행을 막지 않는다
+    중복 실행 방지는 Activity 구현체의 멱등성(Idempotency)으로 해결한다
+    같은 4개는 heartbeat_timeout을 가진다
+    Worker 장애 시 start_to_close_timeout 전체를 기다리지 않고 감지하기 위함이다
+    구현체는 activity.heartbeat()를 주기적으로 호출해야 한다
 
-사용법:
-    from workflows.activity_options import get_activity_options
+non_retryable_error_types 미사용 이유:
+    contracts/activity_interfaces.py 구현 규칙에 따라
+    Bedrock ValidationException 등은 raise 시점에
+    ApplicationError(non_retryable=True)를 직접 지정한다
+    RetryPolicy.non_retryable_error_types로 타입 문자열을 중앙 관리하면
+    위 패턴과 중복/충돌하므로 의도적으로 사용하지 않는다
 
-    result = await workflow.execute_activity(
-        "collect_metrics",
-        CollectMetricsInput(cluster_name="eks-prod", namespace="finops"),
-        **get_activity_options("collect_metrics"),
-    )
+maximum_attempts=10과 schedule_to_close_timeout 관계 주의:
+    DEFAULT_RETRY_POLICY.maximum_attempts=10은 전체 Activity 공통이다
+    
+    maximum_interval=60s 기준으로 attempt 2~10 사이의 대기 시간을 누적하면 ↓
+    1 + 2 + 4 + 8 + 16 + 32 + 60 + 60 + 60 = 243초 (약 4분)
+
+    RECORD_AUDIT_LOG처럼 schedule_to_close_timeout이 짧은 Activity는
+    순수 backoff 대기 시간만으로도 budget을 초과하여
+    실제로는 7~8회 안팎에서 종료될 수 있다
+
+    반대로 APPLY_TERRAFORM, GENERATE_IAC처럼
+    schedule_to_close_timeout이 긴 Activity는
+    10회에 더 가깝게 재시도될 수 있다
+
+    단, 실제 실행 시간까지 포함하면
+    schedule_to_close_timeout이 먼저 만료될 수 있다
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TypedDict
+from enum import StrEnum
+from typing import NotRequired, TypedDict
 
 from temporalio.common import RetryPolicy
 
+__all__ = [
+    "ActivityName",
+    "ActivityOptions",
+    "DEFAULT_RETRY_POLICY",
+    "get_activity_options",
+    "get_all_activity_options",
+]
 
-# ============================================================
-# Activity Timeout 정책
-#
-# contracts/activity_interfaces.py에서 이전
-# timeout은 입출력 계약이 아닌 Workflow 실행 정책이므로
-# workflows 레이어에서 관리
-#
-# timeout 종류 및 선택 기준은 README.md 참고
-# ============================================================
 
-ACTIVITY_TIMEOUTS: dict[str, timedelta] = {
+# ---
+# Activity Names
+# ---
+
+class ActivityName(StrEnum):
+
+    # --------------------------------------------------------
     # FinOps
-    "collect_metrics":            timedelta(minutes=5),
-    "analyze_anomaly":            timedelta(minutes=10),
-    "generate_iac":               timedelta(minutes=20),
-    "apply_terraform":            timedelta(minutes=30),
+    # --------------------------------------------------------
+
+    COLLECT_METRICS = "collect_metrics"
+    ANALYZE_ANOMALY = "analyze_anomaly"
+    GENERATE_IAC = "generate_iac"
+    APPLY_TERRAFORM = "apply_terraform"
+
+    # --------------------------------------------------------
     # AIOps
-    "detect_incident":            timedelta(minutes=3),
-    "analyze_root_cause":         timedelta(minutes=10),
-    "execute_remediation":        timedelta(minutes=10),
-    "verify_recovery":            timedelta(minutes=10),
-    "execute_rollback":           timedelta(minutes=5),
+    # --------------------------------------------------------
+
+    DETECT_INCIDENT = "detect_incident"
+    ANALYZE_ROOT_CAUSE = "analyze_root_cause"
+    EXECUTE_REMEDIATION = "execute_remediation"
+    VERIFY_RECOVERY = "verify_recovery"
+    EXECUTE_ROLLBACK = "execute_rollback"
+
+    # --------------------------------------------------------
     # SecOps
-    "detect_threat":              timedelta(minutes=5),
-    "map_regulation":             timedelta(minutes=10),
-    "apply_isolation":            timedelta(minutes=5),
-    "generate_compliance_report": timedelta(minutes=5),
+    # --------------------------------------------------------
+
+    DETECT_THREAT = "detect_threat"
+    MAP_REGULATION = "map_regulation"
+    APPLY_ISOLATION = "apply_isolation"
+    GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
+
+    # --------------------------------------------------------
     # Common
-    "request_approval":           timedelta(hours=8),
-    "record_audit_log":           timedelta(minutes=2),
+    # --------------------------------------------------------
+
+    SEND_APPROVAL_REQUEST = "send_approval_request"
+    SEND_REMINDER = "send_reminder"
+    RECORD_AUDIT_LOG = "record_audit_log"
+
+
+# ---
+# Timeout Configuration
+# ---
+
+class ActivityTimeoutConfig(TypedDict):
+    start_to_close_timeout: timedelta
+    schedule_to_close_timeout: timedelta
+
+    # 상태 변경 Activity(apply_terraform 등)만 명시한다
+    # 짧은 조회/알림성 Activity는 생략해도 된다
+    heartbeat_timeout: NotRequired[timedelta]
+
+
+ACTIVITY_TIMEOUTS: dict[
+    ActivityName,
+    ActivityTimeoutConfig,
+] = {
+    # --------------------------------------------------------
+    # FinOps
+    # --------------------------------------------------------
+
+    ActivityName.COLLECT_METRICS: {
+        "start_to_close_timeout": timedelta(minutes=1),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+    },
+
+    ActivityName.ANALYZE_ANOMALY: {
+        "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=10),
+    },
+
+    # Actor-Critic 검증 루프 (최대 3회 + terraform validate) 포함
+    ActivityName.GENERATE_IAC: {
+        "start_to_close_timeout": timedelta(minutes=8),
+        "schedule_to_close_timeout": timedelta(minutes=25),
+    },
+
+    ActivityName.APPLY_TERRAFORM: {
+        "start_to_close_timeout": timedelta(minutes=10),
+        "schedule_to_close_timeout": timedelta(minutes=30),
+        "heartbeat_timeout": timedelta(minutes=1),
+    },
+
+    # --------------------------------------------------------
+    # AIOps
+    # --------------------------------------------------------
+
+    ActivityName.DETECT_INCIDENT: {
+        "start_to_close_timeout": timedelta(minutes=1),
+        "schedule_to_close_timeout": timedelta(minutes=3),
+    },
+
+    ActivityName.ANALYZE_ROOT_CAUSE: {
+        "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=10),
+    },
+
+    ActivityName.EXECUTE_REMEDIATION: {
+        "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=10),
+        "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.VERIFY_RECOVERY: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=10),
+    },
+
+    ActivityName.EXECUTE_ROLLBACK: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+        "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    # --------------------------------------------------------
+    # SecOps
+    # --------------------------------------------------------
+
+    ActivityName.DETECT_THREAT: {
+        "start_to_close_timeout": timedelta(minutes=1),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+    },
+
+    ActivityName.MAP_REGULATION: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=10),
+    },
+
+    ActivityName.APPLY_ISOLATION: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+        "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.GENERATE_COMPLIANCE_REPORT: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+    },
+
+    # --------------------------------------------------------
+    # Common
+    # --------------------------------------------------------
+
+    ActivityName.SEND_APPROVAL_REQUEST: {
+        "start_to_close_timeout": timedelta(seconds=10),
+        "schedule_to_close_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.SEND_REMINDER: {
+        "start_to_close_timeout": timedelta(seconds=10),
+        "schedule_to_close_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.RECORD_AUDIT_LOG: {
+        "start_to_close_timeout": timedelta(seconds=30),
+        "schedule_to_close_timeout": timedelta(minutes=2),
+    },
 }
 
 
-# ============================================================
-# RetryPolicy 상수 정의
-#
-# Temporal 기본값:
-#   initial_interval:     1초
-#   backoff_coefficient:  2.0 (지수 백오프)
-#   maximum_attempts:     0 (무제한)
-#
-# MAS 기본값 (DEFAULT_RETRY_POLICY):
-#   maximum_attempts: 3 — 무한 재시도 방지 목적
-#
-# non_retryable_error_types 설정 방법은 README.md 참고
-# ============================================================
+# ---
+# Drift Guard
+# ---
+
+if set(ActivityName) != set(ACTIVITY_TIMEOUTS):
+    raise RuntimeError(
+        "ActivityName과 ACTIVITY_TIMEOUTS가 일치하지 않음 "
+        "둘 다 확인할 것"
+    )
+
+
+# ---
+# Retry Policy
+# ---
 
 DEFAULT_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
+    initial_interval=timedelta(seconds=1),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=1),
+    maximum_attempts=10,
 )
 
-# HITL Activity 전용 RetryPolicy
-# 사람이 직접 검토·승인하는 액션이므로 재시도 없음
-# 8시간 타임아웃(request_approval) 내 미응답 시 Workflow 자체 처리
-# 타임아웃 만료 후 처리 흐름은 README.md 참고
-HITL_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=1,
-)
 
-# 실행 권한 Activity 전용 RetryPolicy
-# 대상: apply_terraform, apply_isolation, execute_remediation, execute_rollback
-# 멱등성 미보장 액션의 중복 실행 방지 목적으로 1회만 시도
-# 멱등성 보장이 필요한 경우 구현체에서 직접 처리 — README.md 참고
-EXECUTION_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=1,
-)
+# ---
+# Public Types
+# ---
 
-# Activity별 RetryPolicy 오버라이드 테이블
-# DEFAULT_RETRY_POLICY와 다른 Activity만 명시
-# get_activity_options() 호출 시 retry_policy 인자로 런타임 오버라이드 가능
-_ACTIVITY_RETRY_OVERRIDES: dict[str, RetryPolicy] = {
-    "request_approval":    HITL_RETRY_POLICY,
-    "apply_terraform":     EXECUTION_RETRY_POLICY,
-    "apply_isolation":     EXECUTION_RETRY_POLICY,
-    "execute_remediation": EXECUTION_RETRY_POLICY,
-    "execute_rollback":    EXECUTION_RETRY_POLICY,
-}
-
-
-class ActivityOption(TypedDict):
-    start_to_close_timeout: timedelta
+class ActivityOptions(ActivityTimeoutConfig):
     retry_policy: RetryPolicy
 
+# ---
+# Public API
+# ---
 
 def get_activity_options(
-    name: str,
+    activity: ActivityName,
     retry_policy: RetryPolicy | None = None,
-) -> ActivityOption:
+) -> ActivityOptions:
     """
-    Activity 이름으로 Temporal execute_activity() 옵션 딕셔너리 반환
-
-    Workflow execute_activity() 호출 시 ** 언패킹으로 사용
+    Temporal execute_activity() 옵션 반환
 
     예시:
-        # 기본 사용
-        result = await workflow.execute_activity(
-            "collect_metrics",
-            CollectMetricsInput(cluster_name="eks-prod", namespace="finops"),
-            **get_activity_options("collect_metrics"),
-        )
 
-        # RetryPolicy 런타임 오버라이드
-        result = await workflow.execute_activity(
-            "analyze_anomaly",
-            metrics,
+        await workflow.execute_activity(
+            collect_metrics,
+            request,
             **get_activity_options(
-                "analyze_anomaly",
-                retry_policy=RetryPolicy(maximum_attempts=5),
+                ActivityName.COLLECT_METRICS
             ),
         )
 
-    RetryPolicy 우선순위 (높은 순):
-        1. retry_policy 인자 (런타임 오버라이드)
-        2. _ACTIVITY_RETRY_OVERRIDES 테이블 (Activity별 기본값)
-        3. DEFAULT_RETRY_POLICY (전역 기본값)
-
-    Args:
-        name:         ACTIVITY_TIMEOUTS에 정의된 Activity 이름
-        retry_policy: RetryPolicy 런타임 오버라이드 — None이면 Activity별 기본값 사용
-
-    Returns:
-        start_to_close_timeout과 retry_policy를 담은 딕셔너리
-
-    Raises:
-        KeyError: ACTIVITY_TIMEOUTS에 미등록 Activity 이름인 경우
+        # heartbeat가 설정된 Activity (예: apply_terraform)는
+        # 구현체에서 주기적으로 activity.heartbeat()를 호출해야 함
     """
-    if name not in ACTIVITY_TIMEOUTS:
-        raise KeyError(
-            f"Activity {name!r}가 ACTIVITY_TIMEOUTS에 정의되어 있지 않음 "
-            f"workflows/activity_options.py를 확인할 것"
-        )
 
-    resolved_policy = (
-        retry_policy
-        or _ACTIVITY_RETRY_OVERRIDES.get(name)
-        or DEFAULT_RETRY_POLICY
-    )
+    timeout_config = ACTIVITY_TIMEOUTS[activity]
 
-    return {
-        "start_to_close_timeout": ACTIVITY_TIMEOUTS[name],
-        "retry_policy": resolved_policy,
+    options: ActivityOptions = {
+        "start_to_close_timeout":
+            timeout_config["start_to_close_timeout"],
+
+        "schedule_to_close_timeout":
+            timeout_config["schedule_to_close_timeout"],
+
+        "retry_policy":
+            retry_policy or DEFAULT_RETRY_POLICY,
     }
 
+    if "heartbeat_timeout" in timeout_config:
+        options["heartbeat_timeout"] = timeout_config["heartbeat_timeout"]
 
-def get_all_activity_options() -> dict[str, ActivityOption]:
+    return options
+
+
+def get_all_activity_options() -> dict[
+    ActivityName,
+    ActivityOptions,
+]:
     """
-    전체 Activity 옵션 딕셔너리 반환
-
-    디버깅 및 문서화 용도 — 프로덕션 코드에서 직접 호출 비권장
-
-    예시:
-        for name, opts in get_all_activity_options().items():
-            print(f"{name}: timeout={opts['start_to_close_timeout']}")
+    디버깅 / 문서화 용도
     """
-    return {name: get_activity_options(name) for name in ACTIVITY_TIMEOUTS}
+
+    return {
+        activity: get_activity_options(activity)
+        for activity in ActivityName
+    }

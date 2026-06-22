@@ -47,6 +47,7 @@ resource "aws_db_instance" "ops" {
   db_subnet_group_name   = aws_db_subnet_group.ops.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = aws_db_parameter_group.ops.name
+  publicly_accessible    = false
 
   allocated_storage = 100
   storage_type      = "gp3"
@@ -58,13 +59,14 @@ resource "aws_db_instance" "ops" {
   maintenance_window      = "sun:19:00-sun:20:00"
 
   auto_minor_version_upgrade = false
-  deletion_protection        = false
+  deletion_protection        = var.deletion_protection
   skip_final_snapshot        = true
 
   performance_insights_enabled = true
 
   tags = {
-    Name = "financial-ops-db"
+    Name               = "financial-ops-db"
+    DataClassification = "Confidential"
   }
 }
 

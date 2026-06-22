@@ -31,7 +31,20 @@ spec:
   parentRefs:
     - name: stock-gw
   rules:
-    - backendRefs:
+    - filters:
+        # HSTS 주입: ALB는 응답 헤더를 못 넣으므로 Gateway(Envoy) L7에서 주입.
+        # 클라이언트→ALB가 HTTPS이므로 ALB가 이 응답을 HTTPS로 돌려줄 때
+        # 브라우저가 HSTS 헤더를 존중한다. (80은 redirect되므로 HSTS 응답 자체가 안 감)
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            # set: 기존 헤더가 있으면 덮어씀 → HSTS가 항상 하나만 존재하도록 보장
+            set:
+              - name: Strict-Transport-Security
+                # max-age 5분으로 짧게 시작. HTTPS 안정 확인 후 점진 확대.
+                # includeSubDomains 미적용: aws./gcp. 서브도메인이 HTTPS 준비되기 전엔 금지
+                # (한 번 걸면 max-age 동안 브라우저가 서브도메인까지 HTTPS 강제)
+                value: "max-age=300"
+      backendRefs:
         - name: stock-web
           port: 80
 ---

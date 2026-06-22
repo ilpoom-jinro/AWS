@@ -9,15 +9,16 @@ data "aws_kms_alias" "key_s3" {
 # Terraform State S3 버킷
 # ─────────────────────────────────────
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "ilpumjinro-terraform-state-v2"
+  bucket = "ilpumjinro-terraform-state-v3"
   lifecycle {
     prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-terraform-state-v2"
-    Project   = "ilpumjinro"
-    ManagedBy = "terraform"
-    Purpose   = "terraform-state"
+    Name               = "ilpumjinro-terraform-state-v3"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
+    Purpose            = "terraform-state"
+    DataClassification = "Restricted"
   }
 }
 
@@ -63,16 +64,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
 # CloudTrail 로그 S3 버킷 (Object Lock)
 # ─────────────────────────────────────
 resource "aws_s3_bucket" "cloudtrail_logs_locked" {
-  bucket              = "ilpumjinro-cloudtrail-logs-locked-v2"
+  bucket              = "ilpumjinro-cloudtrail-logs-locked-v3"
   object_lock_enabled = true
   lifecycle {
-    prevent_destroy = false
+    # #12 로그 장기보존 — 버킷 실수 삭제 방지
+    prevent_destroy = true
   }
   tags = {
-    Name      = "ilpumjinro-cloudtrail-logs-locked-v2"
-    Project   = "ilpumjinro"
-    ManagedBy = "terraform"
-    Purpose   = "cloudtrail-logs-immutable"
+    Name               = "ilpumjinro-cloudtrail-logs-locked-v3"
+    Project            = "ilpumjinro"
+    ManagedBy          = "terraform"
+    Purpose            = "cloudtrail-logs-immutable"
+    DataClassification = "Restricted"
   }
 }
 
@@ -106,9 +109,22 @@ resource "aws_s3_bucket_object_lock_configuration" "cloudtrail_logs_locked" {
   bucket = aws_s3_bucket.cloudtrail_logs_locked.id
   rule {
     default_retention {
+      # #12 로그 장기보존 — 학습 환경이라 GOVERNANCE, prod에선 COMPLIANCE 전환 예정
       mode = "GOVERNANCE"
-      days = 90
+      days = 365
     }
+  }
+}
+
+# CloudTrail 버킷 — Object Lock 365일이 이미 보존·무결성 담당
+# lifecycle은 잠금 풀린 뒤 무한 누적만 막으면 됨
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail_logs_locked" {
+  bucket = aws_s3_bucket.cloudtrail_logs_locked.id
+  rule {
+    id     = "expire-after-lock"
+    status = "Enabled"
+    filter { prefix = "" }
+    expiration { days = 370 } # 365일 잠금 직후 삭제 → 보존 1년 캡, 누적 방지
   }
 }
 
@@ -124,7 +140,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:GetBucketAcl"
-        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v2"
+        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v3"
       },
       {
         Sid    = "AWSCloudTrailWrite"
@@ -133,7 +149,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs_locked" {
           Service = "cloudtrail.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v2/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+        Resource = "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
         Condition = {
           StringEquals = {
             "s3:x-amz-acl" = "bucket-owner-full-control"

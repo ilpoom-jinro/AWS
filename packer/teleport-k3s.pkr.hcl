@@ -41,6 +41,11 @@ variable "subnet_id" {
   description = "Packer 빌드용 Subnet ID (Public 서브넷 필요)"
 }
 
+variable "kms_key_eks_arn" {
+  type        = string
+  description = "key-eks CMK ARN — AMI 부팅 볼륨 암호화용 (#33). CI에서 alias/key-eks로 조회 후 -var 주입, default 없음"
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Source — Ubuntu 22.04 LTS 기반
 # ──────────────────────────────────────────────────────────────────────────────
@@ -65,6 +70,11 @@ source "amazon-ebs" "teleport_k3s" {
   # 빌드용 임시 EC2 설정
   vpc_id    = var.vpc_id
   subnet_id = var.subnet_id
+
+  # #33: 결과 AMI 부팅 볼륨 KMS 암호화 강제
+  # EBS 기본 암호화(#30 key-eks)와 별개 이중방어 — AMI 스냅샷 자체를 평문으로 남기지 않음
+  encrypt_boot = true
+  kms_key_id   = var.kms_key_eks_arn
 
   # 빌드 완료 후 AMI 이름
   ami_name        = "financial-teleport-k3s-${var.teleport_version}-{{timestamp}}"

@@ -31,6 +31,11 @@ spec:
     # aws-load-balancer-controller-service 가 배포되는 네임스페이스
     - name: financial-service-eks
       namespace: kube-system
+    # External Secrets Operator (ESO)
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+    - name: financial-service-eks
+      namespace: external-secrets
     # 모든 등록 클러스터 → kyverno 네임스페이스 (ApplicationSet cluster generator 와일드카드 대응)
     - server: "*"
       namespace: kyverno
@@ -58,6 +63,9 @@ spec:
       kind: IngressClass
     - group: elbv2.k8s.aws
       kind: IngressClassParams
+    # ESO ClusterSecretStore — 클러스터 스코프 리소스
+    - group: external-secrets.io
+      kind: ClusterSecretStore
   namespaceResourceWhitelist:
     # 인프라 Helm 차트는 ServiceMonitor, PDB, MutatingWebhookConfiguration 등
     # 다양한 extension 리소스를 배포하므로 네임스페이스 수준은 와일드카드 허용

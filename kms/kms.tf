@@ -535,6 +535,26 @@ resource "aws_kms_key" "key_s3" {
         Resource = "*"
       },
       {
+        # Config가 스냅샷을 key-s3로 암호화해 S3에 전달할 때 사용 (#29 민감 데이터 전수 암호화)
+        # SourceArn 조건으로 이 계정의 Config delivery channel 경유 호출만 허용 (혼동된 대리 방지)
+        Sid    = "AllowConfigService"
+        Effect = "Allow"
+        Principal = {
+          Service = "config.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*", # DEK 생성 (스냅샷 암호화)
+          "kms:Decrypt",          # DEK 복호화
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "aws:SourceArn" = "arn:aws:config:*:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      },
+      {
         Sid    = "DenyCrossAccount"
         Effect = "Deny"
         Principal = {
