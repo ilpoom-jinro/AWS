@@ -118,6 +118,7 @@ jobs:
               build_base = True
           elif operation == "all" or requested == "all":
               agents = existing_agents()
+              build_base = True
           elif operation == "new":
               agents = [normalize_agent(requested)]
           elif operation == "changed" or requested == "changed":
