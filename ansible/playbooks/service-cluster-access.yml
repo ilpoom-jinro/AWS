@@ -126,6 +126,10 @@
             - apiGroups: [coordination.k8s.io]
               resources: [leases]
               verbs: [get, list, watch, create, update, patch, delete]
+            # ESO namespace-scoped 리소스 (stock-demo, external-secrets 네임스페이스)
+            - apiGroups: ["external-secrets.io"]
+              resources: [externalsecrets, secretstores, pushsecrets]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-cluster-writer
       kubernetes.core.k8s:
@@ -187,6 +191,10 @@
             # argocd-manager가 해당 권한을 보유해야 privilege escalation 없이 ClusterRole 생성 가능.
             - nonResourceURLs: ["/metrics"]
               verbs: [get]
+            # ESO cluster-scoped 리소스
+            - apiGroups: ["external-secrets.io"]
+              resources: [clustersecretstores, clusterexternalsecrets]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
@@ -267,6 +275,7 @@
         - observability
         - stock-demo
         - kyverno
+        - external-secrets
         # istio-system은 Istio 설치 시 이미 존재하므로 별도 생성 불필요
       changed_when: false
 
@@ -289,11 +298,12 @@
               name: argocd-manager
               namespace: kube-system
       loop:
-        - observability   # observability-alloy-service 배포 대상
-        - istio-system    # istio-policies-service 배포 대상
-        - stock-demo      # service-demo-app 배포 대상
-        - kyverno         # kyverno ApplicationSet 배포 대상
-        - kube-system     # aws-load-balancer-controller-service 배포 대상
+        - observability    # observability-alloy-service 배포 대상
+        - istio-system     # istio-policies-service 배포 대상
+        - stock-demo       # service-demo-app 배포 대상
+        - kyverno          # kyverno ApplicationSet 배포 대상
+        - kube-system      # aws-load-balancer-controller-service 배포 대상
+        - external-secrets # external-secrets-service ESO Helm 리소스 배포 대상
 
     - name: Ensure long-lived token secret exists for Argo CD manager
       kubernetes.core.k8s:

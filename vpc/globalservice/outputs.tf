@@ -80,3 +80,13 @@ output "rds_db_name" {
   description = "financial-service RDS DB 이름"
   value       = aws_db_instance.service.db_name
 }
+
+output "rds_address" {
+  description = "financial-service RDS 호스트명 (포트 제외)"
+  value       = aws_db_instance.service.address
+}
+
+output "rotation_lambda_arn" {
+  description = "service RDS rotation Lambda ARN"
+  value       = data.aws_lambda_function.service_rotation.arn
+}

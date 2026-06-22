@@ -62,9 +62,14 @@ AnomalyType = Literal[
     "over_provisioned",
     "cost_spike",
     "idle_resource",
-    "crashloop",
+
+    "crashloop_backoff",
     "oom_killed",
     "high_latency",
+    "image_pull_backoff",
+    "pending_timeout",
+    "evicted",
+
     "security_threat",
     "regulation_breach",
 ]
@@ -202,9 +207,12 @@ class IncidentContext(WorkflowRootMixin):
     pod_name: str
 
     anomaly_type: Literal[
-        "crashloop",
+        "crashloop_backoff",
         "oom_killed",
         "high_latency",
+        "image_pull_backoff",
+        "pending_timeout",
+        "evicted",
     ]
 
     restart_count: int = Field(
@@ -523,7 +531,16 @@ class CollectMetricsInput(ContractVersionMixin):
  
 class DetectIncidentInput(ContractVersionMixin):
     """
-    AIOps: CrashLoop / OOMKilled / High Latency 탐지 Activity 입력
+    AIOps: Kubernetes 장애 탐지 Activity 입력
+
+    지원 장애 유형:
+    - CrashLoopBackOff
+    - OOMKilled
+    - High Latency
+    - ImagePullBackOff
+    - PendingTimeout
+    - Evicted
+
     구현 위치: mas/agents/aiops/src/aiops/nodes/detector.py
     """
     cluster_name: str
@@ -555,3 +572,15 @@ class GenerateComplianceReportInput(ContractVersionMixin):
     event: SecurityEvent
     mapping: RegulationMapping
     result: ExecutionResult
+
+class ApprovalTicket(WorkflowDerivedMixin):
+    """
+    Slack HITL 승인 요청 생성 후 반환되는 티켓
+
+    - Slack 메시지 식별
+    - 리마인더 전송
+    - 메시지 상태 업데이트
+    - 승인/거부 결과 반영 용도임
+    """
+    slack_message_ts: str
+    channel_id: str

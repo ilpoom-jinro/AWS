@@ -49,6 +49,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_external_secrets:
+        description: "Mirror External Secrets Operator image into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -82,6 +87,9 @@ env:
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
+  EXTERNAL_SECRETS_VERSION: "v0.10.7"
+  EXTERNAL_SECRETS_REPOSITORY: external-secrets/external-secrets
+  EXTERNAL_SECRETS_SOURCE_IMAGE: ghcr.io/external-secrets/external-secrets
   FINOPS_TEMPORAL_REPOSITORY: financial/mas/finops/temporal
   FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
   FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
@@ -170,14 +178,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
       - name: Apply ECR repositories
         if: >
           github.event_name == 'workflow_dispatch' ||
@@ -235,6 +235,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.finops_temporal
           -target=aws_ecr_repository.finops_postgres
           -target=aws_ecr_lifecycle_policy.finops_postgres
+          -target=aws_ecr_repository.external_secrets
+          -target=aws_ecr_lifecycle_policy.external_secrets
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -378,6 +380,18 @@ jobs:
           docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
           docker push "${postgres_target}"
           docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
+
+      - name: Mirror External Secrets Operator image to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_external_secrets == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          source_image="${EXTERNAL_SECRETS_SOURCE_IMAGE}:${EXTERNAL_SECRETS_VERSION}"
+          target_image="${REGISTRY}/${EXTERNAL_SECRETS_REPOSITORY}:${EXTERNAL_SECRETS_VERSION}"
+
+          docker pull "${source_image}"
+          docker tag "${source_image}" "${target_image}"
+          docker push "${target_image}"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true
