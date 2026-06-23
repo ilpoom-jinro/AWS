@@ -50,17 +50,9 @@ logger = logging.getLogger(__name__)
 
 
 class ClaudeModel(str, Enum):
-    """
-    MAS Platform에서 사용하는 Claude 모델 목록
-
-    참고:
-        Opus는 서울 리전(ap-northeast-2)에서 직접 호출할 수 없어
-        Cross-Region Inference 모델 ID를 사용한다
-    """
-
     HAIKU = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    SONNET = "anthropic.claude-sonnet-4-6"
-    OPUS = "us.anthropic.claude-opus-4-6"
+    SONNET = "global.anthropic.claude-sonnet-4-6"
+    OPUS = "global.anthropic.claude-opus-4-6-v1"
 
 
 _BOTO_CONFIG = Config(
