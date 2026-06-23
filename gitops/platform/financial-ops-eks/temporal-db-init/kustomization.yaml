@@ -1,0 +1,11 @@
+# Temporal DB init 패키지 (옵션 B)
+# namespace 'temporal'은 Platform Core(민수)의 Temporal 앱이 생성한다고 가정 → 여기서 미생성.
+# Temporal 앱의 PreSync 단계에 함께 묶거나, RDS apply 후 단독 적용.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: temporal
+resources:
+  - external-secret-master.yaml
+  - external-secret-temporal.yaml
+  - init-sql-configmap.yaml
+  - job.yaml

@@ -1,0 +1,27 @@
+# Temporal DB 초기화 SQL (멱등) — financial_ops(admin DB)에 접속해 실행
+# DB 2개 생성 + temporal_user role 생성/비번 동기화 + DB 레벨 권한
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: temporal-db-init-sql
+  namespace: temporal
+data:
+  databases.sql: |
+    -- 멱등: DB 2개 (CREATE DATABASE는 IF NOT EXISTS 미지원 → \gexec 가드)
+    SELECT 'CREATE DATABASE temporal'
+     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'temporal')\gexec
+    SELECT 'CREATE DATABASE temporal_visibility'
+     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'temporal_visibility')\gexec
+
+    -- 멱등: 전용 role (최소권한). 비번은 psql -v 로 주입
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'temporal_user') THEN
+        CREATE ROLE temporal_user LOGIN PASSWORD :'temporal_pw';
+      ELSE
+        ALTER ROLE temporal_user LOGIN PASSWORD :'temporal_pw';
+      END IF;
+    END $$;
+
+    GRANT ALL PRIVILEGES ON DATABASE temporal            TO temporal_user;
+    GRANT ALL PRIVILEGES ON DATABASE temporal_visibility TO temporal_user;
