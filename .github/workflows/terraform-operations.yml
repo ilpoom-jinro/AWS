@@ -170,7 +170,9 @@ jobs:
             local resource_address="$1"
             local secret_name="$2"
 
-            if terraform state list | grep -Fxq "${resource_address}"; then
+            local managed_resources
+            managed_resources="$(terraform state list)"
+            if grep -Fxq "${resource_address}" <<< "${managed_resources}"; then
               echo "Terraform already manages ${resource_address}."
               return
             fi
