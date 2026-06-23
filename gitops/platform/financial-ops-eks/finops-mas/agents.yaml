@@ -366,6 +366,14 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: FINOPS_ATHENA_DATABASE
+              value: finops_cur
+            - name: FINOPS_ATHENA_TABLE
+              value: cur
+            - name: FINOPS_ATHENA_WORKGROUP
+              value: finops-cur
+            - name: FINOPS_ATHENA_TIMEOUT_SECONDS
+              value: "10"
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
