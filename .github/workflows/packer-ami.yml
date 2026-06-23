@@ -63,10 +63,17 @@ jobs:
             --query "Subnets[0].SubnetId" \
             --output text)
 
+          # #33: key-eks CMK ARN 조회 (alias/key-eks → 계정 이전 시 ARN 자동 추종)
+          KMS_EKS_ARN=$(aws kms describe-key \
+            --key-id alias/key-eks \
+            --query "KeyMetadata.Arn" \
+            --output text)
+
           packer_vars=(
             -var "aws_account_id=${ACCOUNT_ID}"
             -var "vpc_id=${VPC_ID}"
             -var "subnet_id=${SUBNET_ID}"
+            -var "kms_key_eks_arn=${KMS_EKS_ARN}"
           )
 
           if [ -n "${{ inputs.teleport_version }}" ]; then

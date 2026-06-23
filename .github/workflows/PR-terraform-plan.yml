@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: terraform-plan-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   TF_VERSION: "1.11.0"
@@ -68,15 +68,6 @@ jobs:
       - name: Terraform Init
         if: steps.changes.outputs.tf == 'true'
         run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        if: steps.changes.outputs.tf == 'true'
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
 
       - name: Terraform Format Check
         if: steps.changes.outputs.tf == 'true'

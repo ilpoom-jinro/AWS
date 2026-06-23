@@ -89,14 +89,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
@@ -162,14 +154,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -reconfigure
 
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
-
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
@@ -200,6 +184,13 @@ jobs:
         run: |
           terraform init -reconfigure
           terraform apply -auto-approve -input=false -lock-timeout=5m
+
+      - name: Apply security module
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=module.security
+          $TF_MOVED_RESOURCE_TARGETS
 
       - name: Destroy CodeBuild project
         if: inputs.action == 'destroy'
@@ -362,6 +353,20 @@ jobs:
           -target=module.vpc4
           $TF_MOVED_RESOURCE_TARGETS
 
+      - name: Apply secrets
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=random_password.service_rds
+          -target=random_password.ops_rds
+          -target=aws_secretsmanager_secret.service_rds_password
+          -target=aws_secretsmanager_secret_version.service_rds_password
+          -target=aws_secretsmanager_secret_rotation.service_rds
+          -target=aws_secretsmanager_secret.ops_rds_password
+          -target=aws_secretsmanager_secret_version.ops_rds_password
+          -target=aws_secretsmanager_secret_rotation.ops_rds
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Apply VPC peering
         if: inputs.action == 'apply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering $TF_MOVED_RESOURCE_TARGETS
@@ -500,14 +505,6 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -reconfigure
-
-      - name: Remove legacy CodeCommit state
-        shell: bash
-        run: |
-          mapfile -t codecommit_state < <(terraform state list | grep 'aws_codecommit' || true)
-          if [ "${#codecommit_state[@]}" -gt 0 ]; then
-            terraform state rm "${codecommit_state[@]}"
-          fi
 
       - name: Terraform Validate
         run: terraform validate -no-color

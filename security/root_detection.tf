@@ -96,7 +96,7 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 resource "aws_cloudtrail" "main" {
   name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v2"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
   kms_key_id                    = var.kms_key_cloudtrail_arn
   include_global_service_events = true
   is_multi_region_trail         = true
@@ -176,6 +176,7 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
       },
       {
         # EventBridge가 Rule 트리거 시 SNS에 메시지 발행
+        # aws:SourceArn: root 탐지 룰 두 개만 발행 허용 (confused deputy 방지)
         Sid    = "AllowEventBridgePublish"
         Effect = "Allow"
         Principal = {
@@ -183,6 +184,17 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
         }
         Action   = "SNS:Publish"
         Resource = aws_sns_topic.root_activity_alert.arn
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = [
+              aws_cloudwatch_event_rule.root_console_login.arn,
+              aws_cloudwatch_event_rule.root_api_call.arn,
+            ]
+          }
+          StringEquals = {
+            "aws:SourceAccount" = var.account_id
+          }
+        }
       },
       {
         # CloudWatch Alarm이 ALARM 상태 전환 시 SNS에 메시지 발행

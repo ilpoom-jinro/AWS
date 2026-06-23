@@ -118,6 +118,7 @@ jobs:
               build_base = True
           elif operation == "all" or requested == "all":
               agents = existing_agents()
+              build_base = True
           elif operation == "new":
               agents = [normalize_agent(requested)]
           elif operation == "changed" or requested == "changed":
@@ -141,18 +142,18 @@ jobs:
                   and parts[0] == "mas"
                   and parts[1] == "pods"
               }
-              if any(
-                  len(parts := Path(path).parts) >= 4
-                  and parts[0] == "mas"
-                  and parts[1] == "pods"
-                  and parts[2] == "finops"
-                  and parts[3] == "agents"
+              shared_finops_runtime_changed = any(
+                  path == "mas/pods/finops/orchestrator/app/agent_runtime.py"
+                  or path.startswith("mas/pods/finops/agents/")
+                  or path.startswith("mas/shared/")
                   for path in changed
-              ):
+              )
+              if shared_finops_runtime_changed:
                   candidates.update(
                       agent
                       for agent in existing_agents()
                       if agent.startswith("finops/")
+                      and agent not in {"finops/ui", "finops/orchestrator"}
                   )
               agents = sorted(
                   agent

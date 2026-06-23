@@ -36,3 +36,34 @@ resource "aws_config_config_rule" "access_keys_rotated" {
     Environment = "all"
   }
 }
+
+# =============================================
+# ec2-ebs-encryption-by-default (#32)
+# 계정+리전 EBS 기본 암호화가 켜져 있는지 검사
+#   - NON_COMPLIANT: 기본 암호화가 꺼져 있을 때
+#   - 트리거: Periodic (계정 설정만 점검) → 리소스 기록 불필요 → 비용 거의 0
+#   - EBS 기본 암호화는 #30(kms/ebs.tf)에서 ON. 이 룰은 그 설정이 꺼지면 탐지하는 드리프트 감지
+# =============================================
+resource "aws_config_config_rule" "ec2_ebs_encryption_by_default" {
+  name        = "ec2-ebs-encryption-by-default"
+  description = "EBS 계정 기본 암호화 활성화 여부 검사 — #30 설정 드리프트 감지 (#32)"
+
+  source {
+    owner             = "AWS"                           # AWS 관리형 규칙
+    source_identifier = "EC2_EBS_ENCRYPTION_BY_DEFAULT" # 관리형 규칙 식별자
+  }
+
+  # periodic 룰 — 24시간마다 계정 설정 점검
+  maximum_execution_frequency = "TwentyFour_Hours"
+
+  # Config가 활성화된 후에만 룰 생성/평가 가능 (기존 룰과 동일 패턴)
+  depends_on = [aws_config_configuration_recorder_status.main]
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "Config"
+    Environment = "all"
+  }
+}

@@ -10,6 +10,7 @@ resources:
   - postgres.yaml
   - temporal.yaml
   - agents.yaml
+  - additional-agents.yaml
   - deployment.yaml
   - service.yaml
   - orchestrator-deployment.yaml
@@ -39,4 +40,19 @@ images:
     newTag: latest
   - name: finops-policy-guardrail-agent-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/policy-guardrail-agent
+    newTag: latest
+  - name: finops-infra-execution-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/infra-execution-agent
+    newTag: latest
+  - name: finops-unit-economics-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/unit-economics-agent
+    newTag: latest
+  - name: finops-observer-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/observer-agent
+    newTag: latest
+  - name: finops-fallback-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/fallback-agent
+    newTag: latest
+  - name: finops-postmortem-learning-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/postmortem-learning-agent
     newTag: latest

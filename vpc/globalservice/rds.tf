@@ -47,6 +47,7 @@ resource "aws_db_instance" "service" {
   db_subnet_group_name   = aws_db_subnet_group.service.name
   vpc_security_group_ids = [aws_security_group.rds.id]
   parameter_group_name   = aws_db_parameter_group.service.name
+  publicly_accessible    = false
 
   allocated_storage = 100
   storage_type      = "gp3"
@@ -58,12 +59,13 @@ resource "aws_db_instance" "service" {
   maintenance_window      = "sun:19:00-sun:20:00"
 
   auto_minor_version_upgrade = false
-  deletion_protection        = false
+  deletion_protection        = var.deletion_protection
   skip_final_snapshot        = true
 
   performance_insights_enabled = true
 
   tags = {
-    Name = "financial-service-db"
+    Name               = "financial-service-db"
+    DataClassification = "Confidential"
   }
 }

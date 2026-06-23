@@ -20,6 +20,7 @@ resource "aws_efs_file_system" "teleport" {
   }
 
   tags = {
-    Name = "financial-vpc3-teleport-data"
+    Name               = "financial-vpc3-teleport-data"
+    DataClassification = "Restricted"
   }
 }

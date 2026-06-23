@@ -29,7 +29,8 @@ resource "aws_secretsmanager_secret" "service_rds_password" {
   kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
-    Name = "financial-service-rds-password"
+    Name               = "financial-service-rds-password"
+    DataClassification = "Restricted"
   }
 
   lifecycle {
@@ -40,6 +41,7 @@ resource "aws_secretsmanager_secret" "service_rds_password" {
 resource "aws_secretsmanager_secret_version" "service_rds_password" {
   secret_id = aws_secretsmanager_secret.service_rds_password.id
   secret_string = jsonencode({
+    engine   = "postgres"
     username = "financial_admin"
     password = random_password.service_rds.result
     host     = module.vpc1.rds_address
@@ -66,7 +68,8 @@ resource "aws_secretsmanager_secret" "ops_rds_password" {
   kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # aws/secretsmanager 기본키 대신 CMK 사용
 
   tags = {
-    Name = "financial-ops-rds-password"
+    Name               = "financial-ops-rds-password"
+    DataClassification = "Restricted"
   }
 
   lifecycle {
@@ -77,6 +80,7 @@ resource "aws_secretsmanager_secret" "ops_rds_password" {
 resource "aws_secretsmanager_secret_version" "ops_rds_password" {
   secret_id = aws_secretsmanager_secret.ops_rds_password.id
   secret_string = jsonencode({
+    engine   = "postgres"
     username = "financial_admin"
     password = random_password.ops_rds.result
     host     = module.vpc2.rds_address
