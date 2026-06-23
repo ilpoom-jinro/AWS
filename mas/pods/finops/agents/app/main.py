@@ -13,7 +13,8 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import AGENT_TASK_QUEUES, run_agent as run_finops_agent_logic
+from app.agent_dispatch import run_agent as run_finops_agent_logic
+from app.agent_support import AGENT_TASK_QUEUES
 
 
 AGENT_KEY = os.getenv("AGENT_KEY", "business_control")
@@ -33,6 +34,8 @@ FINOPS_UI_DEPLOYMENT = os.getenv("FINOPS_UI_DEPLOYMENT", "finops-ui")
 FINOPS_KUBECTL_BIN = os.getenv("FINOPS_KUBECTL_BIN", "kubectl")
 FINOPS_AWS_BIN = os.getenv("FINOPS_AWS_BIN", "aws")
 AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2"))
+FINOPS_EKS_CLUSTER_NAME = os.getenv("FINOPS_EKS_CLUSTER_NAME", "financial-ops-eks")
+FINOPS_EKS_NODEGROUP_NAME = os.getenv("FINOPS_EKS_NODEGROUP_NAME", "")
 FINOPS_SPOT_INSTANCE_TYPES = [
     item.strip()
     for item in os.getenv("FINOPS_SPOT_INSTANCE_TYPES", "m7i-flex.large,m7i.large,m6i.large").split(",")
@@ -242,7 +245,7 @@ def read_agent_source_tables(event_id: str, agent_key: str) -> dict[str, Any]:
                         "hpa_current_replicas": row[7],
                         "hpa_desired_replicas": row[8],
                     }
-            if agent_key == "bottleneck_capacity":
+            if agent_key in {"bottleneck_capacity", "infra_execution"}:
                 row = conn.execute(
                     """
                     select event_id, eks_deployment_replicas, nodegroup_desired, nodegroup_max,
@@ -315,7 +318,7 @@ def read_agent_source_tables(event_id: str, agent_key: str) -> dict[str, Any]:
 
 
 def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
-    if agent_key not in {"traffic_forecast", "bottleneck_capacity"}:
+    if agent_key not in {"traffic_forecast", "bottleneck_capacity", "infra_execution"}:
         return {}
     commands = {
         "hpa": [FINOPS_KUBECTL_BIN, "get", "hpa", "-n", FINOPS_NAMESPACE, "-o", "json"],
@@ -346,6 +349,17 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
             FINOPS_KUBECTL_BIN,
             "get",
             "endpoints",
+            FINOPS_UI_DEPLOYMENT,
+            "-n",
+            FINOPS_NAMESPACE,
+            "-o",
+            "json",
+        ]
+    if agent_key == "infra_execution":
+        commands["deployment"] = [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "deployment",
             FINOPS_UI_DEPLOYMENT,
             "-n",
             FINOPS_NAMESPACE,
@@ -392,6 +406,17 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
         "running_pods": running_pods,
         "ready_pods": ready_pods,
     }
+    if "deployment" in command_results:
+        deployment = parse_command_json(command_results["deployment"])
+        deployment_spec = deployment.get("spec", {}) if deployment else {}
+        deployment_status = deployment.get("status", {}) if deployment else {}
+        result["infra"].update(
+            {
+                "eks_deployment_replicas": deployment_spec.get("replicas"),
+                "deployment_ready_replicas": deployment_status.get("readyReplicas"),
+                "deployment_available_replicas": deployment_status.get("availableReplicas"),
+            }
+        )
     if "endpoints" in command_results:
         endpoints = parse_command_json(command_results["endpoints"])
         ready_addresses = (
@@ -405,6 +430,67 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
 
 def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
     commands: dict[str, list[str]] = {}
+    if agent_key == "infra_execution":
+        commands.update(
+            {
+                "spot_price_history": [
+                    FINOPS_AWS_BIN,
+                    "ec2",
+                    "describe-spot-price-history",
+                    "--region",
+                    AWS_REGION,
+                    "--instance-types",
+                    *FINOPS_SPOT_INSTANCE_TYPES,
+                    "--product-descriptions",
+                    "Linux/UNIX",
+                    "--max-results",
+                    "10",
+                    "--output",
+                    "json",
+                ],
+                "spot_placement_score": [
+                    FINOPS_AWS_BIN,
+                    "ec2",
+                    "get-spot-placement-scores",
+                    "--region",
+                    AWS_REGION,
+                    "--instance-types",
+                    *FINOPS_SPOT_INSTANCE_TYPES,
+                    "--target-capacity",
+                    "1",
+                    "--single-availability-zone",
+                    "--output",
+                    "json",
+                ],
+                "instance_type_offerings": [
+                    FINOPS_AWS_BIN,
+                    "ec2",
+                    "describe-instance-type-offerings",
+                    "--region",
+                    AWS_REGION,
+                    "--location-type",
+                    "availability-zone",
+                    "--filters",
+                    f"Name=instance-type,Values={','.join(FINOPS_SPOT_INSTANCE_TYPES)}",
+                    "--output",
+                    "json",
+                ],
+            }
+        )
+        if FINOPS_EKS_NODEGROUP_NAME:
+            commands["eks_nodegroup"] = [
+                FINOPS_AWS_BIN,
+                "eks",
+                "describe-nodegroup",
+                "--region",
+                AWS_REGION,
+                "--cluster-name",
+                FINOPS_EKS_CLUSTER_NAME,
+                "--nodegroup-name",
+                FINOPS_EKS_NODEGROUP_NAME,
+                "--output",
+                "json",
+            ]
     if agent_key == "cost":
         commands["cost_explorer_mtd"] = [
             FINOPS_AWS_BIN,
@@ -440,6 +526,38 @@ def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
         result["cost_source"] = {
             "cost_explorer_month_to_date_usd": float(amount) if amount is not None else None,
             "cost_explorer_source": "aws_cost_explorer" if amount is not None else None,
+        }
+    if agent_key == "infra_execution":
+        spot_history = (parse_command_json(command_results["spot_price_history"]) or {}).get(
+            "SpotPriceHistory", []
+        )
+        spot_scores = (parse_command_json(command_results["spot_placement_score"]) or {}).get(
+            "SpotPlacementScores", []
+        )
+        offerings = (parse_command_json(command_results["instance_type_offerings"]) or {}).get(
+            "InstanceTypeOfferings", []
+        )
+        nodegroup_payload = parse_command_json(command_results.get("eks_nodegroup", {})) or {}
+        nodegroup = nodegroup_payload.get("nodegroup", {})
+        result["infra"] = {
+            "spot_instance_types": FINOPS_SPOT_INSTANCE_TYPES,
+            "latest_spot_prices": [
+                {
+                    "instance_type": item.get("InstanceType"),
+                    "availability_zone": item.get("AvailabilityZone"),
+                    "spot_price_usd_per_hour": float(item["SpotPrice"])
+                    if item.get("SpotPrice")
+                    else None,
+                    "timestamp": item.get("Timestamp"),
+                }
+                for item in spot_history[:5]
+            ],
+            "spot_placement_scores": spot_scores[:5],
+            "instance_type_offering_count": len(offerings) if offerings else None,
+            "eks_nodegroup_status": nodegroup.get("status"),
+            "eks_nodegroup_capacity_type": nodegroup.get("capacityType"),
+            "nodegroup_desired": nodegroup.get("scalingConfig", {}).get("desiredSize"),
+            "nodegroup_max": nodegroup.get("scalingConfig", {}).get("maxSize"),
         }
     return result
 

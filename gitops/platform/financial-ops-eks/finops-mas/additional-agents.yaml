@@ -1,0 +1,338 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-infra-execution-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-infra-execution-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-infra-execution-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-infra-execution-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-infra-execution-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: infra_execution
+            - name: AGENT_NAME
+              value: Infra Execution Planner
+            - name: AGENT_TASK_QUEUE
+              value: finops-infra-execution-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_EKS_CLUSTER_NAME
+              value: financial-ops-eks
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-unit-economics-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-unit-economics-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-unit-economics-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-unit-economics-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-unit-economics-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: unit_economics
+            - name: AGENT_NAME
+              value: Unit Economics Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-unit-economics-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-observer-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-observer-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-observer-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-observer-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-observer-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: observer
+            - name: AGENT_NAME
+              value: Observer Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-observer-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-fallback-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-fallback-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-fallback-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-fallback-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-fallback-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: fallback
+            - name: AGENT_NAME
+              value: Fallback Planner
+            - name: AGENT_TASK_QUEUE
+              value: finops-fallback-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-postmortem-learning-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-postmortem-learning-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-postmortem-learning-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-postmortem-learning-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      nodeSelector:
+        role: monitoring
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-postmortem-learning-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: postmortem_learning
+            - name: AGENT_NAME
+              value: Postmortem Learning Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-postmortem-learning-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: FINOPS_COMMAND_COLLECTORS_ENABLED
+              value: "true"
+            - name: BEDROCK_MODEL
+              value: anthropic.claude-haiku-4-5-20251001
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

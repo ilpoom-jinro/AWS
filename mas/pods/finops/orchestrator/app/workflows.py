@@ -52,19 +52,12 @@ class FinOpsEventWorkflow:
                 args=[workflow_id, phase, agent_key, agent_name, next_agent_name, context],
                 start_to_close_timeout=timedelta(seconds=10),
             )
-            if agent_key in AGENT_TASK_QUEUES:
-                raw_output = await workflow.execute_activity(
-                    "run_finops_agent",
-                    args=[workflow_id, agent_key, agent_name, context],
-                    task_queue=AGENT_TASK_QUEUES[agent_key],
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-            else:
-                raw_output = await workflow.execute_activity(
-                    "run_local_agent_step",
-                    args=[workflow_id, agent_key, agent_name, context],
-                    start_to_close_timeout=timedelta(seconds=20),
-                )
+            raw_output = await workflow.execute_activity(
+                "run_finops_agent",
+                args=[workflow_id, agent_key, agent_name, context],
+                task_queue=AGENT_TASK_QUEUES[agent_key],
+                start_to_close_timeout=timedelta(seconds=30),
+            )
             context = await workflow.execute_activity(
                 "record_agent_step_completed",
                 args=[workflow_id, phase, agent_key, agent_name, next_agent_name, context, raw_output],
