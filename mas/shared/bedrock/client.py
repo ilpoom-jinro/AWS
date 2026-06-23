@@ -35,6 +35,7 @@ Example:
 from __future__ import annotations
 
 import logging
+import os
 from enum import Enum
 from functools import lru_cache
 
@@ -43,7 +44,6 @@ import botocore.client
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from shared.config import get_settings
 from shared.exceptions import BedrockClientError
 
 logger = logging.getLogger(__name__)
@@ -86,12 +86,12 @@ def get_bedrock_client() -> botocore.client.BaseClient:
             - Region 설정 오류
             - Client 생성 실패
     """
-    settings = get_settings()
+    region = os.getenv("BEDROCK_REGION") or os.getenv("AWS_REGION", "ap-northeast-2")
 
     try:
         client = boto3.client(
             service_name="bedrock-runtime",
-            region_name=settings.aws_region,
+            region_name=region,
             config=_BOTO_CONFIG,
         )
 
@@ -103,7 +103,7 @@ def get_bedrock_client() -> botocore.client.BaseClient:
     logger.info(
         "bedrock_client_created",
         extra={
-            "region": settings.aws_region,
+            "region": region,
         },
     )
 
