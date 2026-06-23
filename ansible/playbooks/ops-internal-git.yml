@@ -33,6 +33,17 @@
           --overwrite
       changed_when: false
 
+    - name: 기존 gp3 StorageClass 삭제 (parameters immutable 회피 - 삭제 후 재생성)
+      # SC parameters는 immutable이라 갱신 불가 → 삭제 후 재생성으로 kmsKeyId 반영
+      # SC 삭제는 이미 bound된 PV/PVC에 영향 없음 (볼륨은 provisioner에 직접 붙어 SC 참조 끊겨도 유지)
+      kubernetes.core.k8s:
+        context: "{{ ops_kube_context }}"
+        state: absent
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: gp3
+      ignore_errors: true   # 최초 실행 시 SC가 없을 수 있으므로 실패 무시
+
     - name: Create gp3 StorageClass
       kubernetes.core.k8s:
         context: "{{ ops_kube_context }}"
@@ -49,7 +60,8 @@
           reclaimPolicy: Delete
           parameters:
             type: gp3
-            encrypted: "true"
+            encrypted: "true"           # 문자열이어야 함 (boolean true는 드라이버가 무시할 수 있음)
+            kmsKeyId: alias/key-eks      # 계정 default key 타이밍 의존 제거 - 명시 안 하면 aws/ebs로 샐 수 있음
 
   tasks:
     - name: Create PersistentVolumeClaim for Gitea data
