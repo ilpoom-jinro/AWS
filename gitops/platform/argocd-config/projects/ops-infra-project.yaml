@@ -39,6 +39,9 @@ spec:
     # 모든 등록 클러스터 → kyverno 네임스페이스 (ApplicationSet cluster generator 와일드카드 대응)
     - server: "*"
       namespace: kyverno
+      # metrics-server (service 클러스터 kube-system)
+    - name: financial-service-eks
+      namespace: kube-system
   clusterResourceWhitelist:
     # applications/namespace-observability.yaml 등 raw Namespace 매니페스트를
     # platform-applications App-of-Apps가 직접 배포하므로 필수
@@ -66,6 +69,9 @@ spec:
     # ESO ClusterSecretStore — 클러스터 스코프 리소스
     - group: external-secrets.io
       kind: ClusterSecretStore
+      # metrics-server가 등록하는 Aggregated API
+    - group: apiregistration.k8s.io
+      kind: APIService
   namespaceResourceWhitelist:
     # 인프라 Helm 차트는 ServiceMonitor, PDB, MutatingWebhookConfiguration 등
     # 다양한 extension 리소스를 배포하므로 네임스페이스 수준은 와일드카드 허용
