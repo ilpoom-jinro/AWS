@@ -64,6 +64,15 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          
+          # readinessProbe 위/아래 같은 레벨에 추가
+          resources:
+            requests:
+              cpu: 100m       # HPA 사용률 계산의 기준값
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
