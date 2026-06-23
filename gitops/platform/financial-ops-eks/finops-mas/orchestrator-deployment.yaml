@@ -31,10 +31,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: finops-db-credentials
-                  key: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: TEMPORAL_ADDRESS
               value: finops-temporal.finops-mas.svc.cluster.local:7233
             - name: AWS_REGION

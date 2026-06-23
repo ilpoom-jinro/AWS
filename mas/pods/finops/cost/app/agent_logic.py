@@ -25,12 +25,13 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "push": push,
         "total": total,
         "pod_count": infra["target_app_pods"],
-        "cost_explorer_month_to_date_usd": source.get("cost_explorer_month_to_date_usd"),
+        "cost_explorer_month_to_date_usd": source.get("cur_month_to_date_usd", source.get("cost_explorer_month_to_date_usd")),
+        "cur_month_to_date_usd": source.get("cur_month_to_date_usd"),
         "cur_projected_monthly_usd": source.get("cur_projected_monthly_usd"),
         "kubecost_namespace_daily_usd": float(source.get("kubecost_namespace_daily_usd", 0)),
         "event_incremental_budget_usd": budget,
-        "source": "aws_cost_explorer+cost_signal"
-        if source.get("cost_explorer_source") == "aws_cost_explorer"
+        "source": "aws_cur_athena+cost_signal"
+        if source.get("cost_source_type") == "aws_cur_athena"
         else "cost_signal",
     }
     return result, f"Estimated incremental cost is ${total} for {infra['target_app_pods']} target pods."

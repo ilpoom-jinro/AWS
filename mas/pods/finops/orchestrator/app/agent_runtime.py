@@ -149,6 +149,7 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
             "cost": {
                 "estimated_event_cost_usd": cost["total"],
                 "month_to_date_usd": cost.get("cost_explorer_month_to_date_usd"),
+                "cur_month_to_date_usd": cost.get("cur_month_to_date_usd"),
                 "projected_monthly_usd": cost.get("cur_projected_monthly_usd"),
                 "event_budget_usd": cost.get("event_incremental_budget_usd"),
             },

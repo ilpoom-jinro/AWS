@@ -97,12 +97,54 @@ resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "CostExplorerRead"
+        Sid    = "CloudWatchMetricsRead"
         Effect = "Allow"
         Action = [
-          "ce:GetCostAndUsage",
-          "ce:GetDimensionValues",
-          "ce:GetTags",
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarms",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AthenaAndGlueRead"
+        Effect = "Allow"
+        Action = [
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StartQueryExecution",
+          "athena:StopQueryExecution",
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:GetTable",
+          "glue:GetTables",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AthenaResultsBucketAccess"
+        Effect = "Allow"
+        Action = [
+          "s3:AbortMultipartUpload",
+          "s3:GetBucketLocation",
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:PutObject",
+        ]
+        Resource = [
+          aws_s3_bucket.finops_athena_results.arn,
+          "${aws_s3_bucket.finops_athena_results.arn}/*",
+        ]
+      },
+      {
+        Sid    = "CurSourceBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
         ]
         Resource = "*"
       },
@@ -116,6 +158,9 @@ resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
           "ec2:DescribeRegions",
           "ec2:DescribeSpotPriceHistory",
           "ec2:GetSpotPlacementScores",
+          "eks:DescribeCluster",
+          "eks:DescribeNodegroup",
+          "eks:ListNodegroups",
         ]
         Resource = "*"
       },
@@ -182,12 +227,54 @@ resource "aws_iam_role_policy" "mas_agent_finops_collector" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "CostExplorerRead"
+        Sid    = "CloudWatchMetricsRead"
         Effect = "Allow"
         Action = [
-          "ce:GetCostAndUsage",
-          "ce:GetDimensionValues",
-          "ce:GetTags",
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarms",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AthenaAndGlueRead"
+        Effect = "Allow"
+        Action = [
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:StartQueryExecution",
+          "athena:StopQueryExecution",
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:GetTable",
+          "glue:GetTables",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AthenaResultsBucketAccess"
+        Effect = "Allow"
+        Action = [
+          "s3:AbortMultipartUpload",
+          "s3:GetBucketLocation",
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:PutObject",
+        ]
+        Resource = [
+          aws_s3_bucket.finops_athena_results.arn,
+          "${aws_s3_bucket.finops_athena_results.arn}/*",
+        ]
+      },
+      {
+        Sid    = "CurSourceBucketRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
         ]
         Resource = "*"
       },
@@ -201,6 +288,9 @@ resource "aws_iam_role_policy" "mas_agent_finops_collector" {
           "ec2:DescribeRegions",
           "ec2:DescribeSpotPriceHistory",
           "ec2:GetSpotPlacementScores",
+          "eks:DescribeCluster",
+          "eks:DescribeNodegroup",
+          "eks:ListNodegroups",
         ]
         Resource = "*"
       },

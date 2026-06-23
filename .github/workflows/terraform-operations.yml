@@ -160,6 +160,50 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
+      - name: Reconcile existing Secrets Manager rotations
+        if: contains(fromJSON('["apply","reapply"]'), inputs.action)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          import_rotation_if_needed() {
+            local resource_address="$1"
+            local secret_name="$2"
+
+            local managed_resources
+            managed_resources="$(terraform state list)"
+            if grep -Fxq "${resource_address}" <<< "${managed_resources}"; then
+              echo "Terraform already manages ${resource_address}."
+              return
+            fi
+
+            local metadata
+            if ! metadata="$(aws secretsmanager describe-secret \
+              --secret-id "${secret_name}" \
+              --query '[ARN,RotationEnabled]' \
+              --output text 2>/dev/null)"; then
+              echo "Secret ${secret_name} does not exist yet; Terraform will create its rotation."
+              return
+            fi
+
+            local secret_arn rotation_enabled
+            read -r secret_arn rotation_enabled <<< "${metadata}"
+            if [ "${rotation_enabled}" != "True" ]; then
+              echo "Rotation is not enabled for ${secret_name}; Terraform will configure it."
+              return
+            fi
+
+            echo "Importing existing rotation for ${secret_name} into ${resource_address}."
+            terraform import -input=false "${resource_address}" "${secret_arn}"
+          }
+
+          import_rotation_if_needed \
+            aws_secretsmanager_secret_rotation.service_rds \
+            financial-service-rds-password
+          import_rotation_if_needed \
+            aws_secretsmanager_secret_rotation.ops_rds \
+            financial-ops-rds-password
+
       - name: Apply IAM module
         if: contains(fromJSON('["apply","reapply"]'), inputs.action)
         run: >

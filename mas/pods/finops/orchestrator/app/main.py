@@ -219,15 +219,6 @@ def collect_kubernetes_live_context() -> dict[str, Any]:
     }
 
 
-def month_start_utc() -> str:
-    now = datetime.now(timezone.utc)
-    return now.replace(day=1).strftime("%Y-%m-%d")
-
-
-def today_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
 def collect_aws_live_context() -> dict[str, Any]:
     commands = {
         "identity": [
@@ -281,21 +272,6 @@ def collect_aws_live_context() -> dict[str, Any]:
             "--output",
             "json",
         ],
-        "cost_explorer_mtd": [
-            FINOPS_AWS_BIN,
-            "ce",
-            "get-cost-and-usage",
-            "--region",
-            "us-east-1",
-            "--time-period",
-            f"Start={month_start_utc()},End={today_utc()}",
-            "--granularity",
-            "MONTHLY",
-            "--metrics",
-            "UnblendedCost",
-            "--output",
-            "json",
-        ],
     }
     if FINOPS_EKS_NODEGROUP_NAME:
         commands["eks_nodegroup"] = [
@@ -316,7 +292,6 @@ def collect_aws_live_context() -> dict[str, Any]:
     spot_history = (parse_command_json(command_results["spot_price_history"]) or {}).get("SpotPriceHistory", [])
     spot_scores = (parse_command_json(command_results["spot_placement_score"]) or {}).get("SpotPlacementScores", [])
     offerings = (parse_command_json(command_results["instance_type_offerings"]) or {}).get("InstanceTypeOfferings", [])
-    cost_payload = parse_command_json(command_results["cost_explorer_mtd"]) or {}
     nodegroup_payload = parse_command_json(command_results.get("eks_nodegroup", {})) or {}
 
     latest_spot_prices = []
@@ -329,13 +304,6 @@ def collect_aws_live_context() -> dict[str, Any]:
                 "timestamp": item.get("Timestamp"),
             }
         )
-
-    mtd_cost = None
-    results_by_time = cost_payload.get("ResultsByTime", [])
-    if results_by_time:
-        amount = results_by_time[0].get("Total", {}).get("UnblendedCost", {}).get("Amount")
-        if amount is not None:
-            mtd_cost = float(amount)
 
     nodegroup = nodegroup_payload.get("nodegroup", {})
     return {
@@ -351,9 +319,6 @@ def collect_aws_live_context() -> dict[str, Any]:
             "eks_nodegroup_capacity_type": nodegroup.get("capacityType"),
             "eks_nodegroup_desired": nodegroup.get("scalingConfig", {}).get("desiredSize"),
             "eks_nodegroup_max": nodegroup.get("scalingConfig", {}).get("maxSize"),
-        },
-        "cost": {
-            "cost_explorer_month_to_date_usd": mtd_cost,
         },
     }
 
