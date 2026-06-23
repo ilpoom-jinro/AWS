@@ -40,6 +40,55 @@ class MetricsCollector:
             logger.warning("Thanos 쿼리 실패: %s (%s)", promql, exc)
         return None
 
+    async def _query_vector(self, promql: str) -> list[tuple[dict, float]]:
+        """instant 쿼리 → (labels, value) 리스트 반환. 실패 시 빈 리스트.
+
+        여러 시계열(예: 파드별 P95)을 한 번에 받을 때 사용한다.
+        """
+        out: list[tuple[dict, float]] = []
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(
+                    f"{self.base_url}/api/v1/query",
+                    params={"query": promql},
+                )
+                resp.raise_for_status()
+                for series in resp.json().get("data", {}).get("result", []):
+                    try:
+                        out.append((series.get("metric", {}), float(series["value"][1])))
+                    except (KeyError, ValueError, IndexError):
+                        continue
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            logger.warning("Thanos vector 쿼리 실패: %s (%s)", promql, exc)
+        return out
+
+    async def find_high_latency_pod(
+        self, cluster: str, namespace: str, threshold_ms: float
+    ) -> tuple[str, float] | None:
+        """네임스페이스에서 Istio P95 요청 지연이 임계값(ms)을 넘는 최악의 파드 반환.
+
+        반환: (pod_name, p95_ms) — 임계값 초과 파드 중 가장 느린 1건. 없으면 None.
+        error_rate 쿼리와 동일한 Istio telemetry(istio_request_duration_milliseconds) 계열 사용.
+        NaN/임계값 이하는 제외. Thanos 미응답 시 빈 결과 → None (탐지 스킵, 사이클 유지).
+        """
+        promql = (
+            "histogram_quantile(0.95, sum by (pod, le) (rate("
+            f'istio_request_duration_milliseconds_bucket{{cluster="{cluster}",'
+            f'namespace="{namespace}"}}[5m])))'
+        )
+        worst_pod: str | None = None
+        worst_val = threshold_ms
+        for labels, value in await self._query_vector(promql):
+            pod = labels.get("pod", "")
+            # value != value → NaN 제외 (지연 데이터 없는 파드)
+            if not pod or value != value:
+                continue
+            if value > worst_val:
+                worst_pod, worst_val = pod, value
+        if worst_pod is not None:
+            return worst_pod, worst_val
+        return None
+
     async def collect_pod_metrics(
         self, cluster: str, namespace: str, pod: str
     ) -> dict[str, float]:

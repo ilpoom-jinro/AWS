@@ -43,6 +43,10 @@ class AIOpsSettings(BaseSettings):
     # 자동 조치 최소 신뢰도 (미만이면 strategy=manual)
     RCA_CONFIDENCE_MIN: float = Field(default=0.7)
 
+    # high_latency 탐지: Istio P95 요청 지연 임계값 (밀리초)
+    # 상태 이상(CrashLoop 등)이 없는 Running 파드 중 P95 지연이 이 값을 넘으면 high_latency
+    HIGH_LATENCY_P95_MS: float = Field(default=1000.0)
+
     # Temporal
     TEMPORAL_HOST: str = Field(default="temporal-frontend.temporal.svc.cluster.local:7233")
     TEMPORAL_NAMESPACE: str = Field(default="default")

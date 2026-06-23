@@ -12,7 +12,8 @@ AIOpsActivities.detect_incident(DetectIncidentInput) -> IncidentContext
 
 탐지 패턴 (협의 후 6종):
   CrashLoopBackOff, OOMKilled, ImagePullBackOff/ErrImagePull,
-  PendingTimeout(>10분), Evicted
+  PendingTimeout(>10분), Evicted,
+  high_latency(Istio P95 요청 지연 > HIGH_LATENCY_P95_MS — 상태 이상 없을 때만 메트릭 기반 탐지)
 """
 from __future__ import annotations
 
@@ -139,5 +140,45 @@ async def detect_incident(input: DetectIncidentInput) -> IncidentContext | None:
             memory_usage_current=metrics["memory_usage_current"],
             error_rate=metrics["error_rate"],
         )
+
+    # ── high_latency 탐지 ──────────────────────────────────────────────
+    # 상태 이상(CrashLoop/OOM 등)이 하나도 없을 때만 메트릭 기반으로 점검.
+    # Istio P95 요청 지연이 임계값을 넘는 최악의 파드 1건을 high_latency로 보고.
+    if input.namespace not in EXCLUDED_NAMESPACES:
+        mc = MetricsCollector(settings.THANOS_QUERY_URL)
+        hot = await mc.find_high_latency_pod(
+            cluster=input.cluster_name,
+            namespace=input.namespace,
+            threshold_ms=settings.HIGH_LATENCY_P95_MS,
+        )
+        if hot is not None:
+            pod_name, p95_ms = hot
+
+            logs = await collector.get_pod_logs(
+                input.namespace, pod_name, tail=MAX_LOG_LINES,
+            )
+            # IncidentContext엔 지연 전용 필드가 없어 합성 로그 1줄로 근거 보존
+            # (max_length=50 충족 위해 49줄 + 1줄)
+            log_lines = [ln for ln in logs.splitlines() if ln][: MAX_LOG_LINES - 1]
+            log_lines.append(
+                f"[high_latency] Istio P95 요청 지연 {p95_ms:.0f}ms "
+                f"(임계값 {settings.HIGH_LATENCY_P95_MS:.0f}ms 초과)"
+            )
+
+            metrics = await mc.collect_pod_metrics(
+                cluster=input.cluster_name, namespace=input.namespace, pod=pod_name,
+            )
+
+            return IncidentContext(
+                cluster_name=input.cluster_name,
+                namespace=input.namespace,
+                pod_name=pod_name,
+                anomaly_type="high_latency",
+                restart_count=0,
+                recent_logs=log_lines,
+                cpu_usage_current=metrics["cpu_usage_current"],
+                memory_usage_current=metrics["memory_usage_current"],
+                error_rate=metrics["error_rate"],
+            )
 
     return None
