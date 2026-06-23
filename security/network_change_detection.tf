@@ -7,8 +7,8 @@
 #
 # CloudTrail 의존성:
 #   ilpumjinro-trail 이 관리 이벤트(write)를 기록해야 EventBridge 가 매칭함.
-#   event_selector 는 lifecycle ignore_changes 로 Terraform 밖에 있으므로
-#   콘솔에서 "Management events - Write" 활성화 여부 별도 확인 필요.
+#   CloudTrail 인프라(Trail·Log Group·IAM Role)는 cloudtrail.tf에서 관리.
+#   event_selector = WriteOnly 로 Terraform 고정(cloudtrail.tf 참조).
 # =============================================
 
 # =============================================
