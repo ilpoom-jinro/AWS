@@ -1,0 +1,8 @@
+version: 0.2
+phases:
+  build:
+    commands:
+      # ISMS-P(국문) 기준, 서울 리전, OCSF 포함 3종 출력, 결과를 S3로 직접 푸시
+      # -z: FAIL 발견 시 Prowler가 exit 3 반환 → 빌드 실패로 오인 방지 (정확 플래그명은 prowler aws -h로 재확인)
+      - prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html -B "financial-prowler-findings-${ACCOUNT_ID}" -z
+# 공식 이미지에 prowler·boto3 내장 → install 단계 불필요. ENTRYPOINT는 CodeBuild가 오버라이드하므로 buildspec 정상 실행.
