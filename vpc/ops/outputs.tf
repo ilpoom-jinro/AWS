@@ -38,6 +38,18 @@ output "eks_cluster_arn" {
   value = aws_eks_cluster.ops.arn
 }
 
+output "finops_athena_workgroup" {
+  value = aws_athena_workgroup.finops_cur.name
+}
+
+output "finops_athena_results_bucket" {
+  value = aws_s3_bucket.finops_athena_results.bucket
+}
+
+output "finops_cur_database" {
+  value = aws_glue_catalog_database.finops_cur.name
+}
+
 output "eks_cluster_endpoint" {
   value = aws_eks_cluster.ops.endpoint
 }

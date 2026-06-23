@@ -1,12 +1,16 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+import boto3
 import psycopg
+from botocore.config import Config
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from temporalio import activity
@@ -43,6 +47,10 @@ FINOPS_SPOT_INSTANCE_TYPES = [
 ]
 COMMAND_COLLECTORS_ENABLED = os.getenv("FINOPS_COMMAND_COLLECTORS_ENABLED", "true").lower() == "true"
 COMMAND_COLLECTOR_TIMEOUT_SECONDS = float(os.getenv("FINOPS_COMMAND_COLLECTOR_TIMEOUT_SECONDS", "5"))
+FINOPS_ATHENA_DATABASE = os.getenv("FINOPS_ATHENA_DATABASE", "finops_cur")
+FINOPS_ATHENA_TABLE = os.getenv("FINOPS_ATHENA_TABLE", "cur")
+FINOPS_ATHENA_WORKGROUP = os.getenv("FINOPS_ATHENA_WORKGROUP", "finops-cur")
+FINOPS_ATHENA_TIMEOUT_SECONDS = float(os.getenv("FINOPS_ATHENA_TIMEOUT_SECONDS", "10"))
 
 AGENT_DATA_REQUESTS = {
     "demand_shaping": [
@@ -183,13 +191,86 @@ def parse_kubectl_top_pods(stdout: str) -> dict[str, Any]:
     return {"pods": pods, "sample_count": len(pods)}
 
 
-def month_start_utc() -> str:
-    now = datetime.now(timezone.utc)
-    return now.replace(day=1).strftime("%Y-%m-%d")
+def collect_athena_cost() -> dict[str, Any]:
+    command: dict[str, Any] = {
+        "name": "athena_cur_mtd",
+        "status": "failed",
+        "database": FINOPS_ATHENA_DATABASE,
+        "table": FINOPS_ATHENA_TABLE,
+        "workgroup": FINOPS_ATHENA_WORKGROUP,
+    }
+    if not COMMAND_COLLECTORS_ENABLED:
+        command["status"] = "disabled"
+        return _athena_result(command)
+    identifier = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    if not identifier.fullmatch(FINOPS_ATHENA_DATABASE) or not identifier.fullmatch(FINOPS_ATHENA_TABLE):
+        command["error"] = "Athena database and table names must be SQL identifiers"
+        return _athena_result(command)
+
+    query = (
+        'SELECT COALESCE(SUM(CAST("line_item_unblended_cost" AS DOUBLE)), 0) '
+        f'AS month_to_date_usd FROM "{FINOPS_ATHENA_DATABASE}"."{FINOPS_ATHENA_TABLE}" '
+        'WHERE CAST("line_item_usage_start_date" AS TIMESTAMP) >= date_trunc(\'month\', current_timestamp) '
+        'AND CAST("line_item_usage_start_date" AS TIMESTAMP) < current_timestamp'
+    )
+    command["query"] = query
+    try:
+        client = boto3.client(
+            "athena",
+            region_name=AWS_REGION,
+            config=Config(
+                connect_timeout=COMMAND_COLLECTOR_TIMEOUT_SECONDS,
+                read_timeout=COMMAND_COLLECTOR_TIMEOUT_SECONDS,
+                retries={"max_attempts": 1},
+            ),
+        )
+        response = client.start_query_execution(
+            QueryString=query,
+            QueryExecutionContext={"Database": FINOPS_ATHENA_DATABASE},
+            WorkGroup=FINOPS_ATHENA_WORKGROUP,
+        )
+        query_id = response["QueryExecutionId"]
+        command["query_execution_id"] = query_id
+        deadline = time.monotonic() + FINOPS_ATHENA_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            execution = client.get_query_execution(QueryExecutionId=query_id)["QueryExecution"]
+            state = execution["Status"]["State"]
+            if state == "SUCCEEDED":
+                rows = client.get_query_results(QueryExecutionId=query_id, MaxResults=2)["ResultSet"]["Rows"]
+                value = rows[1]["Data"][0].get("VarCharValue") if len(rows) > 1 else None
+                amount = float(value) if value not in {None, ""} else 0.0
+                command["status"] = "ok"
+                return _athena_result(command, amount)
+            if state in {"FAILED", "CANCELLED"}:
+                command["status"] = state.lower()
+                command["error"] = execution["Status"].get("StateChangeReason", state)
+                return _athena_result(command)
+            time.sleep(0.5)
+        client.stop_query_execution(QueryExecutionId=query_id)
+        command["status"] = "timeout"
+        command["error"] = f"Athena query exceeded {FINOPS_ATHENA_TIMEOUT_SECONDS:g}s"
+    except Exception as exc:
+        command["error"] = str(exc)
+    return _athena_result(command)
 
 
-def today_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def _athena_result(command: dict[str, Any], amount: float | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "live": {
+            "aws": {
+                "collected_at": utcnow(),
+                "region": AWS_REGION,
+                "commands": {"athena_cur_mtd": command},
+            }
+        }
+    }
+    if amount is not None:
+        result["cost_source"] = {
+            "cur_month_to_date_usd": amount,
+            "cost_explorer_month_to_date_usd": amount,
+            "cost_source_type": "aws_cur_athena",
+        }
+    return result
 
 
 def merge_present(target: dict[str, Any], updates: dict[str, Any]) -> None:
@@ -429,6 +510,8 @@ def collect_kubernetes_for_agent(agent_key: str) -> dict[str, Any]:
 
 
 def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
+    if agent_key == "cost":
+        return collect_athena_cost()
     commands: dict[str, list[str]] = {}
     if agent_key == "infra_execution":
         commands.update(
@@ -491,22 +574,6 @@ def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
                 "--output",
                 "json",
             ]
-    if agent_key == "cost":
-        commands["cost_explorer_mtd"] = [
-            FINOPS_AWS_BIN,
-            "ce",
-            "get-cost-and-usage",
-            "--region",
-            "us-east-1",
-            "--time-period",
-            f"Start={month_start_utc()},End={today_utc()}",
-            "--granularity",
-            "MONTHLY",
-            "--metrics",
-            "UnblendedCost",
-            "--output",
-            "json",
-        ]
     if not commands:
         return {}
     command_results = {name: run_readonly_command(name, command) for name, command in commands.items()}
@@ -519,14 +586,6 @@ def collect_aws_for_agent(agent_key: str) -> dict[str, Any]:
             }
         }
     }
-    if agent_key == "cost":
-        payload = parse_command_json(command_results["cost_explorer_mtd"]) or {}
-        rows = payload.get("ResultsByTime", [])
-        amount = rows[0].get("Total", {}).get("UnblendedCost", {}).get("Amount") if rows else None
-        result["cost_source"] = {
-            "cost_explorer_month_to_date_usd": float(amount) if amount is not None else None,
-            "cost_explorer_source": "aws_cost_explorer" if amount is not None else None,
-        }
     if agent_key == "infra_execution":
         spot_history = (parse_command_json(command_results["spot_price_history"]) or {}).get(
             "SpotPriceHistory", []
