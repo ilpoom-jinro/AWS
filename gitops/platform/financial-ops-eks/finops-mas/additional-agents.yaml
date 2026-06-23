@@ -49,7 +49,7 @@ spec:
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -116,7 +116,7 @@ spec:
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -183,7 +183,7 @@ spec:
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -250,7 +250,7 @@ spec:
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -317,7 +317,7 @@ spec:
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
