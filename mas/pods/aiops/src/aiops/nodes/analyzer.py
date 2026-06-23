@@ -51,18 +51,41 @@ pod: {pod}
 anomaly_type: {anomaly}
 restart_count: {restarts}
 
+[실시간 메트릭] (Thanos Query, 0.0~1.0 = 0~100% 비율)
+CPU 사용률:    {cpu}
+메모리 사용률: {memory}
+에러율(5xx):   {error_rate}
+
 [최근 로그]
 {logs}
+
+[분석 지침]
+- 메트릭과 anomaly_type의 상관관계를 반드시 교차 검증하십시오.
+  · oom_killed 인데 메모리 사용률이 높으면(>0.85) scale_out 신뢰도를 높이고,
+    메모리가 낮은데 OOM이면 메모리 누수/limit 오설정 가능성을 의심하십시오.
+  · crashloop_backoff 는 보통 로그의 예외/종료코드가 핵심 근거입니다.
+    메트릭이 정상 범위면 설정/의존성 오류일 확률이 높습니다(restart 우선).
+  · 에러율(5xx)이 높으면(>0.1) 단순 재시작보다 rollback을 우선 고려하십시오.
+  · 메트릭이 모두 0.0이면 "수집 실패"로 간주하고 로그에 더 의존하되,
+    confidence를 보수적으로 낮추십시오.
+- 근거가 약하거나 상충하면 strategy를 manual로 두십시오.
 
 응답 형식:
 {{
   "root_cause": "한 줄 핵심 원인 (50자 이내)",
-  "detail": "상세 분석 (300자 이내)",
+  "detail": "상세 분석 — 메트릭·로그 근거 명시 (300자 이내)",
   "confidence": 0.0~1.0,
   "strategy": "restart | scale_out | rollback | manual",
   "strategy_detail": "구체 실행 방안 (예: deployment/backend 재시작)",
   "estimated_recovery_minutes": 정수
 }}"""
+
+
+def _fmt_pct(value: float) -> str:
+    """0.0~1.0 비율을 퍼센트 문자열로. 0.0은 수집 실패로 명시."""
+    if value <= 0.0:
+        return "0% (수집 실패 또는 데이터 없음)"
+    return f"{value * 100:.1f}%"
 
 
 def _invoke_bedrock(prompt: str) -> dict:
@@ -100,6 +123,9 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
         pod=incident.pod_name,
         anomaly=incident.anomaly_type,
         restarts=incident.restart_count,
+        cpu=_fmt_pct(incident.cpu_usage_current),
+        memory=_fmt_pct(incident.memory_usage_current),
+        error_rate=_fmt_pct(incident.error_rate),
         logs="\n".join(incident.recent_logs)[:6000],
     )
 

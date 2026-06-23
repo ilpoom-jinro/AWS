@@ -23,6 +23,7 @@ from contracts.models import DetectIncidentInput, IncidentContext
 
 from ..config import settings
 from ..k8s_collector import K8sCollector
+from ..metrics_collector import MetricsCollector
 from ..mappers import to_anomaly_type
 
 CRASH_THRESHOLD = 3
@@ -122,6 +123,11 @@ async def detect_incident(input: DetectIncidentInput) -> IncidentContext | None:
         )
         log_lines = [ln for ln in logs.splitlines() if ln][:MAX_LOG_LINES]
 
+        # 메트릭 수집 (Thanos Query, 읽기 전용) — IncidentContext 메트릭 필드 채움
+        metrics = await MetricsCollector(settings.THANOS_QUERY_URL).collect_pod_metrics(
+            cluster=input.cluster_name, namespace=ns, pod=pod_name,
+        )
+
         return IncidentContext(
             cluster_name=input.cluster_name,
             namespace=ns,
@@ -129,6 +135,9 @@ async def detect_incident(input: DetectIncidentInput) -> IncidentContext | None:
             anomaly_type=anomaly_type,
             restart_count=restart_count,
             recent_logs=log_lines,
+            cpu_usage_current=metrics["cpu_usage_current"],
+            memory_usage_current=metrics["memory_usage_current"],
+            error_rate=metrics["error_rate"],
         )
 
     return None

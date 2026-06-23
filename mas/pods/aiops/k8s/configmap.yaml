@@ -9,6 +9,7 @@ data:
   SERVICE_KUBE_CONTEXT:     "financial-service-eks"
   OPS_EKS_CLUSTER_NAME:     "REPLACE_WITH_OPS_CLUSTER_NAME"
   SERVICE_EKS_CLUSTER_NAME: "REPLACE_WITH_SERVICE_CLUSTER_NAME"
+  THANOS_QUERY_URL:         "http://observability-thanos-query.observability.svc.cluster.local:9090"
   VERIFY_WAIT_SEC:          "300"
   CRASH_THRESHOLD:          "3"
   PENDING_TIMEOUT_SEC:      "600"

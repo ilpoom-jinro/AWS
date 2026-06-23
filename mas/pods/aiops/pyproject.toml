@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aiops-agent"
-version = "1.1.0"
+version = "1.2.1"
 description = "MAS Platform AIOps Agent — Temporal Activities (detect/analyze/verify)"
 requires-python = ">=3.12"
 dependencies = [
@@ -17,6 +17,8 @@ dependencies = [
     "botocore>=1.34",
     # Kubernetes (읽기 전용 수집)
     "kubernetes>=30.1",
+    # Thanos Query HTTP (메트릭 수집, 읽기 전용)
+    "httpx>=0.27",
     # 모델
     "pydantic>=2.6",
     "pydantic-settings>=2.2",

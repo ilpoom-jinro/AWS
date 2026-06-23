@@ -119,3 +119,50 @@ assert hasattr(AIOpsRemediationWorkflow, "approval_result")  # signal 핸들러 
 passed += 1; print(f"{passed}. ApprovalTicket 모델 + Workflow signal 핸들러 OK")
 
 print(f"\n=== MAS v2 정합 테스트 {passed}/9 통과 ===")
+
+
+# 10. MetricsCollector clamp 로직 (0~1 비율 보장)
+import asyncio
+from unittest.mock import AsyncMock, patch
+from aiops.metrics_collector import MetricsCollector
+
+async def _test_metrics():
+    mc = MetricsCollector("http://thanos:9090")
+    # _query를 모킹: cpu=0.45, mem=1.7(초과→1.0 클램프), err=None(→0.0)
+    async def fake_query(promql):
+        if "cpu" in promql: return 0.45
+        if "memory" in promql or "working_set" in promql: return 1.7
+        return None
+    with patch.object(mc, "_query", side_effect=fake_query):
+        m = await mc.collect_pod_metrics("financial-ops-eks", "service-apps", "backend-x")
+    assert m["cpu_usage_current"] == 0.45
+    assert m["memory_usage_current"] == 1.0   # 1.7 → 클램프
+    assert m["error_rate"] == 0.0             # None → 0.0
+    return True
+
+assert asyncio.run(_test_metrics())
+passed += 1; print(f"{passed}. MetricsCollector clamp (0.45/1.0/0.0) OK")
+
+# 11. IncidentContext가 메트릭 필드를 실제로 담는지 (0~1 검증)
+ic_with_metrics = IncidentContext(
+    cluster_name="financial-ops-eks", namespace="service-apps",
+    pod_name="backend-abc12-xyz", anomaly_type="oom_killed",
+    restart_count=2, recent_logs=["oom"],
+    cpu_usage_current=0.8, memory_usage_current=0.95, error_rate=0.1,
+)
+assert ic_with_metrics.memory_usage_current == 0.95
+passed += 1; print(f"{passed}. IncidentContext 메트릭 필드 채움 OK")
+
+# 12. analyzer 프롬프트가 메트릭을 실제로 포함하는지
+from aiops.nodes.analyzer import RCA_PROMPT, _fmt_pct
+_p = RCA_PROMPT.format(
+    cluster="c", namespace="n", pod="p", anomaly="oom_killed", restarts=3,
+    cpu=_fmt_pct(0.32), memory=_fmt_pct(0.97), error_rate=_fmt_pct(0.0),
+    logs="OutOfMemoryError",
+)
+assert "97.0%" in _p                          # 메모리 사용률 반영
+assert "수집 실패" in _p                       # error_rate 0.0 → 수집 실패 표기
+assert "교차 검증" in _p                       # 분석 지침 포함
+passed += 1; print(f"{passed}. analyzer 프롬프트 메트릭 반영 + 교차검증 지침 OK")
+
+print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/12 통과 ===")

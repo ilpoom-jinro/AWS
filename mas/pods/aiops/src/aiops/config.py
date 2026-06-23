@@ -28,6 +28,11 @@ class AIOpsSettings(BaseSettings):
     OPS_EKS_CLUSTER_NAME: str = Field(default="")
     SERVICE_EKS_CLUSTER_NAME: str = Field(default="")
 
+    # Thanos Query (메트릭 수집, 읽기 전용) — 모니터링 스택 전환 반영
+    THANOS_QUERY_URL: str = Field(
+        default="http://observability-thanos-query.observability.svc.cluster.local:9090"
+    )
+
     # 검증 대기 (Workflow timer가 사용)
     VERIFY_WAIT_SEC: int = Field(default=300)
 
