@@ -39,3 +39,6 @@ spec:
     # ESO ExternalSecret — stock-api-db K8s Secret 자동 동기화
     - group: external-secrets.io
       kind: ExternalSecret
+    # HPA (autoscaling/v2) — stock-api scale_out 대응
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
