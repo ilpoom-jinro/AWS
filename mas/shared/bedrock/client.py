@@ -58,7 +58,7 @@ class ClaudeModel(str, Enum):
         Cross-Region Inference 모델 ID를 사용한다
     """
 
-    HAIKU = "anthropic.claude-haiku-4-5-20251001"
+    HAIKU = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
     SONNET = "anthropic.claude-sonnet-4-6"
     OPUS = "us.anthropic.claude-opus-4-6"
 

@@ -45,7 +45,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -126,7 +126,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -207,7 +207,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -288,7 +288,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -377,7 +377,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
@@ -458,7 +458,7 @@ spec:
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
-              value: anthropic.claude-haiku-4-5-20251001
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
           ports:
