@@ -122,6 +122,7 @@ resource "aws_iam_role_policy" "prowler_codebuild" {
         Action = [
           "kms:GenerateDataKey*",
           "kms:Encrypt",
+          "kms:Decrypt",
           "kms:DescribeKey"
         ]
         Resource = var.key_s3_arn

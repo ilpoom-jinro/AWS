@@ -1,8 +1,13 @@
 version: 0.2
 phases:
+  install:
+    commands:
+      # prowler 공식 이미지엔 awscli가 없음 → S3 업로드용으로 설치 (root 경고 억제)
+      - pip install awscli --quiet --root-user-action=ignore || pip3 install awscli --quiet --root-user-action=ignore
   build:
     commands:
-      # ISMS-P(국문) 기준, 서울 리전, OCSF 포함 3종 출력, 결과를 S3로 직접 푸시
-      # -z: FAIL 발견 시 Prowler가 exit 3 반환 → 빌드 실패로 오인 방지 (정확 플래그명은 prowler aws -h로 재확인)
-      - prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html -B "financial-prowler-findings-${ACCOUNT_ID}" -z
-# 공식 이미지에 prowler·boto3 내장 → install 단계 불필요. ENTRYPOINT는 CodeBuild가 오버라이드하므로 buildspec 정상 실행.
+      # prowler는 이미지의 venv 안에 있고 PATH에 없음 → 절대경로 호출
+      # OCSF 포함 3종을 로컬에 출력. -z: FAIL 있어도 exit 3 무시(빌드 성공 처리)
+      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
+      # 결과 전체를 S3로 업로드 (날짜 prefix로 정리). -B 미사용 — KMS 멀티파트 위해 IAM에 kms:Decrypt 필요
+      - aws s3 cp /tmp/prowler-out/ "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/" --recursive
