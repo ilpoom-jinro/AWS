@@ -1167,8 +1167,8 @@ resource "aws_ecr_repository" "metrics_server" {
   }
 }
 
-resource "aws_ecr_lifecycle_policy" "monitoring_metrics_server" {
-  repository = aws_ecr_repository.monitoring_metrics_server.name
+resource "aws_ecr_lifecycle_policy" "metrics_server" {
+  repository = aws_ecr_repository.metrics_server.name
 
   policy = jsonencode({
     rules = [{
