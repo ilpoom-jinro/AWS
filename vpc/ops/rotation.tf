@@ -57,6 +57,10 @@ resource "aws_serverlessapplicationrepository_cloudformation_stack" "ops_rds_rot
     vpcSubnetIds        = join(",", [aws_subnet.private_a.id, aws_subnet.private_b.id])
     vpcSecurityGroupIds = aws_security_group.rotation_lambda.id
     excludeCharacters   = "/@\"':"
+    # SAR 템플릿이 Lambda execution role 생성 시점에 KMS 권한을 내장.
+    # 기존엔 rotation_lambda_kms policy로 사후 부착했는데, destroy/apply마다
+    # role 이름이 바뀌어 재생성·권한 갭 → createSecret KMS Decrypt 실패 → 토큰 충돌.
+    kmsKeyArn = var.kms_key_secretsmanager_arn
   }
 
   tags = {
@@ -64,28 +68,8 @@ resource "aws_serverlessapplicationrepository_cloudformation_stack" "ops_rds_rot
   }
 }
 
-# SAR 배포 후 Lambda 실행 Role에 CMK 권한 추가
 data "aws_lambda_function" "ops_rotation" {
   function_name = "financial-ops-rds-rotation"
 
   depends_on = [aws_serverlessapplicationrepository_cloudformation_stack.ops_rds_rotation]
-}
-
-resource "aws_iam_role_policy" "rotation_lambda_kms" {
-  name = "kms-for-secretsmanager"
-  role = reverse(split("/", data.aws_lambda_function.ops_rotation.role))[0]
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowCMKForSecretsManager"
-      Effect = "Allow"
-      Action = [
-        "kms:Decrypt",
-        "kms:GenerateDataKey",
-        "kms:DescribeKey",
-      ]
-      Resource = var.kms_key_secretsmanager_arn
-    }]
-  })
 }

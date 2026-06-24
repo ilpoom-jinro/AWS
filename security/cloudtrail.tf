@@ -78,6 +78,9 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 #   Terraform이 소유하므로 CLI put-event-selectors 사용 금지(state 충돌).
 # =============================================
 resource "aws_cloudtrail" "main" {
+  # cloudtrail 비활성화 
+  # count = 0
+
   name                          = "ilpumjinro-trail"
   s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
   kms_key_id                    = var.kms_key_cloudtrail_arn
