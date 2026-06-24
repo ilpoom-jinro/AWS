@@ -1036,6 +1036,17 @@ resource "aws_kms_key" "key_sns" {
         }
         Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
         Resource = "*"
+      },
+      {
+        # EventBridge 룰이 암호화된 SNS 토픽에 publish할 때 KMS 데이터키 필요
+        # 없으면 룰은 매칭되는데 알림이 조용히 소실됨 (#49)
+        Sid    = "AllowEventBridgePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource = "*"
       }
     ]
   })
