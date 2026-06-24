@@ -45,3 +45,17 @@ data "aws_kms_alias" "key_eks" {
 data "aws_kms_key" "key_eks" {
   key_id = data.aws_kms_alias.key_eks.target_key_id
 }
+
+data "aws_kms_alias" "key_logs" {
+  name = "alias/key-logs"
+}
+data "aws_kms_key" "key_logs" {
+  key_id = data.aws_kms_alias.key_logs.target_key_id
+}
+
+data "aws_kms_alias" "key_sns" {
+  name = "alias/key-sns"
+}
+data "aws_kms_key" "key_sns" {
+  key_id = data.aws_kms_alias.key_sns.target_key_id
+}

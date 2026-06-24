@@ -150,7 +150,7 @@ jobs:
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
             docker push "${target_image}"
-          done < monitoring/images.tsv
+          done < <(cat monitoring/images.tsv; echo)
 
       - name: Build selected custom monitoring images
         if: inputs.build_custom == true
@@ -187,4 +187,4 @@ jobs:
               "${build_context}"
 
             docker push "${target_image}"
-          done < monitoring/custom-images.tsv
+          done < <(cat monitoring/custom-images.tsv; echo)

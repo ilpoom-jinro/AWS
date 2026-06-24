@@ -473,10 +473,6 @@ resource "aws_codebuild_project" "debug" {
   ]
 }
 
-moved {
-  from = aws_codebuild_project.gitea_auth_debug
-  to   = aws_codebuild_project.debug
-}
 
 resource "aws_codebuild_project" "mas_status" {
   name          = var.mas_status_codebuild_project_name

@@ -12,3 +12,8 @@ variable "key_s3_arn" {
   description = "key-s3 CMK ARN (루트 data-kms.tf에서 전달)"
   type        = string
 }
+
+variable "key_sns_arn" {
+  description = "key-sns CMK ARN (루트 data-kms.tf에서 전달, #49 security-violation-alert 암호화용)"
+  type        = string
+}

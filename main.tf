@@ -8,6 +8,7 @@ module "security" {
   kms_key_cloudtrail_arn = data.aws_kms_key.key_cloudtrail.arn
   account_id             = data.aws_caller_identity.current.account_id
   key_s3_arn             = data.aws_kms_key.key_s3.arn
+  key_sns_arn            = data.aws_kms_key.key_sns.arn
 }
 
 module "vpc1" {
