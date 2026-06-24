@@ -60,7 +60,7 @@ resource "aws_serverlessapplicationrepository_cloudformation_stack" "service_rds
     # SAR 템플릿이 Lambda execution role 생성 시점에 KMS 권한을 내장.
     # 기존엔 rotation_lambda_kms policy로 사후 부착했는데, destroy/apply마다
     # role 이름이 바뀌어 재생성·권한 갭 → createSecret KMS Decrypt 실패 → 토큰 충돌.
-    kmsKeyArn           = var.kms_key_secretsmanager_arn
+    kmsKeyArn = var.kms_key_secretsmanager_arn
   }
 
   tags = {
