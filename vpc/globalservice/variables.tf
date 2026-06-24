@@ -43,7 +43,7 @@ variable "eks_cluster_version" {
 variable "eks_enabled_cluster_log_types" {
   description = "EKS control plane log types"
   type        = list(string)
-  default     = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  default     = []
 }
 
 variable "eks_node_instance_types" {
