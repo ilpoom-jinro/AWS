@@ -5,9 +5,15 @@
 # 모든 트래픽이 AWS 내부 백본망만 통과 (인터넷 구간 없음)
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Interface Endpoint ENI 배치 AZ - single_az_mode = true 시 비용 절감을 위해 AZ-a에만 배치
+# Interface Endpoint ENI 배치 AZ - 항상 2-AZ(private_a + private_b) 고정
+# 변경 이유: single_az_mode 토글에 묶여 endpoint가 AZ-a 1개만 덮었고,
+#   AZ-b 노드에서 ELB/ECR/KMS/STS 등 AWS API 호출이 cross-AZ로 차단돼 timeout →
+#   LBC가 NLB 생성 못 함 → thanos-receive Service pending → Ansible hang.
+#   VPC2는 NAT/IGW 없어 모든 AWS API 호출이 endpoint를 반드시 통과해야 하고,
+#   EKS 노드·NLB(Loki/Tempo/Thanos) 모두 2-AZ를 쓰므로 endpoint도 동일 AZ 집합으로 고정.
+#   single_az_mode 의존을 끊어 RDS Multi-AZ 전환(의도치 않은 비용)과 분리함.
 locals {
-  endpoint_subnet_ids = var.single_az_mode ? [aws_subnet.private_a.id] : [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  endpoint_subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
 
 # ── Endpoint 전용 Security Group ──────────────────────────────────────────────
