@@ -397,6 +397,21 @@ jobs:
           -target=module.vpc4
           $TF_MOVED_RESOURCE_TARGETS
 
+      - name: Apply flow logs
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_iam_role.flowlogs
+          -target=aws_iam_role_policy.flowlogs
+          -target=aws_cloudwatch_log_group.flowlogs
+          -target=aws_flow_log.this
+          -target=aws_cloudwatch_log_metric_filter.reject_count
+          -target=aws_cloudwatch_log_metric_filter.db_port_probe_vpc1
+          -target=aws_sns_topic.security_alerts
+          -target=aws_cloudwatch_metric_alarm.db_port_probe_vpc1
+          -target=aws_cloudwatch_metric_alarm.reject_burst_vpc1
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Apply secrets
         if: inputs.action == 'apply'
         run: >
