@@ -79,7 +79,7 @@ resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
 # =============================================
 resource "aws_cloudtrail" "main" {
   # cloudtrail 비활성화 
-  count = 0
+  # count = 0
 
   name                          = "ilpumjinro-trail"
   s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
