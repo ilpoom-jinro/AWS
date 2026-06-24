@@ -934,3 +934,130 @@ resource "aws_kms_alias" "key_eks" {
     create_before_destroy = false
   }
 }
+
+# =============================================
+# key-logs (CloudWatch Logs 전용 CMK)
+#   용도: VPC Flow Logs + 향후 모든 CW 로그그룹(EKS·앱 로그)의 표준 암호화 키
+#   $1/월. flow log 하나가 아닌 CW Logs 전체에 amortize됨.
+# =============================================
+resource "aws_kms_key" "key_logs" {
+  description             = "CMK for CloudWatch Logs (VPC Flow Logs 등 보안 텔레메트리)"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        # 리전 형식 프린시펄 필수 — logs.amazonaws.com 은 거부됨
+        # confused-deputy 방지: 이 계정의 CW 로그그룹 컨텍스트로만 사용 가능
+        Sid    = "AllowCloudWatchLogs"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"
+          }
+        }
+      }
+    ]
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "CloudWatchLogs"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_logs" {
+  name          = "alias/key-logs"
+  target_key_id = aws_kms_key.key_logs.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
+
+# =============================================
+# key-sns (SNS 전용 CMK)
+#   용도: 보안 알람 알림 토픽 암호화
+#   $1/월.
+# =============================================
+resource "aws_kms_key" "key_sns" {
+  description             = "CMK for SNS (보안 알람 알림 토픽)"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        # CloudWatch 알람이 암호화된 SNS 토픽에 publish 하려면 필수
+        # 없으면 알람은 ALARM 상태인데 알림이 조용히 안 감
+        Sid    = "AllowCloudWatchAlarmsPublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudwatch.amazonaws.com"
+        }
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource = "*"
+      }
+    ]
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "SNS"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_sns" {
+  name          = "alias/key-sns"
+  target_key_id = aws_kms_key.key_sns.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
