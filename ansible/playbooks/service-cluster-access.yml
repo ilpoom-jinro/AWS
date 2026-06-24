@@ -112,6 +112,10 @@
             - apiGroups: [policy]
               resources: [poddisruptionbudgets]
               verbs: [get, list, watch, create, update, patch, delete]
+              # HPA — stock-api scale_out 대응
+            - apiGroups: [autoscaling]
+              resources: [horizontalpodautoscalers]
+              verbs: [get, list, watch, create, update, patch, delete]
             # Istio CRD 리소스 (istio-system RoleBinding에서 사용)
             - apiGroups: ["security.istio.io", "telemetry.istio.io"]
               resources: ["*"]
