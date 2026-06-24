@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Any
 
+from contracts.models import AgentResponse, AgentStatus
+
 
 logger = logging.getLogger(__name__)
 LLM_TIMEOUT_SECONDS = 5
@@ -118,26 +120,50 @@ def standard_response(
     result: dict[str, Any],
     message: str,
     available_results: dict[str, Any],
+    reasoning_source: str,
 ) -> dict[str, Any]:
-    requests = []
+    evidence = []
+    warnings = []
     for source_key, field in AGENT_DEPENDENCIES.get(agent_key, []):
-        source_result = available_results.get(source_key, {})
-        requests.append(
-            {
-                "source_key": source_key,
-                "source_name": AGENT_NAMES[source_key],
-                "field": field,
-                "status": "available" if field in source_result else "requested",
-            }
-        )
-    return {
-        "agent": agent_name,
-        "agent_key": agent_key,
-        "result": result,
-        "message": message,
-        "data_requests": requests,
-        "confidence": AGENT_CONFIDENCE.get(agent_key, 0.75),
-    }
+        source_payload = available_results.get(source_key)
+        source_result = _response_result(source_payload) if source_payload else {}
+        dependency = f"{AGENT_NAMES[source_key]}.{field}"
+        if field in source_result:
+            evidence.append(f"Used upstream result {dependency}")
+        else:
+            warnings.append(f"Upstream result {dependency} was not available")
+
+    response = AgentResponse(
+        status=AgentStatus.COMPLETED,
+        agent_key=agent_key,
+        agent_name=agent_name,
+        result=result,
+        message=message,
+        evidence=evidence,
+        data_requests=[],
+        confidence=AGENT_CONFIDENCE.get(agent_key, 0.75),
+        warnings=warnings,
+        reasoning_source=reasoning_source,
+    )
+    return response.model_dump(mode="json")
+
+
+def get_agent_response(context: dict[str, Any], agent_key: str) -> AgentResponse:
+    try:
+        payload = context["agent_results"][agent_key]
+    except KeyError as exc:
+        raise KeyError(f"agent result is not available: {agent_key}") from exc
+    return AgentResponse.model_validate(payload)
+
+
+def get_agent_result(context: dict[str, Any], agent_key: str) -> dict[str, Any]:
+    return get_agent_response(context, agent_key).result
+
+
+def _response_result(payload: Any) -> dict[str, Any]:
+    if not payload:
+        return {}
+    return AgentResponse.model_validate(payload).result
 
 
 def _parse_json(text: str) -> dict[str, Any] | None:

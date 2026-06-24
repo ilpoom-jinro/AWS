@@ -4,6 +4,7 @@ from typing import Any
 
 from app import agent_logic
 from app.agent_support import call_llm, standard_response
+from contracts.models import AgentResponse
 
 
 def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -12,11 +13,14 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
             f"image owns agent '{agent_logic.AGENT_KEY}', but received '{agent_key}'"
         )
 
-    result, message = agent_logic.evaluate(context)
+    evaluation = agent_logic.evaluate(context)
+    if isinstance(evaluation, AgentResponse):
+        return evaluation.model_dump(mode="json")
+
+    result, message = evaluation
     prompt = getattr(agent_logic, "LLM_PROMPT", None)
     assessment = call_llm(prompt, _llm_context(agent_key, context, result)) if prompt else None
     result["llm_assessment"] = assessment
-    result["reasoning_source"] = "llm" if assessment else "rule_based"
     if assessment:
         result = agent_logic.apply_llm(result, assessment)
 
@@ -26,6 +30,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         result,
         message,
         context.get("agent_results", {}),
+        "rule+llm" if assessment else "rule",
     )
 
 

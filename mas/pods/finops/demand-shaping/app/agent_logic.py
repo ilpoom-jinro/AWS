@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+
 
 AGENT_KEY = "demand_shaping"
 AGENT_NAME = "Demand Shaping Agent"
@@ -15,10 +17,26 @@ LLM_PROMPT = (
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     policy = context["policy"]
     business = context.get("business", {})
-    previous = context.get("agent_results", {})
-    control = previous.get("business_control", {})
-    delay = control.get("max_delay_minutes", policy["max_general_delay_minutes"])
-    reduction = min(60, max(10, int(delay * 4.2)))
+    control = get_agent_result(context, "business_control")
+    candidates = [
+        {
+            "label": "안정성 우선",
+            "push_window_minutes": 10,
+            "peak_reduction_percent": 42,
+        },
+        {
+            "label": "균형",
+            "push_window_minutes": 15,
+            "peak_reduction_percent": 60,
+        },
+        {
+            "label": "비용 우선",
+            "push_window_minutes": 20,
+            "peak_reduction_percent": 60,
+        },
+    ]
+    delay = candidates[0]["push_window_minutes"]
+    reduction = candidates[0]["peak_reduction_percent"]
     result = {
         "vip": "immediate" if policy["vip_immediate"] else "batched",
         "general_users": f"spread_over_{delay}m",
@@ -33,6 +51,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             "general_audience_count", business.get("general_audience_count")
         ),
         "crm_segment": business.get("crm_segment"),
+        "candidates": candidates,
     }
     return result, f"Spread general delivery over {delay} minutes; estimated peak reduction is {reduction}%."
 

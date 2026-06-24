@@ -15,8 +15,16 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import AGENT_DATA_REQUESTS, build_final_plan
+from app.agent_runtime import AGENT_DATA_REQUESTS, AGENT_SEQUENCE, build_final_plan, plan_status
+from app.dev_workflow_support import (
+    TEST_EVENT_SEEDS,
+    event_row_to_dict,
+    merge_agent_decision_rows,
+    normalize_broker_call_log,
+    retry_response,
+)
 from app.workflows import FinOpsEventWorkflow
+from contracts.models import AgentResponse
 
 
 DATABASE_URL = os.getenv(
@@ -45,7 +53,6 @@ app = FastAPI(title="FinOps Orchestrator", version="0.4.0")
 temporal_client: Client | None = None
 temporal_worker_task: asyncio.Task | None = None
 AGENT_STEP_DELAY_SECONDS = float(os.getenv("AGENT_STEP_DELAY_SECONDS", "0.8"))
-
 
 class ChatRequest(BaseModel):
     event_id: str = "fomc-briefing"
@@ -342,7 +349,12 @@ def build_agent_value_exchange(
     agent_results = context.get("agent_results", {})
     for request in AGENT_DATA_REQUESTS.get(agent_key, []):
         source_key = request["source_key"]
-        source_result = agent_results.get(source_key)
+        source_response = agent_results.get(source_key)
+        source_result = (
+            AgentResponse.model_validate(source_response).result
+            if source_response is not None
+            else None
+        )
         if source_result is None or request["field"] not in source_result:
             continue
         value = source_result[request["field"]]
@@ -383,17 +395,21 @@ def build_agent_value_exchange(
     return messages
 
 
-def normalize_agent_output(agent_key: str, agent_name: str, output: dict[str, Any]) -> dict[str, Any]:
-    if "result" not in output:
-        raise RuntimeError(f"{agent_key} agent response does not include result")
-    return {
-        "agent": output.get("agent", agent_name),
-        "agent_key": output.get("agent_key", agent_key),
-        "result": output["result"],
-        "message": output.get("message", f"{agent_name} 작업을 완료했습니다."),
-        "data_requests": output.get("data_requests", []),
-        "confidence": output.get("confidence", 1.0),
-    }
+def normalize_agent_output(
+    agent_key: str,
+    agent_name: str,
+    output: dict[str, Any],
+) -> AgentResponse:
+    response = AgentResponse.model_validate(output)
+    if response.agent_key != agent_key:
+        raise ValueError(
+            f"expected response from {agent_key}, received {response.agent_key}"
+        )
+    if response.agent_name != agent_name:
+        raise ValueError(
+            f"expected agent name {agent_name}, received {response.agent_name}"
+        )
+    return response
 
 
 def fetch_event_context(event_id: str) -> dict[str, Any]:
@@ -753,8 +769,31 @@ def init_db() -> None:
                       agent text not null,
                       status text not null,
                       result jsonb not null,
-                      created_at text not null
+                      created_at text not null,
+                      agent_key text,
+                      confidence numeric,
+                      reasoning_source text,
+                      evidence jsonb,
+                      warnings jsonb,
+                      data_requests jsonb,
+                      input_context jsonb,
+                      started_at text,
+                      completed_at text
                     )
+                    """
+                )
+                conn.execute(
+                    """
+                    alter table agent_decision_log
+                      add column if not exists agent_key text,
+                      add column if not exists confidence numeric,
+                      add column if not exists reasoning_source text,
+                      add column if not exists evidence jsonb,
+                      add column if not exists warnings jsonb,
+                      add column if not exists data_requests jsonb,
+                      add column if not exists input_context jsonb,
+                      add column if not exists started_at text,
+                      add column if not exists completed_at text
                     """
                 )
                 conn.execute(
@@ -801,6 +840,206 @@ def init_db() -> None:
     raise RuntimeError("database is not reachable")
 
 
+def build_seed_event(definition: dict[str, Any]) -> dict[str, Any]:
+    event_id = definition["event_id"]
+    target_users = int(definition["target_users"])
+    baseline_rps = int(definition["baseline_peak_rps"])
+    traffic_rps = int(definition.get("traffic_rps", baseline_rps))
+    pods = int(definition["required_app_pods"])
+    rds_cpu = int(definition["rds_cpu_percent"])
+    vip_users = max(1, int(target_users * 0.12))
+    current_pods = max(1, int(pods * 0.62))
+    return {
+        "calendar": {
+            "event_id": event_id,
+            "title": definition["title"],
+            "grade": definition["grade"],
+            "target_users": target_users,
+            "max_delay_minutes": 10,
+            "scheduled_at": definition["scheduled_at"],
+        },
+        "policy": {
+            "vip_immediate": True,
+            "approval_required": True,
+            "max_general_delay_minutes": 10,
+        },
+        "mock": {
+            "baseline_peak_rps": baseline_rps,
+            "shaped_peak_rps": max(1, int(baseline_rps * 0.58)),
+            "required_app_pods": pods,
+            "db_cpu_percent": rds_cpu,
+            "cache_hit_ratio_percent": 91,
+            "alb_status": "ok",
+            "eks_cost_usd": 31.2,
+            "network_cost_usd": 8.1,
+            "log_cost_usd": 3.4,
+            "push_cost_usd": 7.6,
+            "expected_value_usd": max(1000.0, target_users * 0.012),
+            "scale_down_rps_threshold": max(200, int(traffic_rps * 0.42)),
+        },
+        "business": {
+            "push_channel": "mobile-push",
+            "vip_audience_count": vip_users,
+            "general_audience_count": target_users - vip_users,
+            "campaign_importance": f"grade-{definition['grade'].lower()}",
+            "crm_segment": "finops-test-segment",
+            "calendar_source": "finops-test-fixture",
+        },
+        "traffic": {
+            "alb_request_count_5m": traffic_rps * 300,
+            "prometheus_rps": traffic_rps,
+            "p95_latency_ms": 188 if traffic_rps < 2500 else 245,
+            "queue_depth": max(100, traffic_rps * 5),
+            "pod_cpu_percent": 63,
+            "pod_memory_percent": 71,
+            "hpa_current_replicas": current_pods,
+            "hpa_desired_replicas": pods,
+        },
+        "infra": {
+            "eks_deployment_replicas": current_pods,
+            "nodegroup_desired": max(3, current_pods // 2),
+            "nodegroup_max": max(30, pods + 10),
+            "rds_cpu_percent": rds_cpu,
+            "rds_connections": 640,
+            "rds_read_iops": 12500,
+            "redis_cache_hit_ratio_percent": 91,
+            "alb_healthy_targets": current_pods,
+            "alb_unhealthy_targets": 0,
+            "nat_gateway_bytes_out_gb": 37.4,
+        },
+        "cost": {
+            "cost_explorer_month_to_date_usd": 18420.55,
+            "cur_projected_monthly_usd": 28600.0,
+            "kubecost_namespace_daily_usd": 73.25,
+            "cloudwatch_logs_daily_usd": 11.8,
+            "nat_alb_transfer_daily_usd": 15.7,
+            "event_incremental_budget_usd": float(
+                definition["event_incremental_budget_usd"]
+            ),
+        },
+        "guardrail": {
+            "monthly_budget_limit_usd": 30000.0,
+            "approval_required_over_usd": 50.0,
+            "forbidden_actions": [
+                "disable_hpa",
+                "scale_rds_down_during_event",
+                "delete_warm_pool",
+            ],
+            "allowed_actions": definition.get(
+                "allowed_actions",
+                ["scale_out", "prewarm", "spread_push", "add_read_replica"],
+            ),
+            "policy_version": "finops-policy-2026.06-test",
+        },
+        "omit_traffic_signal": bool(definition.get("omit_traffic_signal", False)),
+        "omit_cost_signal": bool(definition.get("omit_cost_signal", False)),
+    }
+
+
+def seed_event(conn, definition: dict[str, Any]) -> None:
+    event = build_seed_event(definition)
+    calendar = event["calendar"]
+    conn.execute(
+        """
+        insert into business_calendar
+          (event_id, title, grade, target_users, max_delay_minutes, scheduled_at)
+        values (%s, %s, %s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        tuple(calendar.values()),
+    )
+    policy = event["policy"]
+    conn.execute(
+        """
+        insert into business_policy
+          (event_id, vip_immediate, approval_required, max_general_delay_minutes)
+        values (%s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        (calendar["event_id"], *policy.values()),
+    )
+    mock = event["mock"]
+    conn.execute(
+        """
+        insert into event_mock_signal
+          (event_id, baseline_peak_rps, shaped_peak_rps, required_app_pods,
+           db_cpu_percent, cache_hit_ratio_percent, alb_status, eks_cost_usd,
+           network_cost_usd, log_cost_usd, push_cost_usd, expected_value_usd,
+           scale_down_rps_threshold)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        (calendar["event_id"], *mock.values()),
+    )
+    business = event["business"]
+    conn.execute(
+        """
+        insert into business_source_detail
+          (event_id, push_channel, vip_audience_count, general_audience_count,
+           campaign_importance, crm_segment, calendar_source)
+        values (%s, %s, %s, %s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        (calendar["event_id"], *business.values()),
+    )
+    if not event["omit_traffic_signal"]:
+        traffic = event["traffic"]
+        conn.execute(
+            """
+            insert into traffic_observability_signal
+              (event_id, alb_request_count_5m, prometheus_rps, p95_latency_ms,
+               queue_depth, pod_cpu_percent, pod_memory_percent,
+               hpa_current_replicas, hpa_desired_replicas)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            on conflict (event_id) do nothing
+            """,
+            (calendar["event_id"], *traffic.values()),
+        )
+    infra = event["infra"]
+    conn.execute(
+        """
+        insert into infra_capacity_signal
+          (event_id, eks_deployment_replicas, nodegroup_desired, nodegroup_max,
+           rds_cpu_percent, rds_connections, rds_read_iops,
+           redis_cache_hit_ratio_percent, alb_healthy_targets,
+           alb_unhealthy_targets, nat_gateway_bytes_out_gb)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        (calendar["event_id"], *infra.values()),
+    )
+    if not event["omit_cost_signal"]:
+        cost = event["cost"]
+        conn.execute(
+            """
+            insert into cost_signal
+              (event_id, cost_explorer_month_to_date_usd,
+               cur_projected_monthly_usd, kubecost_namespace_daily_usd,
+               cloudwatch_logs_daily_usd, nat_alb_transfer_daily_usd,
+               event_incremental_budget_usd)
+            values (%s, %s, %s, %s, %s, %s, %s)
+            on conflict (event_id) do nothing
+            """,
+            (calendar["event_id"], *cost.values()),
+        )
+    guardrail = event["guardrail"]
+    conn.execute(
+        """
+        insert into policy_guardrail_source
+          (event_id, monthly_budget_limit_usd, approval_required_over_usd,
+           forbidden_actions, allowed_actions, policy_version)
+        values (%s, %s, %s, %s, %s, %s)
+        on conflict (event_id) do nothing
+        """,
+        (
+            calendar["event_id"],
+            guardrail["monthly_budget_limit_usd"],
+            guardrail["approval_required_over_usd"],
+            json.dumps(guardrail["forbidden_actions"]),
+            json.dumps(guardrail["allowed_actions"]),
+            guardrail["policy_version"],
+        ),
+    )
 def seed(conn) -> None:
     conn.execute(
         """
@@ -999,6 +1238,8 @@ def seed(conn) -> None:
             json.dumps(["scale_out", "prewarm", "spread_push", "add_read_replica"]),
         ),
     )
+    for definition in TEST_EVENT_SEEDS:
+        seed_event(conn, definition)
 
 
 @activity.defn(name="load_event_context")
@@ -1008,11 +1249,23 @@ async def load_event_context(event_id: str) -> dict[str, Any]:
 
 @activity.defn(name="record_data_request")
 async def record_data_request(workflow_id: str, phase: int, request: dict[str, Any]) -> None:
-    status = request.get("status", "requested")
-    message = (
-        f"{request['requester_name']}가 {request['source_name']}에게 "
-        f"'{request['label']}' 값을 요청했습니다. Temporal data_request 상태는 {status}입니다."
-    )
+    if "target_agent" in request:
+        receiver = request["target_agent"]
+        required_fields = ", ".join(request.get("required_fields", [])) or "none"
+        message = (
+            f"Temporal Data Broker가 {receiver}에 '{request['operation']}' 작업을 요청했습니다. "
+            f"필요 필드: {required_fields}. 요청 이유: {request.get('reason', '')}"
+        )
+        payload = {"type": "broker_data_request", **request}
+    else:
+        status = request.get("status", "requested")
+        receiver = request["source_name"]
+        message = (
+            f"{request['requester_name']}가 {receiver}에게 "
+            f"'{request['label']}' 값을 요청했습니다. "
+            f"Temporal data_request 상태는 {status}입니다."
+        )
+        payload = {"type": "data_request", **request}
     with connect() as conn:
         conn.execute(
             """
@@ -1023,9 +1276,9 @@ async def record_data_request(workflow_id: str, phase: int, request: dict[str, A
             (
                 workflow_id,
                 phase,
-                request["source_name"],
+                receiver,
                 message,
-                json.dumps({"type": "data_request", **request}),
+                json.dumps(payload),
                 utcnow(),
             ),
         )
@@ -1045,14 +1298,18 @@ async def record_agent_step_started(
         conn.execute(
             """
             insert into agent_decision_log
-              (workflow_id, phase, agent, status, result, created_at)
-            values (%s, %s, %s, 'running', %s, %s)
+              (workflow_id, phase, agent, status, result, created_at,
+               agent_key, input_context, started_at)
+            values (%s, %s, %s, 'running', %s, %s, %s, %s, %s)
             """,
             (
                 workflow_id,
                 phase,
                 agent_name,
                 json.dumps({"agent_key": agent_key, "next": next_agent_name}),
+                started_at,
+                agent_key,
+                json.dumps(context),
                 started_at,
             ),
         )
@@ -1109,9 +1366,10 @@ async def record_agent_step_completed(
     context: dict[str, Any],
     raw_output: dict[str, Any],
 ) -> dict[str, Any]:
-    output = normalize_agent_output(agent_key, agent_name, raw_output)
-    result = output["result"]
-    context["agent_results"][agent_key] = result
+    response = normalize_agent_output(agent_key, agent_name, raw_output)
+    output = response.model_dump(mode="json")
+    result = response.result
+    context["agent_results"][agent_key] = output
     for request in output["data_requests"]:
         context.setdefault("agent_declared_requests", []).append(
             {
@@ -1126,20 +1384,33 @@ async def record_agent_step_completed(
         conn.execute(
             """
             insert into agent_decision_log
-              (workflow_id, phase, agent, status, result, created_at)
-            values (%s, %s, %s, 'completed', %s, %s)
+              (workflow_id, phase, agent, status, result, created_at,
+               agent_key, confidence, reasoning_source, evidence, warnings,
+               data_requests, completed_at)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 workflow_id,
                 phase,
                 agent_name,
+                response.status.value,
                 json.dumps(
                     {
                         "result": result,
+                        "evidence": output["evidence"],
                         "data_requests": output["data_requests"],
                         "confidence": output["confidence"],
+                        "warnings": output["warnings"],
+                        "reasoning_source": output["reasoning_source"],
                     }
                 ),
+                created_at,
+                agent_key,
+                response.confidence,
+                response.reasoning_source,
+                json.dumps(output["evidence"]),
+                json.dumps(output["warnings"]),
+                json.dumps(output["data_requests"]),
                 created_at,
             ),
         )
@@ -1158,9 +1429,13 @@ async def record_agent_step_completed(
                 json.dumps(
                     {
                         "agent_key": agent_key,
+                        "status": output["status"],
                         "result": result,
+                        "evidence": output["evidence"],
                         "data_requests": output["data_requests"],
                         "confidence": output["confidence"],
+                        "warnings": output["warnings"],
+                        "reasoning_source": output["reasoning_source"],
                     }
                 ),
                 created_at,
@@ -1174,33 +1449,48 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
     plan = build_final_plan(context)
     plan["data_requests"] = context.get("data_requests", [])
     plan["agent_declared_requests"] = context.get("agent_declared_requests", [])
+    plan["broker_call_log"] = context.get("broker_call_log", [])
+    status = plan_status(plan)
+    approval_status = "waiting" if status == "plan_ready" else "review_required"
+    conversation_message = (
+        "FinOps 계획과 후보 비교를 완성했습니다. 운영자 승인을 기다립니다."
+        if status == "plan_ready"
+        else "FinOps 보고서 품질 검증에 실패했습니다. issues를 검토하고 재계획해야 합니다."
+    )
     created_at = utcnow()
     with connect() as conn:
         conn.execute(
             """
             insert into final_event_plan
               (workflow_id, event_id, status, plan, created_at, updated_at)
-            values (%s, %s, 'waiting_approval', %s, %s, %s)
+            values (%s, %s, %s, %s, %s, %s)
             on conflict (workflow_id) do update set
               event_id = excluded.event_id,
               status = excluded.status,
               plan = excluded.plan,
               updated_at = excluded.updated_at
             """,
-            (workflow_id, plan["event_id"], json.dumps(plan), created_at, created_at),
+            (
+                workflow_id,
+                plan["event_id"],
+                status,
+                json.dumps(plan),
+                created_at,
+                created_at,
+            ),
         )
         conn.execute(
             """
             insert into approval_request
               (workflow_id, status, requested_at)
-            values (%s, 'waiting', %s)
+            values (%s, %s, %s)
             on conflict (workflow_id) do update set
               status = excluded.status,
               requested_at = excluded.requested_at,
               decided_at = null,
               decided_by = null
             """,
-            (workflow_id, created_at),
+            (workflow_id, approval_status, created_at),
         )
         conn.execute(
             """
@@ -1210,12 +1500,12 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
             """,
             (
                 workflow_id,
-                "최종 FinOps 계획을 만들었습니다. 운영자 승인을 기다립니다.",
-                json.dumps({"plan": plan, "status": "waiting_approval"}),
+                conversation_message,
+                json.dumps({"plan": plan, "status": status}),
                 utcnow(),
             ),
         )
-    return {"workflow_id": workflow_id, "status": "waiting_approval", "plan": plan}
+    return {"workflow_id": workflow_id, "status": status, "plan": plan}
 
 
 async def start_temporal_worker() -> None:
@@ -1261,23 +1551,26 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/calendar")
-def calendar() -> list[dict[str, Any]]:
+def list_events() -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
-            "select event_id, title, grade, target_users, max_delay_minutes, scheduled_at from business_calendar"
+            """
+            select event_id, title, grade, target_users, scheduled_at
+            from business_calendar
+            order by event_id
+            """
         ).fetchall()
-    return [
-        {
-            "event_id": row[0],
-            "title": row[1],
-            "grade": row[2],
-            "target_users": row[3],
-            "max_delay_minutes": row[4],
-            "scheduled_at": row[5],
-        }
-        for row in rows
-    ]
+    return [event_row_to_dict(row) for row in rows]
+
+
+@app.get("/api/events")
+def events() -> list[dict[str, Any]]:
+    return list_events()
+
+
+@app.get("/api/calendar")
+def calendar() -> list[dict[str, Any]]:
+    return list_events()
 
 
 @app.get("/api/data-sources/{event_id}")
@@ -1294,8 +1587,7 @@ def data_sources(event_id: str) -> dict[str, Any]:
     }
 
 
-@app.post("/api/workflows/run")
-async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
+async def start_workflow_for_event(event_id: str) -> dict[str, str]:
     workflow_id = f"finops-{uuid.uuid4().hex[:8]}"
     try:
         client = await get_temporal_client()
@@ -1358,6 +1650,11 @@ async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
     return {"workflow_id": workflow_id, "status": "running", "engine": "temporal"}
 
 
+@app.post("/api/workflows/run")
+async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
+    return await start_workflow_for_event(event_id)
+
+
 @app.get("/api/workflows")
 def workflows() -> list[dict[str, Any]]:
     with connect() as conn:
@@ -1379,6 +1676,77 @@ def workflows() -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+@app.get("/api/workflows/{workflow_id}/agents")
+def workflow_agents(workflow_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            select agent, status, result, created_at, agent_key, confidence,
+                   reasoning_source, evidence, warnings, data_requests,
+                   input_context, started_at, completed_at
+            from agent_decision_log
+            where workflow_id = %s
+            order by phase, id
+            """,
+            (workflow_id,),
+        ).fetchall()
+    structured_rows = [
+        {
+            "agent_name": row[0],
+            "status": row[1],
+            "result": row[2],
+            "created_at": row[3],
+            "agent_key": row[4],
+            "confidence": row[5],
+            "reasoning_source": row[6],
+            "evidence": row[7],
+            "warnings": row[8],
+            "data_requests": row[9],
+            "input_context": row[10],
+            "started_at": row[11],
+            "completed_at": row[12],
+        }
+        for row in rows
+    ]
+    return merge_agent_decision_rows(structured_rows, AGENT_SEQUENCE)
+
+
+@app.get("/api/workflows/{workflow_id}/broker-log")
+def workflow_broker_log(workflow_id: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        plan_row = conn.execute(
+            "select plan from final_event_plan where workflow_id = %s",
+            (workflow_id,),
+        ).fetchone()
+        if not plan_row:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        payload_rows = conn.execute(
+            """
+            select payload
+            from agent_conversation_log
+            where workflow_id = %s
+            order by phase, id
+            """,
+            (workflow_id,),
+        ).fetchall()
+    plan = plan_row[0] if isinstance(plan_row[0], dict) else {}
+    payloads = [row[0] for row in payload_rows if isinstance(row[0], dict)]
+    return normalize_broker_call_log(plan.get("broker_call_log", []), payloads)
+
+
+@app.post("/api/workflows/{workflow_id}/retry")
+async def retry_workflow(workflow_id: str) -> dict[str, str]:
+    with connect() as conn:
+        row = conn.execute(
+            "select event_id from final_event_plan where workflow_id = %s",
+            (workflow_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    started = await start_workflow_for_event(row[0])
+    return retry_response(started["workflow_id"])
 
 
 @app.get("/api/workflows/{workflow_id}")
@@ -1416,6 +1784,9 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
         "plan": plan[3],
         "data_requests": plan_body.get("data_requests", []),
         "agent_declared_requests": plan_body.get("agent_declared_requests", []),
+        "plan_candidates": plan_body.get("plan_candidates", []),
+        "recommended_candidate": plan_body.get("recommended_candidate"),
+        "quality_gate_result": plan_body.get("quality_gate_result", {}),
         "updated_at": plan[4],
         "timeline": [
             {

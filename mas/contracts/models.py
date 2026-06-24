@@ -8,11 +8,13 @@ from __future__ import annotations
 import logging
 import warnings
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     IPvAnyAddress,
     model_validator,
@@ -584,3 +586,72 @@ class ApprovalTicket(WorkflowDerivedMixin):
     """
     slack_message_ts: str
     channel_id: str
+
+
+# ---
+# FinOps agent collaboration contracts
+# ---
+
+class AgentStatus(str, Enum):
+    COMPLETED = "completed"
+    NEEDS_DATA = "needs_data"
+    BLOCKED = "blocked"
+    REQUIRES_REVIEW = "requires_review"
+    FAILED = "failed"
+
+
+class FinOpsAgentContract(BaseModel):
+    """Strict base model for messages exchanged by FinOps agents."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DataRequest(FinOpsAgentContract):
+    target_agent: str
+    operation: str
+    parameters: dict[str, Any]
+    required_fields: list[str]
+    reason: str
+
+
+class AgentTask(FinOpsAgentContract):
+    workflow_id: str
+    agent_key: str
+    agent_name: str
+    objective: str
+    context: dict[str, Any]
+    parameters: dict[str, Any]
+    requested_fields: list[str]
+
+
+class AgentResponse(FinOpsAgentContract):
+    status: AgentStatus
+    agent_key: str
+    agent_name: str
+    result: dict[str, Any]
+    message: str
+    evidence: list[str]
+    data_requests: list[DataRequest]
+    confidence: float = Field(ge=0.0, le=1.0)
+    warnings: list[str]
+    reasoning_source: Literal["rule", "llm", "rule+llm"]
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "AgentResponse":
+        if self.status == AgentStatus.NEEDS_DATA and not self.data_requests:
+            raise ValueError("needs_data responses must include at least one data request")
+        if self.status == AgentStatus.COMPLETED and not self.result:
+            raise ValueError("completed responses must include a non-empty result")
+        return self
+
+
+class PlanCandidate(FinOpsAgentContract):
+    label: str
+    push_window_minutes: int = Field(gt=0)
+    required_pods: int = Field(gt=0)
+    estimated_cost_usd: float = Field(ge=0.0)
+    estimated_p95_ms: float = Field(ge=0.0)
+    risk_level: Literal["low", "medium", "high"]
+    budget_exceeded: bool
+    policy_violations: list[str]
+    score: float = 0.0

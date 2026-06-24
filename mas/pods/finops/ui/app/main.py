@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 from urllib.error import URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
@@ -49,7 +50,7 @@ def health() -> dict[str, str]:
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
     workflows = call_orchestrator("/api/workflows")
-    calendar = call_orchestrator("/api/calendar")
+    calendar = call_orchestrator("/api/events")
     active = workflows[0] if workflows else None
     return {
         "scenario": "finops",
@@ -66,9 +67,17 @@ def calendar() -> Any:
     return call_orchestrator("/api/calendar")
 
 
+@app.get("/api/events")
+def events() -> Any:
+    return call_orchestrator("/api/events")
+
+
 @app.post("/api/workflows/run")
-def run_workflow() -> Any:
-    return call_orchestrator("/api/workflows/run", method="POST")
+def run_workflow(event_id: str = "fomc-briefing") -> Any:
+    return call_orchestrator(
+        f"/api/workflows/run?event_id={quote(event_id)}",
+        method="POST",
+    )
 
 
 @app.get("/api/workflows")
@@ -79,6 +88,24 @@ def workflows() -> Any:
 @app.get("/api/workflows/{workflow_id}")
 def workflow_detail(workflow_id: str) -> Any:
     return call_orchestrator(f"/api/workflows/{workflow_id}")
+
+
+@app.get("/api/workflows/{workflow_id}/agents")
+def workflow_agents(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}/agents")
+
+
+@app.get("/api/workflows/{workflow_id}/broker-log")
+def workflow_broker_log(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}/broker-log")
+
+
+@app.post("/api/workflows/{workflow_id}/retry")
+def retry_workflow(workflow_id: str) -> Any:
+    return call_orchestrator(
+        f"/api/workflows/{workflow_id}/retry",
+        method="POST",
+    )
 
 
 @app.post("/api/workflows/{workflow_id}/approve")
@@ -292,6 +319,26 @@ def index() -> str:
         border-radius: 6px;
       }
       #toast { color: var(--warn); font-size: 13px; }
+      .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+      .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 12px; }
+      .agent-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; cursor: pointer; background: white; }
+      .agent-card:hover { border-color: var(--accent); }
+      .status-completed { background: #dcfce7; color: #166534; }
+      .status-needs_data { background: #fef3c7; color: #92400e; }
+      .status-blocked, .status-failed { background: #fee2e2; color: #991b1b; }
+      .status-requires_review { background: #ffedd5; color: #9a3412; }
+      .status-running { background: #dbeafe; color: #1d4ed8; }
+      .candidate-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      .candidate-table th, .candidate-table td { padding: 9px; border-bottom: 1px solid var(--line); text-align: left; }
+      .candidate-table tr.recommended { background: #ecfdf5; font-weight: 700; }
+      .issue { color: #b91c1c; }
+      .warning { color: #b45309; }
+      .broker-flow { padding: 8px 0; border-bottom: 1px solid var(--line); }
+      .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: grid; place-items: center; z-index: 10; }
+      .modal[hidden] { display: none; }
+      .modal-panel { background: white; width: min(900px, 92vw); max-height: 88vh; overflow: auto; border-radius: 12px; padding: 18px; }
+      .modal pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8fafc; padding: 10px; border-radius: 8px; }
       @media (max-width: 1020px) {
         .summary { grid-template-columns: 1fr; }
         .content-grid { grid-template-columns: 1fr; }
@@ -308,7 +355,11 @@ def index() -> str:
         <h1>FinOps MAS Control</h1>
         <div class="muted">Demand shaping first, infrastructure second.</div>
       </div>
-      <button onclick="runPlan()">Run FinOps Plan</button>
+      <div class="toolbar">
+        <select id="event-select" aria-label="FinOps test scenario"></select>
+        <button onclick="runPlan()">Run FinOps Plan</button>
+        <button id="retry" class="secondary" onclick="retryPlan()" disabled>Retry Workflow</button>
+      </div>
     </header>
     <main>
       <section>
@@ -356,6 +407,26 @@ def index() -> str:
         </div>
       </div>
 
+      <section>
+        <div class="row"><h2>Agent Progress</h2><span class="badge">live</span></div>
+        <div id="agent-cards" class="agent-grid"></div>
+      </section>
+
+      <section>
+        <h2>Data Broker Requests</h2>
+        <div id="broker-log" class="muted">No broker calls.</div>
+      </section>
+
+      <section id="candidate-section" hidden>
+        <h2>Plan Candidates</h2>
+        <div id="candidate-table"></div>
+      </section>
+
+      <section id="quality-section" hidden>
+        <h2>Quality Gate</h2>
+        <div id="quality-gate"></div>
+      </section>
+
       <section id="finops-report" hidden>
         <div class="row">
           <h2 id="report-title">FinOps Event Readiness Report</h2>
@@ -365,10 +436,17 @@ def index() -> str:
         <div id="report-body" class="report-grid"></div>
       </section>
     </main>
+    <div id="agent-modal" class="modal" hidden onclick="closeAgentModal(event)">
+      <div class="modal-panel" onclick="event.stopPropagation()">
+        <div class="row"><h2 id="modal-agent-name">Agent</h2><button class="secondary" onclick="closeAgentModal()">Close</button></div>
+        <div id="modal-agent-body"></div>
+      </div>
+    </div>
     <script>
       let currentWorkflow = null;
       let calendarItems = [];
       let workflowPoller = null;
+      let agentDetails = {};
 
       async function api(path, options = {}) {
         const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -384,8 +462,15 @@ def index() -> str:
         try {
           const data = await api("/api/dashboard");
           calendarItems = data.calendar || [];
+          const select = document.getElementById("event-select");
+          select.innerHTML = calendarItems.map(item => `
+            <option value="${escapeHtml(item.event_id)}">${escapeHtml(item.event_id)} · ${escapeHtml(item.title)}</option>
+          `).join("");
           renderCalendar(calendarItems);
           if (data.active_workflow) {
+            if (calendarItems.some(item => item.event_id === data.active_workflow.event_id)) {
+              select.value = data.active_workflow.event_id;
+            }
             currentWorkflow = data.active_workflow.workflow_id;
             const done = await loadWorkflow(currentWorkflow);
             if (!done) startWorkflowPolling(currentWorkflow);
@@ -452,8 +537,39 @@ def index() -> str:
         document.getElementById("after").textContent = plan.peak_rps_after ? `${plan.peak_rps_after} rps` : "-";
         document.getElementById("pods").textContent = plan.required_app_pods || "-";
         document.getElementById("cost").textContent = plan.estimated_cost_usd ? `$${plan.estimated_cost_usd}` : "-";
-        document.getElementById("approve").disabled = data.status !== "waiting_approval";
+        document.getElementById("approve").disabled = !["waiting_approval", "plan_ready"].includes(data.status);
+        document.getElementById("retry").disabled = !currentWorkflow;
+        renderCandidates(data.plan_candidates || plan.plan_candidates || [], data.recommended_candidate || plan.recommended_candidate);
+        renderQualityGate(data.quality_gate_result || plan.quality_gate_result || {});
         renderReport(plan.report);
+      }
+
+      function renderCandidates(candidates, recommended) {
+        const section = document.getElementById("candidate-section");
+        if (!candidates.length) { section.hidden = true; return; }
+        section.hidden = false;
+        const recommendedLabel = recommended && recommended.label;
+        document.getElementById("candidate-table").innerHTML = `
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험도</th><th>점수</th><th>추천</th></tr></thead>
+            <tbody>${candidates.map(item => `
+              <tr class="${item.label === recommendedLabel ? "recommended" : ""}">
+                <td>${escapeHtml(item.label)}</td><td>${item.push_window_minutes}분</td>
+                <td>${item.required_pods}</td><td>$${Number(item.estimated_cost_usd).toFixed(2)}</td>
+                <td>${item.estimated_p95_ms}ms</td><td>${escapeHtml(item.risk_level)}</td>
+                <td>${Number(item.score).toFixed(4)}</td><td>${item.label === recommendedLabel ? "★" : ""}</td>
+              </tr>`).join("")}</tbody>
+          </table>`;
+      }
+
+      function renderQualityGate(gate) {
+        const section = document.getElementById("quality-section");
+        if (!Object.keys(gate).length) { section.hidden = true; return; }
+        section.hidden = false;
+        document.getElementById("quality-gate").innerHTML = `
+          <p><strong>${gate.passed ? "✓ 통과" : "✗ 실패"}</strong></p>
+          <ul class="issue">${(gate.issues || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+          <ul class="warning">${(gate.warnings || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
       }
 
       function reportValue(value) {
@@ -623,9 +739,10 @@ def index() -> str:
       async function sendChat() {
         try {
           const message = document.getElementById("chat-message").value;
+          const event = selectedEvent();
           const data = await api("/api/chat", {
             method: "POST",
-            body: JSON.stringify({event_id: "fomc-briefing", message})
+            body: JSON.stringify({event_id: event ? event.event_id : "fomc-briefing", message})
           });
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
@@ -741,8 +858,13 @@ def index() -> str:
       }
       */
 
+      function selectedEvent() {
+        const selectedId = document.getElementById("event-select").value;
+        return calendarItems.find(item => item.event_id === selectedId) || calendarItems[0];
+      }
+
       function eventIntroBubble(label = "request") {
-        const event = calendarItems[0];
+        const event = selectedEvent();
         if (!event) return "";
         const users = Number(event.target_users || 0).toLocaleString();
         return `
@@ -812,6 +934,63 @@ def index() -> str:
         el.scrollTop = el.scrollHeight;
       }
 
+      function renderAgentCards(agents) {
+        agentDetails = Object.fromEntries(agents.map(item => [item.agent_key, item]));
+        const el = document.getElementById("agent-cards");
+        el.innerHTML = agents.length ? agents.map(item => `
+          <div class="agent-card" onclick="openAgentModal('${escapeHtml(item.agent_key)}')">
+            <div class="speaker">
+              <span>${escapeHtml(item.agent_name)}</span>
+              <span class="badge status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>
+            </div>
+            <p>confidence: ${item.confidence === null ? "-" : Number(item.confidence).toFixed(2)}</p>
+            <span class="badge">${escapeHtml(item.reasoning_source || "pending")}</span>
+            <details><summary>Evidence</summary><ul>${(item.evidence || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
+            <details><summary>Warnings</summary><ul class="warning">${(item.warnings || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
+            <div class="muted">${escapeHtml(item.started_at || "-")} → ${escapeHtml(item.completed_at || "-")}</div>
+          </div>`).join("") : '<div class="muted">Waiting for agent activities.</div>';
+      }
+
+      function openAgentModal(agentKey) {
+        const item = agentDetails[agentKey];
+        if (!item) return;
+        document.getElementById("modal-agent-name").textContent = item.agent_name;
+        document.getElementById("modal-agent-body").innerHTML = `
+          <details open><summary>Input Context</summary><pre>${escapeHtml(JSON.stringify(item.input_context || {}, null, 2))}</pre></details>
+          <details open><summary>Output Result</summary><pre>${escapeHtml(JSON.stringify(item.result || {}, null, 2))}</pre></details>
+          <details><summary>Data Requests</summary><pre>${escapeHtml(JSON.stringify(item.data_requests || [], null, 2))}</pre></details>
+          <details><summary>Evidence</summary><pre>${escapeHtml(JSON.stringify(item.evidence || [], null, 2))}</pre></details>
+          <details><summary>Warnings</summary><pre>${escapeHtml(JSON.stringify(item.warnings || [], null, 2))}</pre></details>`;
+        document.getElementById("agent-modal").hidden = false;
+      }
+
+      function closeAgentModal() {
+        document.getElementById("agent-modal").hidden = true;
+      }
+
+      function renderBrokerLog(entries) {
+        const el = document.getElementById("broker-log");
+        el.innerHTML = entries.length ? entries.map(item => {
+          const requester = agentDetails[item.requester_agent]?.agent_name || item.requester_agent || "Agent";
+          const target = agentDetails[item.target_agent]?.agent_name || item.target_agent || "Agent";
+          const cache = item.cache_hit ? "✓ cache hit" : "✗ new execution";
+          const fields = (item.result_fields || []).join(", ") || "none";
+          return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation)}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status)} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
+        }).join("") : '<span class="muted">No broker calls.</span>';
+      }
+
+      async function retryPlan() {
+        if (!currentWorkflow) return;
+        try {
+          stopWorkflowPolling();
+          const result = await api(`/api/workflows/${currentWorkflow}/retry`, {method: "POST"});
+          currentWorkflow = result.new_workflow_id;
+          renderCallingConversation();
+          await loadWorkflow(currentWorkflow);
+          startWorkflowPolling(currentWorkflow);
+        } catch (error) { showError(error); }
+      }
+
       function stopWorkflowPolling() {
         if (workflowPoller) {
           clearInterval(workflowPoller);
@@ -835,9 +1014,15 @@ def index() -> str:
       }
 
       async function loadWorkflow(workflowId) {
-        const data = await api(`/api/workflows/${workflowId}`);
+        const [data, agents, brokerLog] = await Promise.all([
+          api(`/api/workflows/${workflowId}`),
+          api(`/api/workflows/${workflowId}/agents`),
+          api(`/api/workflows/${workflowId}/broker-log`)
+        ]);
         renderPlan(data);
         renderConversation(data);
+        renderAgentCards(agents);
+        renderBrokerLog(brokerLog);
         return !["running", "starting"].includes(data.status || "running");
       }
 
@@ -846,7 +1031,8 @@ def index() -> str:
           stopWorkflowPolling();
           document.getElementById("toast").textContent = "Temporal workflow 시작 중...";
           renderCallingConversation();
-          const result = await api("/api/workflows/run", {method: "POST"});
+          const eventId = document.getElementById("event-select").value || "fomc-briefing";
+          const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});
           currentWorkflow = result.workflow_id;
           await loadWorkflow(currentWorkflow);
           startWorkflowPolling(currentWorkflow);
