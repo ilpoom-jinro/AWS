@@ -80,13 +80,13 @@ resource "aws_flow_log" "this" {
 }
 
 # ---- (A) VPC별 REJECT 카운트 메트릭 ×4 ----
-# REJECT-only 그룹이라 전체 이벤트=전체 REJECT → 패턴 ""으로 전부 매칭
 # 차원 없음(스칼라) → 커스텀 메트릭 무료 10개 내. baseline·비용 모니터링용
 resource "aws_cloudwatch_log_metric_filter" "reject_count" {
   for_each       = local.flowlog_vpcs
   name           = "flowlogs-reject-count-${each.key}"
   log_group_name = aws_cloudwatch_log_group.flowlogs[each.key].name
-  pattern        = ""
+  # action=REJECT 만 매칭 — NODATA/SKIPDATA 레코드는 action 자리가 "-" 라 제외됨
+  pattern = "[version, account_id, interface_id, srcaddr, dstaddr, srcport, dstport, protocol, packets, bytes, start, end, action=REJECT, log_status]"
 
   metric_transformation {
     name          = "RejectCount"
