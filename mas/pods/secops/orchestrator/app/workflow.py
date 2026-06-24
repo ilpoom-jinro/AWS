@@ -45,7 +45,7 @@ with workflow.unsafe.imports_passed_through():
         SecurityEvent,
     )
     from workflows.activity_options import ActivityName, get_activity_options
-    from secops_temporal.activities import (
+    from .activities import (
         apply_isolation,
         detect_threat,
         generate_compliance_report,

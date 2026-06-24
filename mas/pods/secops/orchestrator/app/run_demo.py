@@ -11,7 +11,7 @@ Temporal CLI 설치도, 별도 서버/워커 터미널도 필요 없음.
 
 실행 (mas/ 디렉터리에서):
     pip install temporalio
-    python -m secops_temporal.run_demo
+    python -m pods.secops.orchestrator.app.run_demo
 
     # map_regulation에 실제 Claude를 태우려면 (선택):
     #   $env:USE_REAL_BEDROCK="true"; $env:BEDROCK_MODEL="global.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -30,7 +30,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from contracts.models import DetectThreatInput
-from secops_temporal.activities import (
+from .activities import (
     apply_isolation,
     detect_threat,
     generate_compliance_report,
@@ -38,7 +38,7 @@ from secops_temporal.activities import (
     record_audit_log,
     send_approval_request,
 )
-from secops_temporal.workflow import SecOpsWorkflow
+from .workflow import SecOpsWorkflow
 
 TASK_QUEUE = "secops-task-queue"
 
