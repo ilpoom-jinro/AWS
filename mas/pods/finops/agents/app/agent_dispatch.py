@@ -1,22 +1,54 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app import agent_logic
-from app.agent_support import call_llm, standard_response
+from app.agent_support import call_llm, llm_judge_data_request, standard_response
+from contracts.models import AGENT_ALLOWED_REQUESTS, AgentResponse, AgentStatus
 
 
 def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
+    return asyncio.run(run_agent_async(agent_key, context))
+
+
+async def run_agent_async(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
     if agent_key != agent_logic.AGENT_KEY:
         raise ValueError(
             f"image owns agent '{agent_logic.AGENT_KEY}', but received '{agent_key}'"
         )
 
-    result, message = agent_logic.evaluate(context)
+    evaluation = agent_logic.evaluate(context)
+    if isinstance(evaluation, AgentResponse):
+        return evaluation.model_dump(mode="json")
+
+    result, message = evaluation
+    allowed_targets = AGENT_ALLOWED_REQUESTS.get(agent_key, [])
+    if allowed_targets:
+        data_request = await llm_judge_data_request(
+            agent_key,
+            context,
+            result,
+            allowed_targets,
+        )
+        if data_request is not None:
+            response = AgentResponse(
+                status=AgentStatus.NEEDS_DATA,
+                agent_key=agent_key,
+                agent_name=agent_logic.AGENT_NAME,
+                result={},
+                message=data_request.reason,
+                evidence=[],
+                data_requests=[data_request],
+                confidence=0.6,
+                warnings=["LLM judge triggered data request"],
+                reasoning_source="llm",
+            )
+            return response.model_dump(mode="json")
+
     prompt = getattr(agent_logic, "LLM_PROMPT", None)
     assessment = call_llm(prompt, _llm_context(agent_key, context, result)) if prompt else None
     result["llm_assessment"] = assessment
-    result["reasoning_source"] = "llm" if assessment else "rule_based"
     if assessment:
         result = agent_logic.apply_llm(result, assessment)
 
@@ -26,6 +58,7 @@ def run_agent(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:
         result,
         message,
         context.get("agent_results", {}),
+        "rule+llm" if assessment else "rule",
     )
 
 

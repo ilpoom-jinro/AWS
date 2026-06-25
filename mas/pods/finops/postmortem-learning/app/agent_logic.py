@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+
 
 AGENT_KEY = "postmortem_learning"
 AGENT_NAME = "Postmortem Learning Agent"
@@ -9,8 +11,8 @@ LLM_PROMPT = None
 
 
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    forecast = context["agent_results"]["traffic_forecast"]
-    cost = context["agent_results"]["cost"]
+    forecast = get_agent_result(context, "traffic_forecast")
+    cost = get_agent_result(context, "cost")
     result = {
         "profile_update": "pending_after_execution",
         "compare": ["forecast", "actual", "cost"],

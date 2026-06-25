@@ -54,9 +54,10 @@ resource "aws_db_instance" "service" {
   storage_encrypted = true
   kms_key_id        = var.kms_key_rds_arn # KMS CMK ARN 연결 - aws/rds 기본키 대신 CMK 사용
 
-  backup_retention_period = 0
-  backup_window           = "18:00-19:00"
-  maintenance_window      = "sun:19:00-sun:20:00"
+  backup_retention_period  = var.rds_backup_retention # 토글: Free Plan=0(default), Paid=7(tfvars)
+  backup_window            = "18:00-19:00"
+  maintenance_window       = "sun:19:00-sun:20:00"
+  delete_automated_backups = true
 
   auto_minor_version_upgrade = false
   deletion_protection        = var.deletion_protection
