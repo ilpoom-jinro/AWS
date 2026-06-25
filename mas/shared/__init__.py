@@ -11,14 +11,27 @@ Shared SDK 퍼블릭 API
 - 내부 구현체(bedrock/, audit/)는 SDK 내부 세부사항임
 """
 
-from shared.audit import save_audit_log
-from shared.bedrock import ClaudeModel, get_bedrock_client
 from shared.exceptions import (
     AuditLogError,
     BedrockClientError,
     ConfigurationError,
     SDKError,
 )
+
+
+def __getattr__(name: str):
+    if name == "save_audit_log":
+        from shared.audit import save_audit_log
+
+        return save_audit_log
+    if name in {"ClaudeModel", "get_bedrock_client"}:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        return {
+            "ClaudeModel": ClaudeModel,
+            "get_bedrock_client": get_bedrock_client,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # 핵심 API

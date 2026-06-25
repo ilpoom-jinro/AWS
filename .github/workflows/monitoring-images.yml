@@ -58,6 +58,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_metrics_server:
+        description: "Mirror Metrics Server"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -100,6 +105,7 @@ jobs:
           MIRROR_PROMETHEUS: ${{ inputs.mirror_prometheus }}
           MIRROR_AWS_LOAD_BALANCER_CONTROLLER: ${{ inputs.mirror_aws_load_balancer_controller }}
           MIRROR_TEMPO: ${{ inputs.mirror_tempo }}
+          MIRROR_METRICS_SERVER: ${{ inputs.mirror_metrics_server }}
         run: |
           set -euo pipefail
 
@@ -120,6 +126,7 @@ jobs:
               prometheus) [ "${MIRROR_PROMETHEUS}" = "true" ] ;;
               aws-load-balancer-controller) [ "${MIRROR_AWS_LOAD_BALANCER_CONTROLLER}" = "true" ] ;;
               tempo) [ "${MIRROR_TEMPO}" = "true" ] ;;
+              metrics-server) [ "${MIRROR_METRICS_SERVER}" = "true" ] ;;
               *) return 1 ;;
             esac
           }
@@ -143,7 +150,7 @@ jobs:
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
             docker push "${target_image}"
-          done < monitoring/images.tsv
+          done < <(cat monitoring/images.tsv; echo)
 
       - name: Build selected custom monitoring images
         if: inputs.build_custom == true
@@ -180,4 +187,4 @@ jobs:
               "${build_context}"
 
             docker push "${target_image}"
-          done < monitoring/custom-images.tsv
+          done < <(cat monitoring/custom-images.tsv; echo)

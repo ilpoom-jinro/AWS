@@ -35,6 +35,7 @@ Example:
 from __future__ import annotations
 
 import logging
+import os
 from enum import Enum
 from functools import lru_cache
 
@@ -43,24 +44,15 @@ import botocore.client
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from shared.config import get_settings
 from shared.exceptions import BedrockClientError
 
 logger = logging.getLogger(__name__)
 
 
 class ClaudeModel(str, Enum):
-    """
-    MAS Platform에서 사용하는 Claude 모델 목록
-
-    참고:
-        Opus는 서울 리전(ap-northeast-2)에서 직접 호출할 수 없어
-        Cross-Region Inference 모델 ID를 사용한다
-    """
-
-    HAIKU = "anthropic.claude-haiku-4-5-20251001"
-    SONNET = "anthropic.claude-sonnet-4-6"
-    OPUS = "us.anthropic.claude-opus-4-6"
+    HAIKU = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    SONNET = "global.anthropic.claude-sonnet-4-6"
+    OPUS = "global.anthropic.claude-opus-4-6-v1"
 
 
 _BOTO_CONFIG = Config(
@@ -86,12 +78,12 @@ def get_bedrock_client() -> botocore.client.BaseClient:
             - Region 설정 오류
             - Client 생성 실패
     """
-    settings = get_settings()
+    region = os.getenv("BEDROCK_REGION") or os.getenv("AWS_REGION", "ap-northeast-2")
 
     try:
         client = boto3.client(
             service_name="bedrock-runtime",
-            region_name=settings.aws_region,
+            region_name=region,
             config=_BOTO_CONFIG,
         )
 
@@ -103,7 +95,7 @@ def get_bedrock_client() -> botocore.client.BaseClient:
     logger.info(
         "bedrock_client_created",
         extra={
-            "region": settings.aws_region,
+            "region": region,
         },
     )
 

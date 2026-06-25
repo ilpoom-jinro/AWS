@@ -237,6 +237,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.finops_postgres
           -target=aws_ecr_repository.external_secrets
           -target=aws_ecr_lifecycle_policy.external_secrets
+          -target=aws_ecr_repository.metrics_server
+          -target=aws_ecr_lifecycle_policy.metrics_server
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR

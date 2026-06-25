@@ -7,22 +7,16 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: ops-infra-project
   source:
-    repoURL: https://kubernetes-sigs.github.io/metrics-server/
-    chart: metrics-server
-    targetRevision: 3.12.2
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: helmChart/charts/metrics-server
     helm:
-      releaseName: metrics-server
-      values: |
-        args:
-          - --kubelet-insecure-tls   # EKS 자체 서명 kubelet 인증서 대응
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
+      valueFiles:
+        - ../../metrics-server/values.yaml
   destination:
-    name: financial-service-eks   # service 클러스터에 배포
+    name: financial-service-eks
     namespace: kube-system
   syncPolicy:
     automated:

@@ -1,0 +1,10 @@
+# gitops/platform/helmChart/metrics-server/values.yaml
+image:
+  repository: REPLACE_WITH_ECR_REGISTRY/financial/monitoring/metrics-server
+  tag: v0.7.2
+args:
+  - --kubelet-insecure-tls
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi

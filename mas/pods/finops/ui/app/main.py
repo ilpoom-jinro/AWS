@@ -255,10 +255,47 @@ def index() -> str:
         color: var(--muted);
         font-size: 12px;
       }
+      .report-lead {
+        margin: 12px 0 0;
+        max-width: 1000px;
+        color: #334155;
+        line-height: 1.55;
+      }
+      .report-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
+        margin-top: 18px;
+      }
+      .report-group {
+        border-top: 2px solid var(--line);
+        padding-top: 12px;
+        min-width: 0;
+      }
+      .report-kv {
+        display: grid;
+        grid-template-columns: minmax(120px, 1fr) minmax(0, 1.4fr);
+        gap: 8px 12px;
+        margin: 12px 0 0;
+        font-size: 13px;
+      }
+      .report-kv dt { color: var(--muted); }
+      .report-kv dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+      .source-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+      .source-list .badge { border-radius: 4px; font-weight: 600; }
+      .report-json {
+        max-height: 190px;
+        overflow: auto;
+        padding: 8px;
+        background: #f8fafc;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
       #toast { color: var(--warn); font-size: 13px; }
       @media (max-width: 1020px) {
         .summary { grid-template-columns: 1fr; }
         .content-grid { grid-template-columns: 1fr; }
+        .report-grid { grid-template-columns: 1fr; }
         .metric { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .chat-room { max-height: none; }
         .day { min-height: 104px; }
@@ -318,6 +355,15 @@ def index() -> str:
           </section>
         </div>
       </div>
+
+      <section id="finops-report" hidden>
+        <div class="row">
+          <h2 id="report-title">FinOps Event Readiness Report</h2>
+          <span class="badge">Final report</span>
+        </div>
+        <p id="report-summary" class="report-lead"></p>
+        <div id="report-body" class="report-grid"></div>
+      </section>
     </main>
     <script>
       let currentWorkflow = null;
@@ -407,8 +453,88 @@ def index() -> str:
         document.getElementById("pods").textContent = plan.required_app_pods || "-";
         document.getElementById("cost").textContent = plan.estimated_cost_usd ? `$${plan.estimated_cost_usd}` : "-";
         document.getElementById("approve").disabled = data.status !== "waiting_approval";
+        renderReport(plan.report);
       }
 
+      function reportValue(value) {
+        if (value === null || value === undefined || value === "") return "-";
+        if (Array.isArray(value)) return value.length ? value.map(escapeHtml).join(", ") : "-";
+        if (typeof value === "object") return escapeHtml(JSON.stringify(value));
+        return escapeHtml(value);
+      }
+
+      function reportRows(entries) {
+        return `<dl class="report-kv">${entries.map(([label, value]) => `
+          <dt>${escapeHtml(label)}</dt><dd>${reportValue(value)}</dd>
+        `).join("")}</dl>`;
+      }
+
+      function reportGroup(title, content) {
+        return `<div class="report-group"><h3>${escapeHtml(title)}</h3>${content}</div>`;
+      }
+
+      function reportJson(value) {
+        if (!value || (typeof value === "object" && !Object.keys(value).length)) return "-";
+        return `<pre class="report-json">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+      }
+
+      function renderReport(report) {
+        const section = document.getElementById("finops-report");
+        if (!report) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        document.getElementById("report-title").textContent = report.title || "FinOps Event Readiness Report";
+        document.getElementById("report-summary").textContent = report.executive_summary || "";
+
+        const event = report.event || {};
+        const collection = report.data_collection || {};
+        const sources = collection.sources || {};
+        const traffic = report.traffic || {};
+        const capacity = report.capacity || {};
+        const cost = report.cost || {};
+        const policy = report.policy || {};
+        const operations = report.operations || {};
+        const sourceTags = Object.entries(sources).map(([name, value]) =>
+          `<span class="badge">${escapeHtml(name)}: ${reportValue(value)}</span>`
+        ).join("");
+
+        document.getElementById("report-body").innerHTML = [
+          reportGroup("Event Summary", reportRows([
+            ["Event", event.title], ["Event ID", event.event_id], ["Grade", event.grade],
+            ["Target users", event.target_users], ["Scheduled", event.scheduled_at]
+          ])),
+          reportGroup("Data Sources", `<div class="source-list">${sourceTags || "-"}</div>`),
+          reportGroup("Traffic Forecast", reportRows([
+            ["Peak before", traffic.peak_rps_before], ["Peak after", traffic.peak_rps_after],
+            ["Required pods", traffic.required_app_pods], ["Queue depth", traffic.queue_depth],
+            ["P95 latency (ms)", traffic.p95_latency_ms]
+          ])),
+          reportGroup("Capacity Readiness", reportRows([
+            ["Target pods", capacity.target_app_pods], ["Current pods", capacity.current_app_pods],
+            ["Ready pods", capacity.ready_app_pods], ["Bottleneck", capacity.bottleneck_status],
+            ["RDS CPU", capacity.rds_cpu], ["Cache hit ratio", capacity.cache_hit_ratio]
+          ])),
+          reportGroup("Cost Estimate", reportRows([
+            ["Event cost (USD)", cost.estimated_event_cost_usd], ["Month to date (USD)", cost.month_to_date_usd],
+            ["CUR month to date", cost.cur_month_to_date_usd], ["Projected monthly", cost.projected_monthly_usd],
+            ["Event budget", cost.event_budget_usd]
+          ])),
+          reportGroup("Policy Validation", reportRows([
+            ["Approval required", policy.approval_required], ["Allowed actions", policy.allowed_actions],
+            ["Forbidden actions", policy.forbidden_actions], ["Policy version", policy.policy_version]
+          ])),
+          reportGroup("Operation Plan", reportRows([
+            ["Scale out", operations.scale_out_at], ["Prewarm", operations.prewarm_at],
+            ["Scale down", operations.scale_down], ["Observer", operations.observer_recommendation]
+          ])),
+          reportGroup("Fallback Plan", reportJson(operations.fallback)),
+          reportGroup("Postmortem Plan", reportJson(operations.postmortem))
+        ].join("");
+      }
+
+      /* Legacy conversation renderer retained temporarily for compatibility.
       function renderEmptyConversation() {
         document.getElementById("conversation-status").textContent = "waiting";
         document.getElementById("agent-chat").innerHTML = `
@@ -479,6 +605,7 @@ def index() -> str:
         el.innerHTML = intro + messages;
         el.scrollTop = el.scrollHeight;
       }
+      */
 
       async function approvePlan() {
         if (!currentWorkflow) return;
@@ -526,6 +653,7 @@ def index() -> str:
           .replaceAll("'", "&#039;");
       }
 
+      /* Legacy duplicate renderer. The active implementation follows this block.
       function eventIntroBubble(label = "요청") {
         const event = calendarItems[0];
         if (!event) return "";
@@ -609,6 +737,78 @@ def index() -> str:
             </div>
           `).join("");
         el.innerHTML = eventIntroBubble("요청") + messages;
+        el.scrollTop = el.scrollHeight;
+      }
+      */
+
+      function eventIntroBubble(label = "request") {
+        const event = calendarItems[0];
+        if (!event) return "";
+        const users = Number(event.target_users || 0).toLocaleString();
+        return `
+          <div class="bubble operator">
+            <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
+            <p>${escapeHtml(event.scheduled_at)} ${escapeHtml(event.title)}: ${escapeHtml(label)} for ${users} target users.</p>
+          </div>
+        `;
+      }
+
+      function renderEmptyConversation() {
+        document.getElementById("conversation-status").textContent = "ready";
+        document.getElementById("agent-chat").innerHTML = `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps MAS</span><span class="badge">ready</span></div>
+            <p>Run the FinOps plan to execute the Temporal workflow and collect each agent result.</p>
+          </div>
+        `;
+      }
+
+      function renderCallingConversation() {
+        document.getElementById("conversation-status").textContent = "calling_agents";
+        document.getElementById("agent-chat").innerHTML = eventIntroBubble("FinOps plan") + `
+          <div class="bubble agent">
+            <div class="speaker"><span>Orchestrator</span><span class="badge">calling</span></div>
+            <p>The Temporal workflow is dispatching work to the FinOps agent task queues.</p>
+          </div>
+        `;
+      }
+
+      function narrate(item) {
+        const r = item.result || {};
+        const summaries = {
+          "Business Control Agent": `Event grade ${r.grade || "unknown"}; approval ${r.approval_required ? "required" : "not required"}.`,
+          "Demand Shaping Agent": `Send window ${r.send_window_minutes || "-"} minutes; estimated peak reduction ${r.peak_reduction_percent || "-"}%.`,
+          "Traffic Forecast Agent": `Peak changes from ${r.peak_rps_before || "-"} to ${r.peak_rps_after || "-"} RPS; ${r.required_app_pods || "-"} pods required.`,
+          "Bottleneck Capacity Agent": `Capacity status ${r.status || "unknown"}; DB CPU ${r.db_cpu || "-"}; cache hit ratio ${r.cache_hit_ratio || "-"}.`,
+          "Infra Execution Planner": `Scale out at ${r.scale_out_at || "-"}; prewarm at ${r.prewarm_at || "-"}.`,
+          "Cost Agent": `Estimated incremental cost $${r.total || "-"}.`,
+          "Unit Economics Agent": `Cost-to-value ratio ${r.cost_ratio || "-"}.`,
+          "Policy Guardrail Agent": `Approval ${r.approval_required ? "required" : "not required"}.`,
+          "Observer Agent": r.recommendation || "Monitoring thresholds prepared.",
+          "Fallback Planner": "Fallback actions prepared for approval or infrastructure failure.",
+          "Postmortem Learning Agent": `Profile update ${r.profile_update || "pending"}.`,
+          "Dry-run Execution": "The approved operation plan was validated in dry-run mode."
+        };
+        return summaries[item.agent] || JSON.stringify(r);
+      }
+
+      function renderConversation(data) {
+        const el = document.getElementById("agent-chat");
+        document.getElementById("conversation-status").textContent = data.status || "running";
+        const messages = data.conversation && data.conversation.length
+          ? data.conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.sender)}</span><span class="badge">to ${escapeHtml(item.receiver)}</span></div>
+              <p>${escapeHtml(item.message)}</p>
+            </div>
+          `).join("")
+          : (data.timeline || []).map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(item.agent)}</span><span class="badge">${escapeHtml(item.status)}</span></div>
+              <p>${escapeHtml(narrate(item))}</p>
+            </div>
+          `).join("");
+        el.innerHTML = eventIntroBubble("FinOps plan") + messages;
         el.scrollTop = el.scrollHeight;
       }
 
