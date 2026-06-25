@@ -62,6 +62,30 @@ phases:
             -f /workspace/gitops/platform/gateway-api/standard-install.yaml
         done
       - |
+        set -euo pipefail
+
+        # ── snapshot-controller + Velero CRDs — financial-ops-eks ──
+        # ansible-playbook이 app-of-apps를 등록하면 ArgoCD가 즉시 sync를 시작하므로
+        # VolumeSnapshot* CRD(sync-wave 0)와 Velero CRD(sync-wave 1)는
+        # 이 블록에서 미리 apply해야 함.
+        ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+        ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com"
+
+        # values.yaml 플레이스홀더 치환 — ansible-playbook이 Gitea에 push하기 전에 실행
+        sed -i "s/REPLACE_WITH_ACCOUNT_ID/${ACCOUNT_ID}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml
+        sed -i "s/REPLACE_WITH_ECR_REGISTRY/${ECR_REGISTRY}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml \
+          /workspace/gitops/platform/helmChart/snapshot-controller/values.yaml
+
+        for CHART in snapshot-controller velero; do
+          helm template "${CHART}" \
+            /workspace/gitops/platform/helmChart/charts/"${CHART}" \
+            --include-crds \
+            | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
+            | kubectl --context financial-ops-eks apply --server-side -f -
+        done
+      - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
           aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true
