@@ -302,6 +302,8 @@ jobs:
           aws ecr describe-repositories --repository-names "${KUBECTL_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${FINOPS_TEMPORAL_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${FINOPS_POSTGRES_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_SERVER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_UI_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
