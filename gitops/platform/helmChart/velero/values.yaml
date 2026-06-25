@@ -13,7 +13,7 @@ initContainers:
 
 configuration:
   uploaderType: kopia
-  # CSI VolumeSnapshot → S3 데이터 이동 활성화 (EBS 스냅샷을 Kopia로 S3에 업로드 후 삭제)
+  # Enable CSI VolumeSnapshot -> S3 data mover (EBS snapshot uploaded via Kopia then deleted)
   features: EnableCSIVolumeDataMover
   backupStorageLocation:
     - name: default
@@ -22,7 +22,7 @@ configuration:
       default: true
       config:
         region: ap-northeast-2
-        # S3 SSE-KMS 암호화 키 (alias/key-s3 — 계정 마이그레이션 대응: alias 참조)
+        # S3 SSE-KMS key (alias reference for account migration compatibility)
         kmsKeyId: alias/key-s3
   volumeSnapshotLocation:
     - name: default
@@ -31,7 +31,7 @@ configuration:
         region: ap-northeast-2
 
 credentials:
-  # Pod Identity로 자격증명 주입 — Secret 불필요
+  # Credentials injected via Pod Identity - no Secret needed
   useSecret: false
 
 serviceAccount:
@@ -39,13 +39,18 @@ serviceAccount:
     create: true
     name: velero
 
-# chart 8.x: node-agent는 top-level deployNodeAgent로 활성화 (nodeAgent.enabled 없음)
-# node-agent SA = velero SA 공유 — 별도 SA 없음
+# chart 8.x: node-agent is enabled via top-level deployNodeAgent (no nodeAgent.enabled key)
+# node-agent shares the velero SA - no separate SA
 deployNodeAgent: true
 
 nodeAgent:
-  # node-agent는 DaemonSet — hostPath 마운트로 privileged 필요
+  # node-agent is a DaemonSet - requires privileged for hostPath mounts
   podSecurityContext:
     runAsUser: 0
   containerSecurityContext:
     privileged: true
+
+# velero-upgrade-crds hook disabled: CRDs are managed directly via buildspec (consistent
+# with ArgoCD CRD exclusion pattern). Hook uses docker.io/bitnami/kubectl which cannot
+# be pulled in the private cluster, causing ImagePullBackOff and blocking sync.
+upgradeCRDs: false
