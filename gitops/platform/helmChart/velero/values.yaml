@@ -39,21 +39,13 @@ serviceAccount:
     create: true
     name: velero
 
+# chart 8.x: node-agent는 top-level deployNodeAgent로 활성화 (nodeAgent.enabled 없음)
+# node-agent SA = velero SA 공유 — 별도 SA 없음
+deployNodeAgent: true
+
 nodeAgent:
-  enabled: true
-  # Kopia 업로더: EBS 스냅샷을 S3로 이동 (transient snapshot 이후 삭제)
-  uploaderType: kopia
-  serviceAccount:
-    create: true
-    name: node-agent
   # node-agent는 DaemonSet — hostPath 마운트로 privileged 필요
   podSecurityContext:
     runAsUser: 0
   containerSecurityContext:
     privileged: true
-  image:
-    repository: REPLACE_WITH_ECR_REGISTRY/velero/velero
-    tag: v1.15.0
-    pullPolicy: IfNotPresent
-
-installCRDs: true
