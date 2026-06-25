@@ -12,13 +12,15 @@ import boto3
 import psycopg
 from botocore.config import Config
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
 from app.agent_dispatch import run_agent as run_finops_agent_logic
+from app.agent_dispatch import run_agent_async as run_finops_agent_logic_async
 from app.agent_support import AGENT_TASK_QUEUES
+from contracts.models import AgentResponse, AgentStatus
 
 
 AGENT_KEY = os.getenv("AGENT_KEY", "business_control")
@@ -656,7 +658,26 @@ async def run_finops_agent(
 ) -> dict[str, Any]:
     if agent_key != AGENT_KEY:
         raise ValueError(f"{AGENT_NAME} cannot run agent '{agent_key}'")
-    return run_finops_agent_logic(agent_key, enrich_context_for_agent(agent_key, context))
+    try:
+        raw_response = await run_finops_agent_logic_async(
+            agent_key,
+            enrich_context_for_agent(agent_key, context),
+        )
+        response = AgentResponse.model_validate(raw_response)
+    except ValidationError as exc:
+        response = AgentResponse(
+            status=AgentStatus.FAILED,
+            agent_key=agent_key,
+            agent_name=agent_name,
+            result={},
+            message=f"Agent response validation failed: {exc}",
+            evidence=[],
+            data_requests=[],
+            confidence=0.0,
+            warnings=[str(exc)],
+            reasoning_source="rule",
+        )
+    return response.model_dump(mode="json")
 
 
 async def start_temporal_worker() -> None:
@@ -695,6 +716,7 @@ def data_requests_for(agent_key: str, available_results: dict[str, Any]) -> list
     return requests
 
 
+# DEPRECATED: retained for compatibility with the legacy local agent runner.
 def response(
     agent_key: str,
     result: dict[str, Any],
@@ -711,6 +733,7 @@ def response(
     }
 
 
+# DEPRECATED: Temporal and HTTP execution use app.agent_dispatch.run_agent.
 def run_agent(agent_key: str, context: dict[str, Any], available_results: dict[str, Any]) -> dict[str, Any]:
     event, policy = event_policy(context)
     signals = context.get("signals", {})
@@ -837,4 +860,8 @@ def health() -> dict[str, str]:
 
 @app.post("/run")
 def run(request: AgentRequest) -> dict[str, Any]:
-    return run_finops_agent_logic(AGENT_KEY, enrich_context_for_agent(AGENT_KEY, request.context))
+    raw_response = run_finops_agent_logic(
+        AGENT_KEY,
+        enrich_context_for_agent(AGENT_KEY, request.context),
+    )
+    return AgentResponse.model_validate(raw_response).model_dump(mode="json")
