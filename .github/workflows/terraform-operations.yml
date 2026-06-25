@@ -64,6 +64,7 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
   TF_VAR_dev_mode: "true"
   TF_VAR_ops_vpc_command: ${{ inputs.ops_vpc_command || 'kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide' }}
+  TF_VAR_enable_flowlog_s3_archive: "true"
   
 jobs:
   plan:
