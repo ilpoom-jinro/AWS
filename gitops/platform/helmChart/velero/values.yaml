@@ -14,7 +14,7 @@ initContainers:
 configuration:
   uploaderType: kopia
   # Enable CSI VolumeSnapshot -> S3 data mover (EBS snapshot uploaded via Kopia then deleted)
-  features: EnableCSIVolumeDataMover
+  features: EnableCSI,EnableCSIVolumeDataMover
   backupStorageLocation:
     - name: default
       provider: aws
