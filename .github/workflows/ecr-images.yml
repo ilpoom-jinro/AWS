@@ -105,7 +105,7 @@ env:
   VELERO_PLUGIN_AWS_VERSION: "v1.11.0"  # Note: keep in sync with helmChart/velero/values.yaml initContainers image
   VELERO_PLUGIN_AWS_REPOSITORY: velero/velero-plugin-for-aws
   VELERO_PLUGIN_AWS_SOURCE_IMAGE: docker.io/velero/velero-plugin-for-aws
-  SNAPSHOT_CONTROLLER_VERSION: "v8.2.0"  # Note: keep in sync with helmChart/snapshot-controller/values.yaml image.tag
+  SNAPSHOT_CONTROLLER_VERSION: "v8.6.0"  # Note: keep in sync with helmChart/snapshot-controller/values.yaml image.tag
   SNAPSHOT_CONTROLLER_REPOSITORY: sig-storage/snapshot-controller
   SNAPSHOT_CONTROLLER_SOURCE_IMAGE: registry.k8s.io/sig-storage/snapshot-controller
 
