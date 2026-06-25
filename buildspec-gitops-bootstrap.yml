@@ -66,20 +66,12 @@ phases:
 
         # ── snapshot-controller + Velero CRDs — ops cluster only ──
         # ArgoCD resource.exclusions에 CustomResourceDefinition이 전역 제외됨.
-        # snapshot-controller crds.yaml에 Helm 템플릿 지시문({{ if .InsertCaFrom }})이 포함되어
-        # kubectl apply -f 직접 사용 불가 → kyverno 패턴과 동일하게 helm template으로 렌더링 후 apply.
-        # velero crds/는 정적 YAML이지만 일관성을 위해 동일 패턴 적용.
-        helm template snapshot-controller \
-          /workspace/gitops/platform/helmChart/charts/snapshot-controller \
-          --include-crds \
-          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
-          | kubectl --context financial-ops-eks apply --server-side -f -
+        # crds.yaml의 Helm 템플릿 구문을 정적 값으로 교체했으므로 직접 apply 가능.
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml
 
-        helm template velero \
-          /workspace/gitops/platform/helmChart/charts/velero \
-          --include-crds \
-          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="CustomResourceDefinition"]' \
-          | kubectl --context financial-ops-eks apply --server-side -f -
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/velero/crds/
       - |
         set -euo pipefail
 
