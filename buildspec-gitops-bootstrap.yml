@@ -64,8 +64,19 @@ phases:
       - |
         set -euo pipefail
 
+        # ── snapshot-controller + Velero CRDs — ops cluster only ──
+        # ArgoCD resource.exclusions에 CustomResourceDefinition이 전역 제외됨.
+        # aws-load-balancer-controller 패턴과 동일하게 chart crds/ 를 직접 apply.
+        # 루프 종료 시 context가 financial-ops-eks이므로 --context 생략 가능하나 명시.
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml
+
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/velero/crds/
+      - |
+        set -euo pipefail
+
         # ── values.yaml 플레이스홀더 치환 — ansible-playbook이 Gitea에 push하기 전에 실행 ──
-        # snapshot-controller/velero CRD는 installCRDs=true + sync-wave(0→1→2) 로 ArgoCD가 순서 보장
         ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
         ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com"
 
