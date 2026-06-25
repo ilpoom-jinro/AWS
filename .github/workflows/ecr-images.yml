@@ -239,6 +239,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.external_secrets
           -target=aws_ecr_repository.metrics_server
           -target=aws_ecr_lifecycle_policy.metrics_server
+          -target=aws_ecr_repository.monitoring_kube_state_metrics
+          -target=aws_ecr_lifecycle_policy.monitoring_kube_state_metrics
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
