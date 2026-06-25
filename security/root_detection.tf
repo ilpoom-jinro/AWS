@@ -5,6 +5,7 @@
 #   1. EventBridge: root 콘솔 로그인 실시간 탐지
 #   2. EventBridge: root API 호출 실시간 탐지
 #   3. CloudWatch Metric Filter + Alarm: CloudTrail 로그 집계 기반 탐지
+#      (CloudTrail 인프라는 cloudtrail.tf에서 관리)
 #
 # 두 레이어를 병행 사용하는 이유:
 #   - EventBridge: 이벤트 발생 즉시 트리거 (실시간)
@@ -15,122 +16,17 @@
 # =============================================
 
 # =============================================
-# CloudWatch Log Group - CloudTrail 로그 수신
-#
-# CloudTrail이 이 Log Group에 로그를 전달해야 Metric Filter가 동작함
-# 보존 기간 90일: 금융권 규정(전자금융거래법) 최소 요건
-# =============================================
-resource "aws_cloudwatch_log_group" "cloudtrail" {
-  name              = "/aws/cloudtrail/ilpumjinro-trail"
-  retention_in_days = 90
-
-  tags = {
-    Project     = "ilpumjinro"
-    ManagedBy   = "terraform"
-    Owner       = "security"
-    Service     = "CloudTrail"
-    Environment = "all"
-  }
-}
-
-# IAM Role - CloudTrail → CloudWatch Logs 전달용
-resource "aws_iam_role" "cloudtrail_cloudwatch" {
-  name        = "financial-cloudtrail-cloudwatch-role"
-  description = "CloudTrail to CloudWatch Logs delivery role for root activity monitoring"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowCloudTrail"
-      Effect = "Allow"
-      Principal = {
-        Service = "cloudtrail.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-
-  tags = {
-    Project     = "ilpumjinro"
-    ManagedBy   = "terraform"
-    Owner       = "security"
-    Service     = "CloudTrail"
-    Environment = "all"
-  }
-}
-
-# CloudTrail이 Log Group에 로그 스트림 생성 및 이벤트 쓰기 권한
-resource "aws_iam_role_policy" "cloudtrail_cloudwatch" {
-  name = "financial-cloudtrail-cloudwatch-policy"
-  role = aws_iam_role.cloudtrail_cloudwatch.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid    = "AllowCloudWatchLogsWrite"
-      Effect = "Allow"
-      Action = [
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ]
-      # :* 는 Log Group 내 모든 Log Stream에 권한 부여 (CloudTrail 요구 사항)
-      Resource = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
-    }]
-  })
-}
-
-# =============================================
-# CloudTrail Trail - 기존 Trail Terraform 관리
-#
-# 신규 계정: 기존 Trail이 없으므로 import 불필요, Terraform이 새로 생성.
-# kms_key_id 미지정 시 버킷의 SSE-S3(AES256) 기본 암호화 적용 (bootstrap/main.tf 참고).
-# 추후 금융권 CMK 정책 적용 시 kms.tf 패턴을 따라 CloudTrail 전용 CMK를 생성해 연결.
-# 최초 1회 import 필요 (기존 계정):
-#   terraform import module.security.aws_cloudtrail.main \
-#     arn:aws:cloudtrail:ap-northeast-2:<ACCOUNT_ID>:trail/ilpumjinro-trail
-#
-# lifecycle ignore_changes 이유:
-#   기존 Trail에 HasCustomEventSelectors=true 설정 존재.
-#   Terraform이 event selector를 빈 값으로 덮어쓰면
-#   InvalidEventSelectorsException 발생 → 변경 무시로 해결.
-# =============================================
-resource "aws_cloudtrail" "main" {
-  name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
-  kms_key_id                    = var.kms_key_cloudtrail_arn
-  include_global_service_events = true
-  is_multi_region_trail         = true
-  enable_log_file_validation    = true
-
-  cloud_watch_logs_group_arn = "${aws_cloudwatch_log_group.cloudtrail.arn}:*"
-  cloud_watch_logs_role_arn  = aws_iam_role.cloudtrail_cloudwatch.arn
-
-  lifecycle {
-    ignore_changes = [event_selector, advanced_event_selector]
-  }
-
-  tags = {
-    Project     = "ilpumjinro"
-    ManagedBy   = "terraform"
-    Owner       = "security"
-    Service     = "CloudTrail"
-    Environment = "all"
-  }
-}
-
-# =============================================
 # SNS Topic - root 활동 알림 수신 (placeholder)
 #
-# kms_master_key_id: AWS 관리형 SNS 키 사용
-#   - 기존 프로젝트 KMS 키(RDS 전용)와 분리
-#   - MAS 단계에서 CMK로 교체 시 키 정책에 SNS 서비스 추가 필요
+# SNS 암호화는 MAS에서 CMK로 root + network 두 토픽 동시 적용.
+# aws/sns 관리형 키는 events.amazonaws.com / cloudwatch.amazonaws.com 의
+# GenerateDataKey 권한이 없어 Publish 불가 → 현재 무암호화.
 #
 # MAS 단계에서 추가 예정:
 #   - aws_sns_topic_subscription (Slack Lambda 또는 AWS Chatbot)
 # =============================================
 resource "aws_sns_topic" "root_activity_alert" {
-  name              = "root-activity-alert"
-  kms_master_key_id = "alias/aws/sns"
+  name = "root-activity-alert"
 
   tags = {
     Project     = "ilpumjinro"

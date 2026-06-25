@@ -1,0 +1,24 @@
+# gitops/platform/applications/metrics-server.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: helmChart/charts/metrics-server
+    helm:
+      valueFiles:
+        - ../../metrics-server/values.yaml
+  destination:
+    name: financial-service-eks
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

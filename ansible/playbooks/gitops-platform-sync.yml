@@ -247,7 +247,7 @@
         OPS_VPC_ID: "{{ ops_vpc_id.stdout }}"
         SERVICE_VPC_ID: "{{ service_vpc_id.stdout }}"
         TELEPORT_PROXY_SERVER: "{{ teleport_private_ip.stdout }}:3080"
-        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.{{ teleport_private_ip.stdout }}.nip.io"
+        TELEPORT_APP_PUBLIC_SUFFIX: "teleport.local"
         LOKI_NLB_SG_ID: "{{ loki_nlb_sg_id.stdout }}"
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
@@ -305,6 +305,13 @@
           kind: Namespace
           metadata:
             name: stock-demo
+            labels:
+              # Istio Ambient 메시 등록 (ztunnel L4 처리 시작)
+              mesh.istio.io/enroll: "true"
+              # L7 메트릭(istio_request_duration_milliseconds 등)을 위해
+              # 이 네임스페이스 트래픽을 waypoint proxy로 통과시킨다.
+              # → aiops high_latency / error_rate 탐지의 데이터 소스
+              istio.io/use-waypoint: stock-demo-waypoint
 
     - name: Wait for ESO to create stock-api-db secret in Service EKS
       kubernetes.core.k8s_info:

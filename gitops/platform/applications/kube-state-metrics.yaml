@@ -1,0 +1,24 @@
+# gitops/platform/applications/kube-state-metrics.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-state-metrics
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: helmChart/charts/kube-state-metrics
+    helm:
+      valueFiles:
+        - ../../kube-state-metrics/values.yaml
+  destination:
+    name: financial-service-eks   # stock-api가 있는 service 클러스터
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

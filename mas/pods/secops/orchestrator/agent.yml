@@ -1,0 +1,14 @@
+name: secops-orchestrator
+scenario: secops
+role: orchestrator
+image_repository: financial/mas/secops/orchestrator
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/secops/orchestrator/Dockerfile
+build_context: mas
+# ↓ 배포 관련 필드는 Platform Core(민수님)/배포 담당 확인 필요
+manifest_path: financial-ops-eks/secops-mas/kustomization.yaml
+target_container: secops-orchestrator-image
+service_account_name: secops-orchestrator
+service_name: secops-orchestrator
+namespace: secops-mas
+target_cluster: financial-ops-eks

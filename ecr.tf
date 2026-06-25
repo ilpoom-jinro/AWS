@@ -1146,3 +1146,78 @@ resource "aws_ecr_lifecycle_policy" "demo_app_frontend" {
     }]
   })
 }
+
+resource "aws_ecr_repository" "metrics_server" {
+  name                 = "financial/monitoring/metrics-server"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "metrics-server"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "metrics_server" {
+  repository = aws_ecr_repository.metrics_server.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 metrics-server images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+resource "aws_ecr_repository" "monitoring_kube_state_metrics" {
+  name                 = "financial/monitoring/kube-state-metrics"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "kube-state-metrics"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_kube_state_metrics" {
+  repository = aws_ecr_repository.monitoring_kube_state_metrics.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 kube-state-metrics images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

@@ -1,0 +1,61 @@
+# Temporal DB init Job (옵션 B) — RDS에 temporal/temporal_visibility DB + temporal_user 생성
+#
+# ArgoCD PreSync 훅: Temporal 본체 배포 전에 1회 실행. 멱등 SQL이라 재실행 안전.
+# 의존: (1) terraform secrets.tf temporal/rds-credentials 생성 + SG 갭수정 apply
+#       (2) external-secret-{master,temporal}.yaml 가 k8s Secret 동기화 완료
+# 상세: docs/temporal-rds-db (런북)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: temporal-db-init
+  namespace: temporal
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal-db-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          # finops와 동일 postgres 이미지 미러 (psql 포함). REPLACE_WITH_ECR_REGISTRY는 배포 시 주입
+          image: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/postgres:16-alpine
+          env:
+            - name: PGHOST
+              valueFrom: { secretKeyRef: { name: temporal-rds-credentials, key: host } }
+            - name: PGPORT
+              value: "5432"
+            - name: ADMIN_USER
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: username } }
+            - name: ADMIN_PW
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: password } }
+            - name: TEMPORAL_PW
+              valueFrom: { secretKeyRef: { name: temporal-rds-credentials, key: password } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              export PGPASSWORD="$ADMIN_PW"
+              echo "[1/3] DB + role 생성 (financial_ops 접속)"
+              psql -h "$PGHOST" -p "$PGPORT" -U "$ADMIN_USER" -d financial_ops \
+                   -v ON_ERROR_STOP=1 -v temporal_pw="$TEMPORAL_PW" -f /sql/databases.sql
+              echo "[2/3] temporal DB public 스키마 권한"
+              psql -h "$PGHOST" -p "$PGPORT" -U "$ADMIN_USER" -d temporal \
+                   -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO temporal_user;"
+              echo "[3/3] temporal_visibility DB public 스키마 권한"
+              psql -h "$PGHOST" -p "$PGPORT" -U "$ADMIN_USER" -d temporal_visibility \
+                   -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO temporal_user;"
+              echo "완료: temporal / temporal_visibility / temporal_user 준비됨"
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: sql
+          configMap:
+            name: temporal-db-init-sql

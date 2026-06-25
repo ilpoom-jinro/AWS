@@ -6,6 +6,8 @@ resources:
   - frontend/ingress.yaml
   - frontend/gateway.yaml
   - backend/backend.yaml
+  - HPA/hpa.yaml
+  - stock-demo/waypoint.yaml
   - stock-demo/serviceaccount.yaml
   - stock-demo/external-secret.yaml
 

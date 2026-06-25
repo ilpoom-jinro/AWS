@@ -1,0 +1,23 @@
+# Istio Ambient waypoint proxy — stock-demo L7 처리 + L7 메트릭 생성
+#
+# Ambient 모드는 sidecar가 없어 기본적으로 ztunnel이 L4(TCP)만 처리한다.
+# istio_request_duration_milliseconds(P95 지연), istio_requests_total(5xx) 같은
+# L7 HTTP 메트릭은 waypoint proxy가 있어야 생성된다.
+# 이 메트릭들이 aiops의 high_latency / error_rate 탐지의 데이터 소스다.
+#
+# 네임스페이스의 istio.io/use-waypoint: stock-demo-waypoint 라벨이
+# stock-demo 트래픽을 이 waypoint로 통과시킨다.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: stock-demo-waypoint
+  namespace: stock-demo
+  labels:
+    # 서비스 단위 L7 처리 (네임스페이스 내 서비스 간 트래픽 포함)
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE   # Ambient 데이터플레인 프로토콜

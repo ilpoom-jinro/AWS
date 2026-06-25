@@ -1,0 +1,41 @@
+# gitops/platform/financial-service-eks/HPA/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stock-api-hpa
+  namespace: stock-demo
+  labels:
+    app: stock-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stock-api          # backend.yaml의 Deployment 이름과 정확히 일치
+  minReplicas: 2             # backend replicas와 동일하게 시작
+  maxReplicas: 6             # 우리 aiops planner의 scale_out(+2)이 동작할 여유
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70    # CPU 70% 초과 시 스케일 아웃
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80    # 메모리 80% 초과 시 (OOM 대응)
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60     # 급증 시 빠르게 (1분)
+      policies:
+        - type: Pods
+          value: 2                       # 한 번에 최대 2개씩
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300    # 축소는 신중하게 (5분)
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
