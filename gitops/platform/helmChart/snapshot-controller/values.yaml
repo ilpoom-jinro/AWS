@@ -1,0 +1,10 @@
+image:
+  # Mirror registry.k8s.io/sig-storage/snapshot-controller from public ECR.
+  repository: REPLACE_WITH_ECR_REGISTRY/sig-storage/snapshot-controller
+  tag: v8.2.0
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+rbac:
+  create: true

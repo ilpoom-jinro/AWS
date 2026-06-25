@@ -54,6 +54,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_velero:
+        description: "Mirror Velero and snapshot-controller images into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -94,6 +99,15 @@ env:
   FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
   FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
   FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
+  VELERO_VERSION: "v1.15.0"  # Note: keep in sync with helmChart/velero/values.yaml image.tag
+  VELERO_REPOSITORY: velero/velero
+  VELERO_SOURCE_IMAGE: docker.io/velero/velero
+  VELERO_PLUGIN_AWS_VERSION: "v1.11.0"  # Note: keep in sync with helmChart/velero/values.yaml initContainers image
+  VELERO_PLUGIN_AWS_REPOSITORY: velero/velero-plugin-for-aws
+  VELERO_PLUGIN_AWS_SOURCE_IMAGE: docker.io/velero/velero-plugin-for-aws
+  SNAPSHOT_CONTROLLER_VERSION: "v8.2.0"  # Note: keep in sync with helmChart/snapshot-controller/values.yaml image.tag
+  SNAPSHOT_CONTROLLER_REPOSITORY: sig-storage/snapshot-controller
+  SNAPSHOT_CONTROLLER_SOURCE_IMAGE: registry.k8s.io/sig-storage/snapshot-controller
 
 jobs:
   images:
@@ -241,6 +255,12 @@ jobs:
           -target=aws_ecr_lifecycle_policy.metrics_server
           -target=aws_ecr_repository.monitoring_kube_state_metrics
           -target=aws_ecr_lifecycle_policy.monitoring_kube_state_metrics
+          -target=aws_ecr_repository.velero
+          -target=aws_ecr_lifecycle_policy.velero
+          -target=aws_ecr_repository.velero_plugin_aws
+          -target=aws_ecr_lifecycle_policy.velero_plugin_aws
+          -target=aws_ecr_repository.snapshot_controller
+          -target=aws_ecr_lifecycle_policy.snapshot_controller
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -396,6 +416,29 @@ jobs:
           docker pull "${source_image}"
           docker tag "${source_image}" "${target_image}"
           docker push "${target_image}"
+
+      - name: Mirror Velero and snapshot-controller images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_velero == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker pull "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}"
+          docker tag "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}" "${REGISTRY}/${VELERO_REPOSITORY}:${VELERO_VERSION}"
+          docker tag "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}" "${REGISTRY}/${VELERO_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${VELERO_REPOSITORY}:${VELERO_VERSION}"
+          docker push "${REGISTRY}/${VELERO_REPOSITORY}:latest"
+
+          docker pull "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker tag "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}" "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker tag "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}" "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:latest"
+
+          docker pull "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker tag "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}" "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker tag "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}" "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:latest"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true

@@ -1,0 +1,59 @@
+image:
+  repository: REPLACE_WITH_ECR_REGISTRY/velero/velero
+  tag: v1.15.0
+  pullPolicy: IfNotPresent
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: REPLACE_WITH_ECR_REGISTRY/velero/velero-plugin-for-aws:v1.11.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  uploaderType: kopia
+  # CSI VolumeSnapshot → S3 데이터 이동 활성화 (EBS 스냅샷을 Kopia로 S3에 업로드 후 삭제)
+  features: EnableCSIVolumeDataMover
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: financial-velero-backup-REPLACE_WITH_ACCOUNT_ID
+      default: true
+      config:
+        region: ap-northeast-2
+        # S3 SSE-KMS 암호화 키 (alias/key-s3 — 계정 마이그레이션 대응: alias 참조)
+        kmsKeyId: alias/key-s3
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+      config:
+        region: ap-northeast-2
+
+credentials:
+  # Pod Identity로 자격증명 주입 — Secret 불필요
+  useSecret: false
+
+serviceAccount:
+  server:
+    create: true
+    name: velero
+
+nodeAgent:
+  enabled: true
+  # Kopia 업로더: EBS 스냅샷을 S3로 이동 (transient snapshot 이후 삭제)
+  uploaderType: kopia
+  serviceAccount:
+    create: true
+    name: node-agent
+  # node-agent는 DaemonSet — hostPath 마운트로 privileged 필요
+  podSecurityContext:
+    runAsUser: 0
+  containerSecurityContext:
+    privileged: true
+  image:
+    repository: REPLACE_WITH_ECR_REGISTRY/velero/velero
+    tag: v1.15.0
+    pullPolicy: IfNotPresent
+
+installCRDs: true
