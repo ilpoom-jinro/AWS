@@ -130,6 +130,63 @@ alloy:
         forward_to      = [prometheus.relabel.service_metric_filter.receiver]
       }
 
+      // ── Istio Ambient waypoint L7 메트릭 ─────────────────────────────
+      // waypoint proxy가 생성하는 istio_request_duration_milliseconds(P95 지연),
+      // istio_requests_total(5xx) 등 L7 메트릭을 수집한다.
+      // → aiops high_latency / error_rate 탐지의 데이터 소스.
+      // waypoint 파드는 gateway.networking.k8s.io/gateway-name 라벨을 가지며
+      // 15020 포트(merged metrics)로 Prometheus 메트릭을 노출한다.
+      discovery.kubernetes "istio_waypoint" {
+        role = "pod"
+        selectors {
+          role  = "pod"
+          label = "gateway.networking.k8s.io/managed-by=istio.io-mesh-controller"
+        }
+      }
+
+      discovery.relabel "istio_waypoint" {
+        targets = discovery.kubernetes.istio_waypoint.targets
+
+        // 15020 = Istio merged metrics endpoint (/stats/prometheus)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_ip"]
+          regex         = "(.+)"
+          replacement   = "$1:15020"
+          target_label  = "__address__"
+        }
+        rule {
+          replacement  = "/stats/prometheus"
+          target_label = "__metrics_path__"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+      }
+
+      prometheus.scrape "istio_waypoint" {
+        targets         = discovery.relabel.istio_waypoint.output
+        scrape_interval = "30s"
+        // 전용 필터로 보낸다 — service_metric_filter의 container 라벨 drop 규칙이
+        // istio_* 메트릭(container 라벨 없음)을 버리는 것을 방지.
+        forward_to      = [prometheus.relabel.istio_metric_filter.receiver]
+      }
+
+      prometheus.relabel "istio_metric_filter" {
+        forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
+
+        // istio 텔레메트리 중 RCA에 필요한 핵심만 유지 (카디널리티 절감)
+        rule {
+          source_labels = ["__name__"]
+          regex         = "istio_request_duration_milliseconds.*|istio_requests_total|istio_request_bytes.*|istio_response_bytes.*"
+          action        = "keep"
+        }
+      }
+
       prometheus.relabel "service_metric_filter" {
         forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
 
