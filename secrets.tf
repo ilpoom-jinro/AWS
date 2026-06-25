@@ -95,7 +95,19 @@ resource "aws_secretsmanager_secret_version" "ops_rds_password" {
 
 # ── 자동 로테이션 ─────────────────────────────────────────────────────────────
 
+# time_sleep: RDS·secret·SG경로가 다 준비된 뒤에도 available 직후 커넥션 거부 구간이
+# 남아있어 회전 첫 발사 전에 버퍼를 둔다. (testSecret 12초 TCP 타임아웃 방지)
+resource "time_sleep" "wait_for_service_rds" {
+  depends_on = [
+    module.vpc1,                                             # RDS 인스턴스 + Lambda→RDS SG 규칙 둘 다 커버
+    aws_secretsmanager_secret_version.service_rds_password, # 루트 리소스 — 모듈에 안 덮임. 초기 비번 write 후 발사
+  ]
+  create_duration = "120s" # available != 커넥션 수락. testSecret 12초 타임아웃 구간을 넘기는 버퍼
+}
+
 resource "aws_secretsmanager_secret_rotation" "service_rds" {
+  depends_on = [time_sleep.wait_for_service_rds] # 첫 발사를 버퍼 뒤로
+
   secret_id           = aws_secretsmanager_secret.service_rds_password.id
   rotation_lambda_arn = module.vpc1.rotation_lambda_arn
   rotate_immediately  = false
