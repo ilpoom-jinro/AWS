@@ -228,3 +228,9 @@ variable "teleport_image_repository_name" {
   type        = string
   default     = "financial/teleport"
 }
+
+variable "enable_flowlog_s3_archive" {
+  description = "VPC Flow Logs ALL 트래픽을 S3(Parquet)에 적재 — vpc1·vpc2 용량·비용 측정용. 측정 완료 후 false로 복원. (선행조건: kms/ apply 후 루트 apply)"
+  type        = bool
+  default     = false
+}
