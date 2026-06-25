@@ -411,6 +411,15 @@ jobs:
           -target=aws_sns_topic.security_alerts
           -target=aws_cloudwatch_metric_alarm.db_port_probe_vpc1
           -target=aws_cloudwatch_metric_alarm.reject_burst_vpc1
+          -target=aws_s3_bucket.flowlogs_archive
+          -target=aws_s3_bucket_versioning.flowlogs_archive
+          -target=aws_s3_bucket_ownership_controls.flowlogs_archive
+          -target=aws_s3_bucket_public_access_block.flowlogs_archive
+          -target=aws_s3_bucket_server_side_encryption_configuration.flowlogs_archive
+          -target=aws_s3_bucket_object_lock_configuration.flowlogs_archive
+          -target=aws_s3_bucket_lifecycle_configuration.flowlogs_archive
+          -target=aws_s3_bucket_policy.flowlogs_archive
+          -target=aws_flow_log.s3_archive
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply secrets
