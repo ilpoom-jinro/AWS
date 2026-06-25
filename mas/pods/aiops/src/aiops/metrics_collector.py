@@ -104,11 +104,13 @@ class MetricsCollector:
             f'sum(rate(container_cpu_usage_seconds_total{{{sel}}}[5m]))'
             f' / sum(kube_pod_container_resource_limits{{{sel},resource="cpu"}})'
         )
-        # CPU limit 메트릭이 없으면(ksm 부재) working set 기반 대체 불가 →
-        # 노드 대비 사용률로 폴백
+        # kube-state-metrics가 일시적으로 없을 때를 대비한 폴백:
+        # cadvisor가 제공하는 spec 기반 limit(quota/period = 코어 수)으로 나눠
+        # 0~1 비율을 유지한다. (절대 사용량만 반환하면 비율이 깨지므로 금지)
         if cpu is None:
             cpu = await self._query(
                 f'sum(rate(container_cpu_usage_seconds_total{{{sel}}}[5m]))'
+                f' / sum(container_spec_cpu_quota{{{sel}}} / container_spec_cpu_period{{{sel}}})'
             )
 
         # 메모리 사용률: working set / limit (0~1)

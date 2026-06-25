@@ -186,4 +186,19 @@ async def _test_high_latency():
 assert asyncio.run(_test_high_latency())
 passed += 1; print(f"{passed}. find_high_latency_pod 최악 파드 선택 + NaN 제외 OK")
 
-print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/13 통과 ===")
+# 14. scale_out → HPA patch directive 병합 검증 (kubectl scale 금지)
+from aiops.nodes.analyzer import _build_scale_out_directive, _deploy_name_from_pod
+assert _deploy_name_from_pod("stock-api-7f9d4c8b-xk2p9") == "stock-api"
+_dir = _build_scale_out_directive(
+    IncidentContext(
+        cluster_name="financial-service-eks", namespace="stock-demo",
+        pod_name="stock-api-7f9d4c8b-xk2p9", anomaly_type="oom_killed",
+        restart_count=3, recent_logs=["OOM"],
+    ),
+    "OOM 반복",
+)
+assert "patch_hpa" in _dir and "target_hpa=stock-api-hpa" in _dir
+assert "namespace=stock-demo" in _dir and "maxReplicas+=2" in _dir
+passed += 1; print(f"{passed}. scale_out HPA patch directive 병합 OK")
+
+print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/14 통과 ===")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aiops-agent"
-version = "1.2.1"
+version = "1.3.0"
 description = "MAS Platform AIOps Agent — Temporal Activities (detect/analyze/verify)"
 requires-python = ">=3.12"
 dependencies = [

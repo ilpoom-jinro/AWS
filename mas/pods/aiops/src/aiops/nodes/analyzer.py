@@ -70,6 +70,13 @@ CPU 사용률:    {cpu}
     confidence를 보수적으로 낮추십시오.
 - 근거가 약하거나 상충하면 strategy를 manual로 두십시오.
 
+[scale_out 관련 — HPA 운영 환경]
+- 대상 워크로드(stock-api 등)는 HPA가 평상시 트래픽 기반 자동 스케일링을 담당합니다.
+- 따라서 scale_out은 "단순 부하 증가"가 아니라, HPA가 maxReplicas 한계에 도달했는데도
+  자원 부족(OOM 반복 등)이 지속되는 경우에만 선택하십시오.
+  (일시적 부하는 HPA가 알아서 처리하므로 aiops 개입 불필요 → restart 또는 무개입)
+- scale_out 선택 시 strategy_detail에 권장 maxReplicas 상향 목표를 함께 적으십시오.
+
 응답 형식:
 {{
   "root_cause": "한 줄 핵심 원인 (50자 이내)",
@@ -79,6 +86,36 @@ CPU 사용률:    {cpu}
   "strategy_detail": "구체 실행 방안 (예: deployment/backend 재시작)",
   "estimated_recovery_minutes": 정수
 }}"""
+
+
+def _build_scale_out_directive(incident, base_detail: str) -> str:
+    """scale_out을 HPA patch 방식으로 실행하도록 구조화된 지침 생성.
+
+    대상 워크로드는 HPA가 replicas를 관리하므로 'kubectl scale'은 HPA에 의해
+    되돌려진다. 대신 HPA의 maxReplicas를 상향해야 실효성이 있다.
+    Platform Core execute_remediation이 파싱할 수 있도록 명시적 키=값 형태로
+    실행 방식을 기록한다 (contracts 스키마 변경 없이 strategy_detail에 인코딩).
+
+    형식 예:
+      [SCALE_OUT via HPA] action=patch_hpa target_hpa=stock-api-hpa
+      namespace=stock-demo maxReplicas+=2 | <LLM 근거>
+    """
+    deploy = _deploy_name_from_pod(incident.pod_name)
+    hpa_name = f"{deploy}-hpa"
+    return (
+        f"[SCALE_OUT via HPA] action=patch_hpa "
+        f"target_hpa={hpa_name} namespace={incident.namespace} "
+        f"maxReplicas+=2 | {base_detail}"
+    )
+
+
+def _deploy_name_from_pod(pod_name: str) -> str:
+    """파드명에서 Deployment 이름 추출 (ReplicaSet 해시 제거)."""
+    import re
+    parts = pod_name.rsplit("-", 2)
+    if len(parts) == 3 and re.fullmatch(r"[0-9a-z]{5,10}", parts[1]):
+        return parts[0]
+    return pod_name
 
 
 def _fmt_pct(value: float) -> str:
@@ -150,12 +187,20 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
     if confidence < settings_confidence_min():
         strategy = "manual"
 
+    # scale_out은 HPA patch 방식으로 실행해야 함 (kubectl scale 금지).
+    # 대상 워크로드는 HPA가 replicas를 관리하므로, 직접 scale하면 HPA가 되돌린다.
+    # Platform Core execute_remediation이 파싱할 수 있도록 strategy_detail에
+    # 실행 방식을 구조화해 명시한다 (contracts 추가 필드 없이 호환).
+    strategy_detail = rca.get("strategy_detail", "")
+    if strategy == "scale_out":
+        strategy_detail = _build_scale_out_directive(incident, strategy_detail)
+
     remediation = RemediationPlan(
         workflow_id=incident.workflow_id,
         root_cause=rca.get("root_cause", "알 수 없음"),
         confidence=confidence,
         strategy=strategy,
-        strategy_detail=rca.get("strategy_detail", ""),
+        strategy_detail=strategy_detail,
         estimated_recovery_minutes=int(rca.get("estimated_recovery_minutes", 5)),
         rollback_available=(strategy in ("restart", "rollback", "scale_out")),
     )
