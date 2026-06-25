@@ -65,10 +65,12 @@ phases:
         set -euo pipefail
 
         # ── snapshot-controller + Velero CRDs — ops cluster only ──
-        # ArgoCD resource.exclusions에 CustomResourceDefinition이 전역 제외됨.
-        # crds.yaml의 Helm 템플릿 구문을 정적 값으로 교체했으므로 직접 apply 가능.
-        kubectl --context financial-ops-eks apply --server-side \
-          -f /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml
+        # ArgoCD resource.exclusions globally excludes CustomResourceDefinition — pre-apply here.
+        # crds.yaml contains a Helm template directive (InsertCaFrom: cert-manager CA injection,
+        # unused) that causes "error converting YAML to JSON" on raw kubectl apply.
+        # Strip the line before piping to kubectl.
+        grep -v 'InsertCaFrom' /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml \
+          | kubectl --context financial-ops-eks apply --server-side -f -
 
         kubectl --context financial-ops-eks apply --server-side \
           -f /workspace/gitops/platform/helmChart/charts/velero/crds/
