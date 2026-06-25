@@ -40,7 +40,10 @@ resource "aws_iam_role_policy" "eso" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret",
         ]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*"
+        Resource = [
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*",
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:velero/*",
+        ]
       },
       {
         Sid      = "KMSDecrypt"
