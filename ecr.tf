@@ -611,6 +611,82 @@ resource "aws_ecr_lifecycle_policy" "finops_temporal" {
   })
 }
 
+resource "aws_ecr_repository" "temporal_server" {
+  name                 = "financial/mas/temporal/server"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/server"
+    Purpose   = "temporal-server-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_server" {
+  repository = aws_ecr_repository.temporal_server.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal Server images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "temporal_ui" {
+  name                 = "financial/mas/temporal/ui"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/ui"
+    Purpose   = "temporal-ui-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_ui" {
+  repository = aws_ecr_repository.temporal_ui.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal UI images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "finops_postgres" {
   name                 = "financial/mas/finops/postgres"
   image_tag_mutability = "MUTABLE"

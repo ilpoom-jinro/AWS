@@ -54,6 +54,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_temporal:
+        description: "Mirror Temporal server and UI images into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -94,6 +99,10 @@ env:
   FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
   FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
   FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
+  TEMPORAL_VERSION: "1.31.0"
+  TEMPORAL_UI_VERSION: "2.49.1"
+  TEMPORAL_SERVER_REPOSITORY: financial/mas/temporal/server
+  TEMPORAL_UI_REPOSITORY:     financial/mas/temporal/ui
 
 jobs:
   images:
@@ -239,6 +248,10 @@ jobs:
           -target=aws_ecr_lifecycle_policy.external_secrets
           -target=aws_ecr_repository.metrics_server
           -target=aws_ecr_lifecycle_policy.metrics_server
+          -target=aws_ecr_repository.temporal_server
+          -target=aws_ecr_lifecycle_policy.temporal_server
+          -target=aws_ecr_repository.temporal_ui
+          -target=aws_ecr_lifecycle_policy.temporal_ui
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -382,6 +395,32 @@ jobs:
           docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
           docker push "${postgres_target}"
           docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
+
+      - name: Mirror Temporal Server and UI images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_temporal == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # Server
+          server_source="docker.io/temporalio/server:${TEMPORAL_VERSION}"
+          server_target="${REGISTRY}/${TEMPORAL_SERVER_REPOSITORY}:${TEMPORAL_VERSION}"
+          docker pull "${server_source}"
+          docker tag "${server_source}" "${server_target}"
+          docker push "${server_target}"
+
+          # UI
+          ui_source="docker.io/temporalio/ui:${TEMPORAL_UI_VERSION}"
+          ui_target="${REGISTRY}/${TEMPORAL_UI_REPOSITORY}:${TEMPORAL_UI_VERSION}"
+          docker pull "${ui_source}"
+          docker tag "${ui_source}" "${ui_target}"
+          docker push "${ui_target}"
+
+          # Admin-tools 
+          admin_source="docker.io/temporalio/admin-tools:${TEMPORAL_VERSION}"
+          admin_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:${TEMPORAL_VERSION}"
+          docker pull "${admin_source}"
+          docker tag "${admin_source}" "${admin_target}"
+          docker push "${admin_target}"
 
       - name: Mirror External Secrets Operator image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_external_secrets == true
