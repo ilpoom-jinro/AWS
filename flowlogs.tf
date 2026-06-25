@@ -161,3 +161,172 @@ resource "aws_cloudwatch_metric_alarm" "reject_burst_vpc1" {
   alarm_description   = "vpc1 REJECT 5분 누적 500 초과 (스캔/공격 급증 의심)"
   alarm_actions       = [aws_sns_topic.security_alerts.arn]
 }
+
+# =====================================================================
+# VPC Flow Logs → S3 (ALL 트래픽, Parquet)
+#   대상:      vpc1(globalservice) + vpc2(ops)
+#   목적:      Hubble 도입 전 전체 트래픽 용량·비용 측정
+#   on/off:    enable_flowlog_s3_archive 변수 (기본 false)
+#   apply 순서: kms/ 먼저 apply → 루트 apply → 변수 true
+# =====================================================================
+
+locals {
+  flowlog_s3_vpcs = {
+    vpc1 = module.vpc1.vpc_id # globalservice (대국민 서비스망)
+    vpc2 = module.vpc2.vpc_id # ops (내부 운영망)
+  }
+}
+
+# ---- S3 버킷 (Object Lock 활성화 — 생성 후 변경 불가) ----
+resource "aws_s3_bucket" "flowlogs_archive" {
+  count               = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket              = "financial-flowlogs-archive-${data.aws_caller_identity.current.account_id}"
+  object_lock_enabled = true
+  # GOVERNANCE bypass 권한(s3:BypassGovernanceRetention)으로 terraform destroy 가능
+  force_destroy = true
+
+  tags = {
+    Name    = "financial-flowlogs-archive"
+    Purpose = "flowlog-volume-measurement"
+  }
+}
+
+# ---- 버저닝 (Object Lock 필수 조건) ----
+resource "aws_s3_bucket_versioning" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# ---- Object Ownership: ACL 비활성화, 버킷 정책으로만 접근 제어 ----
+resource "aws_s3_bucket_ownership_controls" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+  rule { object_ownership = "BucketOwnerEnforced" }
+}
+
+# ---- 퍼블릭 차단 ----
+resource "aws_s3_bucket_public_access_block" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# ---- SSE-KMS (key-s3, 런타임 alias 조회) ----
+resource "aws_s3_bucket_server_side_encryption_configuration" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = data.aws_kms_key.key_s3.arn
+    }
+    bucket_key_enabled = true # KMS API 호출 횟수 감소 → 비용 절감
+  }
+}
+
+# ---- Object Lock: GOVERNANCE 7일 ----
+# COMPLIANCE 아님 — GOVERNANCE + s3:BypassGovernanceRetention 권한으로 terraform destroy 가능
+# COMPLIANCE로 변경 시 retention 만료 전 버킷 삭제 불가 → 주기적 재구축 워크플로우 파괴
+resource "aws_s3_bucket_object_lock_configuration" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+
+  rule {
+    default_retention {
+      mode = "GOVERNANCE"
+      days = 7
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.flowlogs_archive]
+}
+
+# ---- Lifecycle: 90일 → Glacier Deep Archive → 7년 만료 ----
+resource "aws_s3_bucket_lifecycle_configuration" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+
+  rule {
+    id     = "flowlogs-tiering"
+    status = "Enabled"
+    filter { prefix = "" }
+
+    transition {
+      days          = 90
+      storage_class = "DEEP_ARCHIVE"
+    }
+
+    expiration {
+      days = 2555 # 7년 (365×7)
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 8 # Object Lock 7일 retention 만료 이후 정리
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.flowlogs_archive]
+}
+
+# ---- 버킷 정책: delivery.logs.amazonaws.com 허용 ----
+# SourceAccount + SourceArn 두 조건 모두 — confused-deputy 이중 방어
+# AWSLogs/* : hive 파티션(aws-account-id=..) · 기본(account-id/..) 경로 모두 커버
+resource "aws_s3_bucket_policy" "flowlogs_archive" {
+  count  = var.enable_flowlog_s3_archive ? 1 : 0
+  bucket = aws_s3_bucket.flowlogs_archive[0].id
+
+  depends_on = [aws_s3_bucket_public_access_block.flowlogs_archive]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowFlowLogsDelivery"
+        Effect = "Allow"
+        Principal = {
+          Service = "delivery.logs.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.flowlogs_archive[0].arn}/AWSLogs/*"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+          ArnLike = {
+            "aws:SourceArn" = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# ---- Flow Logs → S3 (ALL 트래픽, Parquet, 10분 집계) ----
+# 기존 aws_flow_log.this (REJECT-only, CloudWatch) 는 무수정
+resource "aws_flow_log" "s3_archive" {
+  for_each = var.enable_flowlog_s3_archive ? local.flowlog_s3_vpcs : {}
+
+  vpc_id                   = each.value
+  traffic_type             = "ALL"
+  log_destination_type     = "s3"
+  log_destination          = aws_s3_bucket.flowlogs_archive[0].arn
+  max_aggregation_interval = 600 # 10분 집계 — 60초 대비 비용 1/10
+
+  destination_options {
+    file_format                = "parquet"
+    hive_compatible_partitions = true
+    per_hour_partition         = true
+  }
+
+  tags = {
+    Name    = "flowlog-s3-${each.key}"
+    Purpose = "flowlog-volume-measurement"
+  }
+}
