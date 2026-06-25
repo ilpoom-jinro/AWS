@@ -176,6 +176,37 @@ alloy:
         forward_to      = [prometheus.relabel.istio_metric_filter.receiver]
       }
 
+      // ── kube-state-metrics ───────────────────────────────────────────
+      // 파드/디플로이먼트 spec 메트릭(kube_pod_container_resource_limits 등)을 수집.
+      // → aiops가 CPU/메모리 사용률을 limit 대비 비율로 계산하는 데 필요.
+      // KSM은 kube-system에 단일 파드로 뜨고 8080 포트로 메트릭을 노출한다.
+      discovery.kubernetes "kube_state_metrics" {
+        role = "pod"
+        selectors {
+          role  = "pod"
+          label = "app.kubernetes.io/name=kube-state-metrics"
+        }
+      }
+
+      discovery.relabel "kube_state_metrics" {
+        targets = discovery.kubernetes.kube_state_metrics.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_ip"]
+          regex         = "(.+)"
+          replacement   = "$1:8080"
+          target_label  = "__address__"
+        }
+      }
+
+      prometheus.scrape "kube_state_metrics" {
+        targets         = discovery.relabel.kube_state_metrics.output
+        scrape_interval = "60s"
+        // KSM 메트릭은 container 라벨이 메트릭 자체에 포함되므로
+        // service_metric_filter의 빈-container drop 규칙에 걸리지 않는다.
+        forward_to      = [prometheus.remote_write.monitoring_thanos.receiver]
+      }
+
       prometheus.relabel "istio_metric_filter" {
         forward_to = [prometheus.remote_write.monitoring_thanos.receiver]
 

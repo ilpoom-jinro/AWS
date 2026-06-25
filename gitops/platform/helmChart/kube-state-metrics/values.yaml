@@ -1,0 +1,30 @@
+# gitops/platform/helmChart/kube-state-metrics/values.yaml
+# kube-state-metrics: 파드/디플로이먼트의 spec 정보를 메트릭으로 노출.
+# aiops가 쓰는 kube_pod_container_resource_limits(CPU/메모리 limit)의 데이터 소스.
+image:
+  registry: REPLACE_WITH_ECR_REGISTRY
+  repository: financial/monitoring/kube-state-metrics
+  tag: v2.13.0
+
+# Alloy가 annotation 기반으로 스크랩하도록 표준 포트 노출
+prometheusScrape: true
+service:
+  port: 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# 카디널리티 절감: aiops가 쓰는 메트릭만 노출 (resource limits/requests + 상태)
+# 필요한 메트릭만 켜서 Thanos 저장 부담을 줄인다.
+metricAllowlist:
+  - kube_pod_container_resource_limits
+  - kube_pod_container_resource_requests
+  - kube_pod_status_phase
+  - kube_pod_container_status_restarts_total
+  - kube_deployment_status_replicas
+  - kube_deployment_spec_replicas
