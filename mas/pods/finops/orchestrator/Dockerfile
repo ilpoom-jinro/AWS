@@ -13,6 +13,7 @@ RUN apt-get update \
 
 COPY pods/finops/orchestrator/app ./app
 COPY shared ./shared
+COPY contracts ./contracts
 
 EXPOSE 8000
 

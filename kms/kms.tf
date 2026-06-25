@@ -555,6 +555,27 @@ resource "aws_kms_key" "key_s3" {
         }
       },
       {
+        # VPC Flow Logs S3 export: delivery 서비스가 SSE-KMS 객체를 쓸 때 DEK를 직접 생성
+        # s3.amazonaws.com 허용만으로는 부족 — delivery.logs.amazonaws.com이 KMS를 직접 호출
+        # SourceAccount 조건으로 이 계정의 Flow Logs만 이 키 사용 허용 (confused-deputy 방지)
+        Sid    = "AllowFlowLogsDelivery"
+        Effect = "Allow"
+        Principal = {
+          Service = "delivery.logs.amazonaws.com"
+        }
+        Action = [
+          "kms:GenerateDataKey*",
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
         Sid    = "DenyCrossAccount"
         Effect = "Deny"
         Principal = {
@@ -1033,6 +1054,17 @@ resource "aws_kms_key" "key_sns" {
         Effect = "Allow"
         Principal = {
           Service = "cloudwatch.amazonaws.com"
+        }
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource = "*"
+      },
+      {
+        # EventBridge 룰이 암호화된 SNS 토픽에 publish할 때 KMS 데이터키 필요
+        # 없으면 룰은 매칭되는데 알림이 조용히 소실됨 (#49)
+        Sid    = "AllowEventBridgePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
         }
         Action   = ["kms:Decrypt", "kms:GenerateDataKey*"]
         Resource = "*"

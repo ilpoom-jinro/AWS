@@ -8,3 +8,5 @@ alertmanager	quay.io/prometheus/alertmanager:latest	financial/monitoring/alertma
 aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/monitoring/aws-load-balancer-controller	v3.3.0
 tempo	docker.io/grafana/tempo:latest	financial/monitoring/tempo	latest
 metrics-server	registry.k8s.io/metrics-server/metrics-server:v0.7.2	financial/monitoring/metrics-server	v0.7.2
+kube-state-metrics	registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0	financial/monitoring/kube-state-metrics	v2.13.0
+

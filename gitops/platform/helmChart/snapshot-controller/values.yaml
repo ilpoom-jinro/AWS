@@ -1,0 +1,9 @@
+installCRDs: true
+
+controller:
+  replicaCount: 2
+  image:
+    # Mirror registry.k8s.io/sig-storage/snapshot-controller from public ECR.
+    repository: REPLACE_WITH_ECR_REGISTRY/sig-storage/snapshot-controller
+    tag: v8.6.0
+    pullPolicy: IfNotPresent

@@ -1259,3 +1259,143 @@ resource "aws_ecr_lifecycle_policy" "metrics_server" {
     }]
   })
 }
+resource "aws_ecr_repository" "monitoring_kube_state_metrics" {
+  name                 = "financial/monitoring/kube-state-metrics"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  tags = {
+    Project   = "ilpoomjinro"
+    ManagedBy = "terraform"
+    Service   = "monitoring"
+    Component = "kube-state-metrics"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "monitoring_kube_state_metrics" {
+  repository = aws_ecr_repository.monitoring_kube_state_metrics.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 kube-state-metrics images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero" {
+  name                 = "velero/velero"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero" {
+  repository = aws_ecr_repository.velero.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero_plugin_aws" {
+  name                 = "velero/velero-plugin-for-aws"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero-plugin-for-aws"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero_plugin_aws" {
+  repository = aws_ecr_repository.velero_plugin_aws.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero AWS plugin images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "snapshot_controller" {
+  name                 = "sig-storage/snapshot-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "sig-storage/snapshot-controller"
+    Purpose   = "csi-snapshot-controller-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "snapshot_controller" {
+  repository = aws_ecr_repository.snapshot_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 snapshot-controller images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

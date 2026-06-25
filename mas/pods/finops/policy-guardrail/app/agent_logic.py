@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+
 
 AGENT_KEY = "policy_guardrail"
 AGENT_NAME = "Policy Guardrail Agent"
@@ -15,7 +17,7 @@ LLM_PROMPT = (
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     policy = context["policy"]
     source = context.get("policy_source", {})
-    unit = context["agent_results"]["unit_economics"]
+    unit = get_agent_result(context, "unit_economics")
     result = {
         "allowed": source.get("allowed_actions", ["scale_out", "prewarm", "spread_push"]),
         "forbidden": source.get("forbidden_actions", []),
