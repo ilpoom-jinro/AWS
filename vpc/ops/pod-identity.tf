@@ -383,7 +383,7 @@ resource "aws_eks_pod_identity_association" "observability_indexer" {
 
 resource "aws_iam_role" "velero" {
   name        = "financial-ops-velero-role"
-  description = "Velero — S3 백업 버킷 RW + EBS CSI 스냅샷 관리 (node-agent 포함)"
+  description = "Velero backup/restore: S3 RW + EBS CSI snapshot management (node-agent included)"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
