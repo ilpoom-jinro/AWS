@@ -655,3 +655,86 @@ class PlanCandidate(FinOpsAgentContract):
     budget_exceeded: bool
     policy_violations: list[str]
     score: float = 0.0
+
+
+VALID_FINOPS_AGENT_KEYS = {
+    "business_control",
+    "demand_shaping",
+    "traffic_forecast",
+    "bottleneck_capacity",
+    "infra_execution",
+    "cost",
+    "unit_economics",
+    "policy_guardrail",
+    "observer",
+    "fallback",
+    "postmortem_learning",
+}
+
+
+AGENT_ALLOWED_REQUESTS: dict[str, list[str]] = {
+    "bottleneck_capacity": ["traffic_forecast"],
+    "cost": ["infra_execution"],
+    "policy_guardrail": ["cost", "unit_economics"],
+    "observer": ["traffic_forecast"],
+}
+
+
+class ReplanIntent(FinOpsAgentContract):
+    intent: Literal["replan", "query"]
+    constraints: dict[str, Any]
+    forbidden_actions: list[str]
+    replan_from: str
+    requires_confirmation: bool
+    reason: str
+
+    @model_validator(mode="after")
+    def validate_replan_from(self) -> "ReplanIntent":
+        if self.replan_from not in VALID_FINOPS_AGENT_KEYS:
+            raise ValueError(f"unknown replan_from agent_key: {self.replan_from}")
+        return self
+
+
+class ExecutionMode(str, Enum):
+    DRY_RUN = "dry_run"
+    LIVE = "live"
+
+
+class ExecutionStepType(str, Enum):
+    SCALE_OUT = "scale_out"
+    CACHE_PREWARM = "cache_prewarm"
+    PUSH_SCHEDULE = "push_schedule"
+    VERIFY_READY = "verify_ready"
+    GO_NO_GO = "go_no_go"
+    SCALE_DOWN_WATCH = "scale_down_watch"
+
+
+class ExecutionStepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ExecutionStep(FinOpsAgentContract):
+    step_id: str
+    step_type: ExecutionStepType
+    scheduled_at: str
+    parameters: dict[str, Any]
+    status: ExecutionStepStatus = ExecutionStepStatus.PENDING
+    result: dict[str, Any] = Field(default_factory=dict)
+    started_at: str | None = None
+    completed_at: str | None = None
+    error: str | None = None
+
+
+class ExecutionPlan(FinOpsAgentContract):
+    planning_workflow_id: str
+    execution_workflow_id: str
+    event_id: str
+    mode: ExecutionMode
+    steps: list[ExecutionStep]
+    overall_status: str = "pending"
+    created_at: str
+    completed_at: str | None = None

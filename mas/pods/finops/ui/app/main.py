@@ -21,7 +21,8 @@ app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
 class ChatRequest(BaseModel):
     message: str
-    event_id: str = "fomc-briefing"
+    workflow_id: str | None = None
+    conversation_history: list[dict[str, Any]] = []
 
 
 class ApprovalRequest(BaseModel):
@@ -100,11 +101,30 @@ def workflow_broker_log(workflow_id: str) -> Any:
     return call_orchestrator(f"/api/workflows/{workflow_id}/broker-log")
 
 
+@app.get("/api/executions/{execution_workflow_id}")
+def execution_detail(execution_workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/executions/{execution_workflow_id}")
+
+
+@app.get("/api/workflows/{workflow_id}/execution")
+def workflow_execution(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}/execution")
+
+
 @app.post("/api/workflows/{workflow_id}/retry")
 def retry_workflow(workflow_id: str) -> Any:
     return call_orchestrator(
         f"/api/workflows/{workflow_id}/retry",
         method="POST",
+    )
+
+
+@app.post("/api/workflows/{workflow_id}/replan")
+def replan_workflow(workflow_id: str, intent: dict[str, Any]) -> Any:
+    return call_orchestrator(
+        f"/api/workflows/{workflow_id}/replan",
+        method="POST",
+        body=intent,
     )
 
 
@@ -329,6 +349,9 @@ def index() -> str:
       .status-blocked, .status-failed { background: #fee2e2; color: #991b1b; }
       .status-requires_review { background: #ffedd5; color: #9a3412; }
       .status-running { background: #dbeafe; color: #1d4ed8; }
+      .status-success { background: #dcfce7; color: #166534; }
+      .status-pending { background: #f1f5f9; color: #475569; }
+      .status-skipped { background: #f1f5f9; color: #475569; }
       .candidate-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
       .candidate-table th, .candidate-table td { padding: 9px; border-bottom: 1px solid var(--line); text-align: left; }
       .candidate-table tr.recommended { background: #ecfdf5; font-weight: 700; }
@@ -397,10 +420,10 @@ def index() -> str:
           </section>
           <section>
             <h2>ChatOps</h2>
-          <p class="muted">선택한 비즈니스 이벤트에 대해 agent들에게 재계획을 요청합니다.</p>
-          <textarea id="chat-message">일반 사용자를 20분 동안 분산 발송해줘</textarea>
+          <p class="muted">완성된 FinOps 보고서에 대해 근거 기반으로 질문합니다. Workflow 변경은 수행하지 않습니다.</p>
+          <textarea id="chat-message">왜 Pod가 22개 필요한가?</textarea>
             <div class="row" style="margin-top: 10px;">
-              <button class="secondary" onclick="sendChat()">Send Change Request</button>
+              <button id="chat-send" class="secondary" onclick="sendChat()" disabled>Ask Report</button>
               <div id="toast"></div>
             </div>
           </section>
@@ -427,6 +450,14 @@ def index() -> str:
         <div id="quality-gate"></div>
       </section>
 
+      <section id="execution-section" hidden>
+        <div class="row">
+          <h2>Event Execution Dry-run</h2>
+          <span id="execution-status" class="badge">pending</span>
+        </div>
+        <div id="execution-steps" class="agent-grid"></div>
+      </section>
+
       <section id="finops-report" hidden>
         <div class="row">
           <h2 id="report-title">FinOps Event Readiness Report</h2>
@@ -447,6 +478,13 @@ def index() -> str:
       let calendarItems = [];
       let workflowPoller = null;
       let agentDetails = {};
+      let conversationHistory = [];
+      let pendingReplan = null;
+      let previousWorkflow = null;
+      let previousPlanSnapshot = null;
+      let currentPlanSnapshot = null;
+      let currentExecution = null;
+      let executionPoller = null;
 
       async function api(path, options = {}) {
         const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -532,6 +570,7 @@ def index() -> str:
 
       function renderPlan(data) {
         const plan = data.plan || {};
+        currentPlanSnapshot = plan;
         document.getElementById("status").textContent = data.status || "unknown";
         document.getElementById("before").textContent = plan.peak_rps_before ? `${plan.peak_rps_before} rps` : "-";
         document.getElementById("after").textContent = plan.peak_rps_after ? `${plan.peak_rps_after} rps` : "-";
@@ -540,6 +579,7 @@ def index() -> str:
         document.getElementById("approve").disabled = !["waiting_approval", "plan_ready"].includes(data.status);
         document.getElementById("retry").disabled = !currentWorkflow;
         renderCandidates(data.plan_candidates || plan.plan_candidates || [], data.recommended_candidate || plan.recommended_candidate);
+        renderPlanComparison(data.plan_candidates || plan.plan_candidates || []);
         renderQualityGate(data.quality_gate_result || plan.quality_gate_result || {});
         renderReport(plan.report);
       }
@@ -570,6 +610,35 @@ def index() -> str:
           <p><strong>${gate.passed ? "✓ 통과" : "✗ 실패"}</strong></p>
           <ul class="issue">${(gate.issues || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
           <ul class="warning">${(gate.warnings || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+      }
+
+      function renderPlanComparison(currentCandidates) {
+        const previousCandidates = previousPlanSnapshot?.plan_candidates || [];
+        if (!previousCandidates.length || !currentCandidates.length) return;
+        const rows = (items) => items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.label)}</td>
+            <td>${item.push_window_minutes}분</td>
+            <td>${item.required_pods}</td>
+            <td>$${Number(item.estimated_cost_usd).toFixed(2)}</td>
+            <td>${item.estimated_p95_ms}ms</td>
+            <td>${escapeHtml(item.risk_level)}</td>
+            <td>${Number(item.score).toFixed(4)}</td>
+          </tr>
+        `).join("");
+        document.getElementById("candidate-table").innerHTML += `
+          <h3>Previous Plan Candidates</h3>
+          <p class="muted">Previous workflow: ${escapeHtml(previousWorkflow || "-")}</p>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(previousCandidates)}</tbody>
+          </table>
+          <h3>New Plan Candidates</h3>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(currentCandidates)}</tbody>
+          </table>
+        `;
       }
 
       function reportValue(value) {
@@ -726,11 +795,16 @@ def index() -> str:
       async function approvePlan() {
         if (!currentWorkflow) return;
         try {
-          await api(`/api/workflows/${currentWorkflow}/approve`, {
+          const result = await api(`/api/workflows/${currentWorkflow}/approve`, {
             method: "POST",
             body: JSON.stringify({approved_by: "operator", decision: "approved"})
           });
           await loadWorkflow(currentWorkflow);
+          if (result.execution_workflow_id) {
+            currentExecution = result.execution_workflow_id;
+            await loadExecution(currentExecution);
+            startExecutionPolling(currentExecution);
+          }
         } catch (error) {
           showError(error);
         }
@@ -738,25 +812,51 @@ def index() -> str:
 
       async function sendChat() {
         try {
+          if (!currentWorkflow) {
+            document.getElementById("toast").textContent = "먼저 FinOps 분석을 실행해주세요.";
+            return;
+          }
           const message = document.getElementById("chat-message").value;
-          const event = selectedEvent();
           const data = await api("/api/chat", {
             method: "POST",
-            body: JSON.stringify({event_id: event ? event.event_id : "fomc-briefing", message})
+            body: JSON.stringify({
+              workflow_id: currentWorkflow,
+              message,
+              conversation_history: conversationHistory
+            })
           });
+          conversationHistory = data.conversation_history || conversationHistory;
+          if (data.pending_replan) pendingReplan = data.pending_replan;
+          if (data.new_workflow_id) {
+            previousWorkflow = currentWorkflow;
+            previousPlanSnapshot = currentPlanSnapshot;
+            currentWorkflow = data.new_workflow_id;
+            conversationHistory = [];
+            currentExecution = null;
+            stopExecutionPolling();
+            document.getElementById("execution-section").hidden = true;
+            renderCallingConversation();
+            await loadWorkflow(currentWorkflow);
+            startWorkflowPolling(currentWorkflow);
+            return;
+          }
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
             <div class="bubble operator">
-              <div class="speaker"><span>Operator</span><span class="badge">change</span></div>
-              <p>${message}</p>
+              <div class="speaker"><span>Operator</span><span class="badge">question</span></div>
+              <p>${escapeHtml(message)}</p>
             </div>
-            <div class="bubble agent">
-              <div class="speaker"><span>${data.agent}</span><span class="badge">reply</span></div>
-              <p>${data.answer}</p>
-            </div>
+            ${renderChatReply(data)}
           `;
           el.scrollTop = el.scrollHeight;
         } catch (error) {
+          const el = document.getElementById("agent-chat");
+          el.innerHTML += `
+            <div class="bubble agent">
+              <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">error</span></div>
+              <p>보고서 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</p>
+            </div>
+          `;
           showError(error);
         }
       }
@@ -768,6 +868,91 @@ def index() -> str:
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#039;");
+      }
+
+      function updateChatAvailability(status = null) {
+        const disabled = !currentWorkflow || ["running", "starting"].includes(status || "");
+        const textarea = document.getElementById("chat-message");
+        const button = document.getElementById("chat-send");
+        if (textarea) textarea.disabled = disabled;
+        if (button) button.disabled = disabled;
+        if (!currentWorkflow) {
+          document.getElementById("conversation-status").textContent = "no workflow";
+        }
+      }
+
+      function agentLabel(agentKey) {
+        const labels = {
+          business_control: "Business Control",
+          demand_shaping: "Demand Shaping",
+          traffic_forecast: "Traffic Forecast",
+          bottleneck_capacity: "Bottleneck Capacity",
+          infra_execution: "Infra Execution",
+          cost: "Cost",
+          unit_economics: "Unit Economics",
+          policy_guardrail: "Policy Guardrail",
+          observer: "Observer",
+          fallback: "Fallback",
+          postmortem_learning: "Postmortem Learning"
+        };
+        return labels[agentKey] || agentKey;
+      }
+
+      function renderChatReply(data) {
+        const sources = (data.sources || []).map(source =>
+          `<span class="badge">${escapeHtml(agentLabel(source))}</span>`
+        ).join(" ");
+        const tools = (data.tools_used || []).length
+          ? `<details><summary>Tools used</summary><p>${(data.tools_used || []).map(escapeHtml).join(", ")}</p></details>`
+          : "";
+        const replanActions = data.pending_replan ? `
+          <div class="row" style="margin-top: 10px;">
+            <button class="secondary" onclick="confirmPendingReplan()">확인</button>
+            <button class="secondary" onclick="cancelPendingReplan()">취소</button>
+          </div>` : "";
+        return `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">answer</span></div>
+            <p>${escapeHtml(data.answer || "보고서 데이터를 불러올 수 없습니다")}</p>
+            <div>${sources}</div>
+            ${tools}
+            ${replanActions}
+          </div>
+        `;
+      }
+
+      async function confirmPendingReplan() {
+        if (!currentWorkflow || !pendingReplan) return;
+        try {
+          previousWorkflow = currentWorkflow;
+          previousPlanSnapshot = currentPlanSnapshot;
+          const result = await api(`/api/workflows/${currentWorkflow}/replan`, {
+            method: "POST",
+            body: JSON.stringify(pendingReplan)
+          });
+          pendingReplan = null;
+          conversationHistory = [];
+          currentWorkflow = result.new_workflow_id;
+          currentExecution = null;
+          stopExecutionPolling();
+          document.getElementById("execution-section").hidden = true;
+          renderCallingConversation();
+          await loadWorkflow(currentWorkflow);
+          startWorkflowPolling(currentWorkflow);
+        } catch (error) {
+          showError(error);
+        }
+      }
+
+      function cancelPendingReplan() {
+        pendingReplan = null;
+        const el = document.getElementById("agent-chat");
+        el.innerHTML += `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">cancelled</span></div>
+            <p>재계획 요청을 취소했습니다. 기존 보고서 질의는 계속할 수 있습니다.</p>
+          </div>
+        `;
       }
 
       /* Legacy duplicate renderer. The active implementation follows this block.
@@ -883,16 +1068,19 @@ def index() -> str:
             <p>Run the FinOps plan to execute the Temporal workflow and collect each agent result.</p>
           </div>
         `;
+        updateChatAvailability();
       }
 
       function renderCallingConversation() {
         document.getElementById("conversation-status").textContent = "calling_agents";
+        conversationHistory = [];
         document.getElementById("agent-chat").innerHTML = eventIntroBubble("FinOps plan") + `
           <div class="bubble agent">
             <div class="speaker"><span>Orchestrator</span><span class="badge">calling</span></div>
             <p>The Temporal workflow is dispatching work to the FinOps agent task queues.</p>
           </div>
         `;
+        updateChatAvailability("running");
       }
 
       function narrate(item) {
@@ -932,6 +1120,7 @@ def index() -> str:
           `).join("");
         el.innerHTML = eventIntroBubble("FinOps plan") + messages;
         el.scrollTop = el.scrollHeight;
+        updateChatAvailability(data.status);
       }
 
       function renderAgentCards(agents) {
@@ -983,7 +1172,12 @@ def index() -> str:
         if (!currentWorkflow) return;
         try {
           stopWorkflowPolling();
+          stopExecutionPolling();
+          currentExecution = null;
+          document.getElementById("execution-section").hidden = true;
           const result = await api(`/api/workflows/${currentWorkflow}/retry`, {method: "POST"});
+          previousWorkflow = currentWorkflow;
+          previousPlanSnapshot = currentPlanSnapshot;
           currentWorkflow = result.new_workflow_id;
           renderCallingConversation();
           await loadWorkflow(currentWorkflow);
@@ -1013,6 +1207,75 @@ def index() -> str:
         }, 1000);
       }
 
+      function executionStepLabel(stepType) {
+        const labels = {
+          scale_out: "Scale Out",
+          cache_prewarm: "Cache Prewarm",
+          push_schedule: "Push Schedule",
+          verify_ready: "Verify Ready",
+          go_no_go: "Go / No-Go",
+          scale_down_watch: "Scale-down Watch"
+        };
+        return labels[stepType] || stepType;
+      }
+
+      function renderExecution(data) {
+        const section = document.getElementById("execution-section");
+        const status = document.getElementById("execution-status");
+        const stepsEl = document.getElementById("execution-steps");
+        section.hidden = false;
+        status.textContent = `${data.status || "pending"} / ${data.mode || "dry_run"}`;
+        status.className = `badge status-${escapeHtml(data.status || "pending")}`;
+
+        const plannedSteps = data.execution_plan?.steps || [];
+        const loggedById = Object.fromEntries((data.steps || []).map(item => [item.step_id, item]));
+        const mergedSteps = plannedSteps.length
+          ? plannedSteps.map(step => ({...step, ...(loggedById[step.step_id] || {})}))
+          : (data.steps || []);
+
+        stepsEl.innerHTML = mergedSteps.length ? mergedSteps.map(step => {
+          const result = step.result || {};
+          const statusValue = step.status || "pending";
+          return `
+            <div class="agent-card">
+              <div class="speaker">
+                <span>${escapeHtml(executionStepLabel(step.step_type))}</span>
+                <span class="badge status-${escapeHtml(statusValue)}">${escapeHtml(statusValue)}</span>
+              </div>
+              <p class="muted">${escapeHtml(step.scheduled_at || "-")}</p>
+              <details open><summary>Parameters</summary><pre class="report-json">${escapeHtml(JSON.stringify(step.parameters || {}, null, 2))}</pre></details>
+              <details><summary>Dry-run Result</summary><pre class="report-json">${escapeHtml(JSON.stringify(result, null, 2))}</pre></details>
+              <div class="muted">${escapeHtml(step.started_at || "-")} → ${escapeHtml(step.completed_at || "-")}</div>
+            </div>
+          `;
+        }).join("") : '<div class="muted">Execution dry-run is waiting for steps.</div>';
+      }
+
+      async function loadExecution(executionWorkflowId) {
+        const data = await api(`/api/executions/${executionWorkflowId}`);
+        renderExecution(data);
+        return ["completed", "failed"].includes(data.status || "");
+      }
+
+      function stopExecutionPolling() {
+        if (executionPoller) {
+          clearInterval(executionPoller);
+          executionPoller = null;
+        }
+      }
+
+      function startExecutionPolling(executionWorkflowId) {
+        stopExecutionPolling();
+        executionPoller = setInterval(async () => {
+          try {
+            const done = await loadExecution(executionWorkflowId);
+            if (done) stopExecutionPolling();
+          } catch (error) {
+            showError(error);
+          }
+        }, 2000);
+      }
+
       async function loadWorkflow(workflowId) {
         const [data, agents, brokerLog] = await Promise.all([
           api(`/api/workflows/${workflowId}`),
@@ -1029,7 +1292,13 @@ def index() -> str:
       async function runPlan() {
         try {
           stopWorkflowPolling();
+          stopExecutionPolling();
           document.getElementById("toast").textContent = "Temporal workflow 시작 중...";
+          previousWorkflow = null;
+          previousPlanSnapshot = null;
+          currentExecution = null;
+          pendingReplan = null;
+          document.getElementById("execution-section").hidden = true;
           renderCallingConversation();
           const eventId = document.getElementById("event-select").value || "fomc-briefing";
           const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});

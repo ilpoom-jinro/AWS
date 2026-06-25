@@ -15,7 +15,15 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from app.agent_runtime import AGENT_DATA_REQUESTS, AGENT_SEQUENCE, build_final_plan, plan_status
+from app.agent_runtime import (
+    AGENT_DATA_REQUESTS,
+    AGENT_SEQUENCE,
+    agents_before,
+    build_final_plan,
+    build_replan_context,
+    plan_status,
+)
+from app.chat_runtime import build_pending_replan_response, run_planner_llm, run_report_chat
 from app.dev_workflow_support import (
     TEST_EVENT_SEEDS,
     event_row_to_dict,
@@ -23,8 +31,15 @@ from app.dev_workflow_support import (
     normalize_broker_call_log,
     retry_response,
 )
+from app.execution_runtime import (
+    build_execution_steps,
+    simulate_step,
+    utcnow as execution_utcnow,
+    validate_execution_preconditions,
+)
+from app.execution_workflows import EventExecutionWorkflow
 from app.workflows import FinOpsEventWorkflow
-from contracts.models import AgentResponse
+from contracts.models import ExecutionMode, ExecutionPlan, ExecutionStep, AgentResponse, ReplanIntent
 
 
 DATABASE_URL = os.getenv(
@@ -55,8 +70,9 @@ temporal_worker_task: asyncio.Task | None = None
 AGENT_STEP_DELAY_SECONDS = float(os.getenv("AGENT_STEP_DELAY_SECONDS", "0.8"))
 
 class ChatRequest(BaseModel):
-    event_id: str = "fomc-briefing"
+    workflow_id: str | None = None
     message: str
+    conversation_history: list[dict[str, Any]] = []
 
 
 class ApprovalRequest(BaseModel):
@@ -833,6 +849,35 @@ def init_db() -> None:
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    create table if not exists event_execution (
+                      execution_workflow_id text primary key,
+                      planning_workflow_id text not null,
+                      event_id text not null,
+                      mode text not null default 'dry_run',
+                      status text not null default 'pending',
+                      execution_plan jsonb,
+                      created_at text,
+                      updated_at text
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists execution_step_log (
+                      id serial primary key,
+                      execution_workflow_id text not null,
+                      step_id text not null,
+                      step_type text not null,
+                      status text not null,
+                      result jsonb,
+                      started_at text,
+                      completed_at text,
+                      created_at text
+                    )
+                    """
+                )
                 seed(conn)
             return
         except psycopg.OperationalError:
@@ -847,6 +892,7 @@ def build_seed_event(definition: dict[str, Any]) -> dict[str, Any]:
     traffic_rps = int(definition.get("traffic_rps", baseline_rps))
     pods = int(definition["required_app_pods"])
     rds_cpu = int(definition["rds_cpu_percent"])
+    cache_hit_ratio = int(definition.get("redis_cache_hit_ratio_percent", 91))
     vip_users = max(1, int(target_users * 0.12))
     current_pods = max(1, int(pods * 0.62))
     return {
@@ -868,7 +914,7 @@ def build_seed_event(definition: dict[str, Any]) -> dict[str, Any]:
             "shaped_peak_rps": max(1, int(baseline_rps * 0.58)),
             "required_app_pods": pods,
             "db_cpu_percent": rds_cpu,
-            "cache_hit_ratio_percent": 91,
+            "cache_hit_ratio_percent": cache_hit_ratio,
             "alb_status": "ok",
             "eks_cost_usd": 31.2,
             "network_cost_usd": 8.1,
@@ -902,7 +948,7 @@ def build_seed_event(definition: dict[str, Any]) -> dict[str, Any]:
             "rds_cpu_percent": rds_cpu,
             "rds_connections": 640,
             "rds_read_iops": 12500,
-            "redis_cache_hit_ratio_percent": 91,
+            "redis_cache_hit_ratio_percent": cache_hit_ratio,
             "alb_healthy_targets": current_pods,
             "alb_unhealthy_targets": 0,
             "nat_gateway_bytes_out_gb": 37.4,
@@ -1508,19 +1554,162 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
     return {"workflow_id": workflow_id, "status": status, "plan": plan}
 
 
+@activity.defn(name="load_execution_plan")
+async def load_execution_plan(
+    planning_workflow_id: str,
+    execution_workflow_id: str,
+    event_id: str,
+    mode: str,
+) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            select event_id, status, plan
+            from final_event_plan
+            where workflow_id = %s
+            """,
+            (planning_workflow_id,),
+        ).fetchone()
+    if not row:
+        raise ValueError(f"planning workflow not found: {planning_workflow_id}")
+    final_plan = row[2] if isinstance(row[2], dict) else {}
+    final_plan = {**final_plan, "status": row[1], "event_id": row[0]}
+    precondition_result = validate_execution_preconditions(final_plan)
+    steps = [
+        step.model_dump(mode="json")
+        for step in build_execution_steps(final_plan, ExecutionMode(mode))
+    ] if precondition_result["valid"] else []
+    return {
+        "final_plan": final_plan,
+        "steps": steps,
+        "precondition_result": precondition_result,
+        "event_id": row[0],
+    }
+
+
+@activity.defn(name="save_execution_plan")
+async def save_execution_plan(
+    execution_workflow_id: str,
+    planning_workflow_id: str,
+    event_id: str,
+    mode: str,
+    steps: list[dict[str, Any]],
+    status: str,
+) -> None:
+    now = utcnow()
+    plan = ExecutionPlan(
+        planning_workflow_id=planning_workflow_id,
+        execution_workflow_id=execution_workflow_id,
+        event_id=event_id,
+        mode=ExecutionMode(mode),
+        steps=[ExecutionStep.model_validate(step) for step in steps],
+        overall_status=status,
+        created_at=now,
+        completed_at=now if status in {"completed", "failed"} else None,
+    )
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into event_execution
+              (execution_workflow_id, planning_workflow_id, event_id, mode, status,
+               execution_plan, created_at, updated_at)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
+            on conflict (execution_workflow_id) do update set
+              status = excluded.status,
+              execution_plan = excluded.execution_plan,
+              updated_at = excluded.updated_at
+            """,
+            (
+                execution_workflow_id,
+                planning_workflow_id,
+                event_id,
+                mode,
+                status,
+                json.dumps(plan.model_dump(mode="json")),
+                now,
+                now,
+            ),
+        )
+
+
+@activity.defn(name="execute_step")
+async def execute_step(
+    execution_workflow_id: str,
+    step: dict[str, Any],
+) -> dict[str, Any]:
+    executed = simulate_step(ExecutionStep.model_validate(step))
+    payload = executed.model_dump(mode="json")
+    with connect() as conn:
+        conn.execute(
+            """
+            insert into execution_step_log
+              (execution_workflow_id, step_id, step_type, status, result,
+               started_at, completed_at, created_at)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                execution_workflow_id,
+                payload["step_id"],
+                payload["step_type"],
+                payload["status"],
+                json.dumps(payload["result"]),
+                payload["started_at"],
+                payload["completed_at"],
+                utcnow(),
+            ),
+        )
+    return payload
+
+
+@activity.defn(name="finalize_execution")
+async def finalize_execution(
+    execution_workflow_id: str,
+    overall_status: str,
+    completed_at: str,
+) -> dict[str, Any]:
+    with connect() as conn:
+        conn.execute(
+            """
+            update event_execution
+            set status = %s, updated_at = %s
+            where execution_workflow_id = %s
+            """,
+            (overall_status, completed_at, execution_workflow_id),
+        )
+        step_rows = conn.execute(
+            """
+            select step_id, step_type, status, result, started_at, completed_at
+            from execution_step_log
+            where execution_workflow_id = %s
+            order by id asc
+            """,
+            (execution_workflow_id,),
+        ).fetchall()
+    return {
+        "execution_workflow_id": execution_workflow_id,
+        "status": overall_status,
+        "completed_at": completed_at,
+        "step_count": len(step_rows),
+    }
+
+
 async def start_temporal_worker() -> None:
     global temporal_client
     temporal_client = await Client.connect(TEMPORAL_ADDRESS)
     worker = Worker(
         temporal_client,
         task_queue=TEMPORAL_TASK_QUEUE,
-        workflows=[FinOpsEventWorkflow],
+        workflows=[FinOpsEventWorkflow, EventExecutionWorkflow],
         activities=[
             load_event_context,
             record_data_request,
             record_agent_step_started,
             record_agent_step_completed,
             finalize_finops_plan,
+            load_execution_plan,
+            save_execution_plan,
+            execute_step,
+            finalize_execution,
         ],
     )
     await worker.run()
@@ -1650,6 +1839,117 @@ async def start_workflow_for_event(event_id: str) -> dict[str, str]:
     return {"workflow_id": workflow_id, "status": "running", "engine": "temporal"}
 
 
+def _agent_response_from_decision_row(row: tuple[Any, ...]) -> dict[str, Any]:
+    agent_name, status, payload, agent_key, confidence, reasoning_source, evidence, warnings, data_requests = row
+    result_payload = payload if isinstance(payload, dict) else {}
+    result = result_payload.get("result") if isinstance(result_payload.get("result"), dict) else result_payload
+    return {
+        "status": status,
+        "agent_key": agent_key,
+        "agent_name": agent_name,
+        "result": result or {},
+        "message": f"Reused from previous workflow: {agent_name}",
+        "evidence": evidence or result_payload.get("evidence", []),
+        "data_requests": data_requests or result_payload.get("data_requests", []),
+        "confidence": float(confidence if confidence is not None else result_payload.get("confidence", 0.7)),
+        "warnings": warnings or result_payload.get("warnings", []),
+        "reasoning_source": reasoning_source or result_payload.get("reasoning_source", "rule"),
+    }
+
+
+async def start_replan_workflow(
+    previous_workflow_id: str,
+    intent: ReplanIntent,
+) -> dict[str, Any]:
+    new_workflow_id = f"{previous_workflow_id}-r{uuid.uuid4().hex[:4]}"
+    with connect() as conn:
+        plan_row = conn.execute(
+            "select event_id from final_event_plan where workflow_id = %s",
+            (previous_workflow_id,),
+        ).fetchone()
+        if not plan_row:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        event_id = plan_row[0]
+        rows = conn.execute(
+            """
+            select agent, status, result, agent_key, confidence, reasoning_source,
+                   evidence, warnings, data_requests
+            from agent_decision_log
+            where workflow_id = %s
+              and agent_key = any(%s)
+              and status <> 'running'
+            order by phase, id
+            """,
+            (previous_workflow_id, agents_before(intent.replan_from)),
+        ).fetchall()
+
+    previous_results: dict[str, Any] = {}
+    for row in rows:
+        agent_key = row[3]
+        if agent_key:
+            previous_results[agent_key] = _agent_response_from_decision_row(row)
+
+    initial_context = build_replan_context(previous_results, intent)
+    created_at = utcnow()
+    try:
+        client = await get_temporal_client()
+        with connect() as conn:
+            conn.execute(
+                """
+                insert into final_event_plan
+                  (workflow_id, event_id, status, plan, created_at, updated_at)
+                values (%s, %s, 'running', %s, %s, %s)
+                """,
+                (
+                    new_workflow_id,
+                    event_id,
+                    json.dumps(
+                        {
+                            "event_id": event_id,
+                            "engine": "temporal",
+                            "phase": "replan_starting",
+                            "previous_workflow_id": previous_workflow_id,
+                            "replan_intent": intent.model_dump(mode="json"),
+                        }
+                    ),
+                    created_at,
+                    created_at,
+                ),
+            )
+            conn.execute(
+                """
+                insert into agent_conversation_log
+                  (workflow_id, phase, sender, receiver, message, payload, created_at)
+                values (%s, 0, 'Operator', 'FinOps Orchestrator', %s, %s, %s)
+                """,
+                (
+                    new_workflow_id,
+                    f"Replan requested from {intent.replan_from}: {intent.reason}",
+                    json.dumps(
+                        {
+                            "previous_workflow_id": previous_workflow_id,
+                            "replan_intent": intent.model_dump(mode="json"),
+                            "reused_agents": list(previous_results.keys()),
+                        }
+                    ),
+                    created_at,
+                ),
+            )
+        await client.start_workflow(
+            FinOpsEventWorkflow.run,
+            args=[event_id, new_workflow_id, initial_context],
+            id=new_workflow_id,
+            task_queue=TEMPORAL_TASK_QUEUE,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"temporal replan workflow failed: {exc}") from exc
+    return {
+        "new_workflow_id": new_workflow_id,
+        "reused_agents": list(previous_results.keys()),
+        "status": "running",
+    }
+
+
 @app.post("/api/workflows/run")
 async def run_workflow(event_id: str = "fomc-briefing") -> dict[str, str]:
     return await start_workflow_for_event(event_id)
@@ -1749,6 +2049,13 @@ async def retry_workflow(workflow_id: str) -> dict[str, str]:
     return retry_response(started["workflow_id"])
 
 
+@app.post("/api/workflows/{workflow_id}/replan")
+async def replan_workflow(workflow_id: str, intent: ReplanIntent) -> dict[str, Any]:
+    if intent.intent != "replan":
+        raise HTTPException(status_code=400, detail="intent must be replan")
+    return await start_replan_workflow(workflow_id, intent)
+
+
 @app.get("/api/workflows/{workflow_id}")
 def workflow_detail(workflow_id: str) -> dict[str, Any]:
     with connect() as conn:
@@ -1812,16 +2119,83 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/executions/{execution_workflow_id}")
+def execution_detail(execution_workflow_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        execution = conn.execute(
+            """
+            select execution_workflow_id, planning_workflow_id, event_id, mode,
+                   status, execution_plan, created_at, updated_at
+            from event_execution
+            where execution_workflow_id = %s
+            """,
+            (execution_workflow_id,),
+        ).fetchone()
+        if not execution:
+            raise HTTPException(status_code=404, detail="execution not found")
+        steps = conn.execute(
+            """
+            select step_id, step_type, status, result, started_at, completed_at
+            from execution_step_log
+            where execution_workflow_id = %s
+            order by id asc
+            """,
+            (execution_workflow_id,),
+        ).fetchall()
+    return {
+        "execution_workflow_id": execution[0],
+        "planning_workflow_id": execution[1],
+        "event_id": execution[2],
+        "mode": execution[3],
+        "status": execution[4],
+        "execution_plan": execution[5],
+        "created_at": execution[6],
+        "updated_at": execution[7],
+        "steps": [
+            {
+                "step_id": row[0],
+                "step_type": row[1],
+                "status": row[2],
+                "result": row[3],
+                "started_at": row[4],
+                "completed_at": row[5],
+            }
+            for row in steps
+        ],
+    }
+
+
+@app.get("/api/workflows/{workflow_id}/execution")
+def workflow_execution(workflow_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            select execution_workflow_id
+            from event_execution
+            where planning_workflow_id = %s
+            order by created_at desc
+            limit 1
+            """,
+            (workflow_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="execution not found")
+    return execution_detail(row[0])
+
+
 @app.post("/api/workflows/{workflow_id}/approve")
-def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, str]:
+async def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, Any]:
     status = "approved" if request.decision == "approved" else "rejected"
+    execution_workflow_id = None
+    event_id = None
     with connect() as conn:
         existing = conn.execute(
-            "select workflow_id from final_event_plan where workflow_id = %s",
+            "select workflow_id, event_id from final_event_plan where workflow_id = %s",
             (workflow_id,),
         ).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="workflow not found")
+        event_id = existing[1]
         conn.execute(
             """
             update approval_request
@@ -1871,11 +2245,104 @@ def approve(workflow_id: str, request: ApprovalRequest) -> dict[str, str]:
                     utcnow(),
                 ),
             )
-    return {"workflow_id": workflow_id, "status": final_status}
+    if status == "approved":
+        execution_workflow_id = f"exec-{workflow_id}"
+        try:
+            client = await get_temporal_client()
+            await client.start_workflow(
+                EventExecutionWorkflow.run,
+                args=[workflow_id, execution_workflow_id, event_id, "dry_run"],
+                id=execution_workflow_id,
+                task_queue=TEMPORAL_TASK_QUEUE,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"event execution workflow failed: {exc}",
+            ) from exc
+    return {
+        "workflow_id": workflow_id,
+        "status": final_status,
+        "execution_workflow_id": execution_workflow_id,
+    }
+
+
+@activity.defn(name="run_chat_llm")
+async def run_chat_llm(
+    workflow_id: str,
+    message: str,
+    conversation_history: list[dict],
+) -> dict[str, Any]:
+    with connect() as conn:
+        return await run_report_chat(
+            conn,
+            workflow_id=workflow_id,
+            message=message,
+            conversation_history=conversation_history,
+        )
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest) -> dict[str, Any]:
+async def chat(request: ChatRequest) -> dict[str, Any]:
+    workflow_id = (request.workflow_id or "").strip()
+    if not workflow_id:
+        return {
+            "answer": "실행된 Workflow가 없습니다. 먼저 FinOps 분석을 실행해주세요.",
+            "sources": [],
+            "tools_used": [],
+            "conversation_history": [],
+        }
+    with connect() as conn:
+        row = conn.execute(
+            "select plan from final_event_plan where workflow_id = %s",
+            (workflow_id,),
+        ).fetchone()
+    if not row:
+        return {
+            "answer": "실행된 Workflow가 없습니다. 먼저 FinOps 분석을 실행해주세요.",
+            "sources": [],
+            "tools_used": [],
+            "conversation_history": [],
+        }
+    current_plan = row[0] if isinstance(row[0], dict) else {}
+    with connect() as conn:
+        intent = await run_planner_llm(
+            conn,
+            workflow_id=workflow_id,
+            message=request.message.strip(),
+            current_plan=current_plan,
+        )
+    if intent.intent == "replan":
+        if intent.requires_confirmation:
+            return build_pending_replan_response(
+                intent,
+                request.conversation_history,
+                request.message.strip(),
+            )
+        started = await start_replan_workflow(workflow_id, intent)
+        history = request.conversation_history + [
+            {"role": "user", "content": request.message.strip()},
+            {
+                "role": "assistant",
+                "content": f"{intent.reason} 새 Workflow {started['new_workflow_id']}로 재계획을 시작했습니다.",
+            },
+        ]
+        return {
+            "answer": history[-1]["content"],
+            "pending_replan": None,
+            "new_workflow_id": started["new_workflow_id"],
+            "reused_agents": started["reused_agents"],
+            "sources": [],
+            "tools_used": ["run_planner_llm", "start_replan_workflow"],
+            "conversation_history": history,
+        }
+    return await run_chat_llm(
+        workflow_id=workflow_id,
+        message=request.message.strip(),
+        conversation_history=request.conversation_history,
+    )
+    """
+    DEPRECATED: legacy dummy chat response kept only as inert reference.
     message = request.message.strip()
     delay = 20 if "20" in message else 10
     return {
@@ -1891,3 +2358,4 @@ def chat(request: ChatRequest) -> dict[str, Any]:
             "Demand Shaping 단계부터 다시 실행하면 됩니다."
         ),
     }
+    """

@@ -11,6 +11,7 @@ TEST_EVENT_SEEDS = [
     {"event_id": "budget-exceeded-event", "title": "Low budget push", "grade": "B", "target_users": 50000, "scheduled_at": "12:00 KST", "baseline_peak_rps": 500, "required_app_pods": 10, "rds_cpu_percent": 42, "event_incremental_budget_usd": 20.0},
     {"event_id": "policy-blocked-event", "title": "Policy blocked push", "grade": "S", "target_users": 350000, "scheduled_at": "13:00 KST", "baseline_peak_rps": 1420, "required_app_pods": 29, "rds_cpu_percent": 68, "event_incremental_budget_usd": 95.0, "allowed_actions": False},
     {"event_id": "missing-data-event", "title": "Missing observability data push", "grade": "A", "target_users": 150000, "scheduled_at": "14:00 KST", "baseline_peak_rps": 900, "required_app_pods": 18, "rds_cpu_percent": 55, "event_incremental_budget_usd": 75.0, "omit_traffic_signal": True, "omit_cost_signal": True},
+    {"event_id": "soft-bottleneck-event", "title": "Soft Bottleneck Test", "grade": "A", "target_users": 180000, "scheduled_at": "14:00 KST", "baseline_peak_rps": 950, "required_app_pods": 22, "rds_cpu_percent": 75, "redis_cache_hit_ratio_percent": 72, "event_incremental_budget_usd": 95.0},
 ]
 
 

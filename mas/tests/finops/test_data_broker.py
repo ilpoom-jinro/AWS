@@ -5,19 +5,41 @@ import sys
 import unittest
 from pathlib import Path
 
+MAS_ROOT = Path(__file__).resolve().parents[2]
+if str(MAS_ROOT) not in sys.path:
+    sys.path.insert(0, str(MAS_ROOT))
+
 from contracts.models import AgentResponse, AgentStatus, DataRequest
 
 
 RUNTIME_PATH = (
-    Path(__file__).resolve().parents[2]
+    MAS_ROOT
     / "pods"
     / "finops"
     / "orchestrator"
     / "app"
     / "agent_runtime.py"
 )
-FINOPS_ROOT = Path(__file__).resolve().parents[2] / "pods" / "finops"
-sys.path.insert(0, str(FINOPS_ROOT / "agents"))
+FINOPS_ROOT = MAS_ROOT / "pods" / "finops"
+AGENTS_PATH = str(FINOPS_ROOT / "agents")
+
+
+def prefer_agents_app_package() -> None:
+    for path in list(sys.path):
+        normalized = path.replace("\\", "/")
+        if normalized.endswith("/mas/pods/finops/orchestrator") or normalized.endswith("/mas/pods/finops/ui"):
+            sys.path.remove(path)
+    for key in list(sys.modules):
+        if key == "app" or key.startswith("app."):
+            sys.modules.pop(key, None)
+    if AGENTS_PATH in sys.path:
+        sys.path.remove(AGENTS_PATH)
+    sys.path.insert(0, AGENTS_PATH)
+
+
+if AGENTS_PATH in sys.path:
+    sys.path.remove(AGENTS_PATH)
+sys.path.insert(0, AGENTS_PATH)
 SPEC = importlib.util.spec_from_file_location("finops_agent_runtime_test", RUNTIME_PATH)
 runtime = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -47,6 +69,7 @@ def agent_response(agent_key: str, result: dict) -> dict:
 
 
 def load_agent_logic(directory: str):
+    prefer_agents_app_package()
     path = FINOPS_ROOT / directory / "app" / "agent_logic.py"
     spec = importlib.util.spec_from_file_location(f"test_{directory}_logic", path)
     module = importlib.util.module_from_spec(spec)

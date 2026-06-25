@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
         broker_guard_failure,
         extract_required_fields,
         get_broker_cached_result,
+        agents_before,
     )
     from contracts.models import AgentResponse, AgentStatus, DataRequest
 
@@ -26,21 +27,31 @@ AGENT_ORDER = {agent_key: index for index, (agent_key, _) in enumerate(AGENT_SEQ
 @workflow.defn
 class FinOpsEventWorkflow:
     @workflow.run
-    async def run(self, event_id: str, workflow_id: str) -> dict[str, Any]:
+    async def run(
+        self,
+        event_id: str,
+        workflow_id: str,
+        initial_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         context = await workflow.execute_activity(
             "load_event_context",
             args=[event_id],
             start_to_close_timeout=timedelta(seconds=20),
         )
 
-        context["agent_results"] = {}
+        initial_context = initial_context or {}
+        context["agent_results"] = dict(initial_context.get("agent_results", {}))
+        context["replan_constraints"] = dict(initial_context.get("replan_constraints", {}))
+        context["replan_forbidden"] = list(initial_context.get("replan_forbidden", []))
+        context["replan_from"] = initial_context.get("replan_from")
+        context["replan_intent"] = initial_context.get("replan_intent")
         context["data_requests"] = []
         context["broker_cache"] = {}
         context["broker_call_log"] = []
         context["broker_total_calls"] = 0
         context["broker_agent_calls"] = {}
         context["broker_results"] = {}
-        completed_agents: set[str] = set()
+        completed_agents: set[str] = set(context["agent_results"].keys())
         requested_edges: set[str] = set()
         phase = 1
 
@@ -282,7 +293,14 @@ class FinOpsEventWorkflow:
                     missing_sources.append(source_key)
             return missing_sources
 
-        pending_agents = [agent_key for agent_key, _ in AGENT_SEQUENCE]
+        skipped_agents = set()
+        if context.get("replan_from"):
+            skipped_agents = set(agents_before(context["replan_from"]))
+        pending_agents = [
+            agent_key
+            for agent_key, _ in AGENT_SEQUENCE
+            if agent_key not in skipped_agents
+        ]
         while pending_agents:
             ready_agents = []
             for agent_key in pending_agents:

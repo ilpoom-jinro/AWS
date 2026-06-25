@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from contracts.models import AgentResponse, AgentStatus, DataRequest, PlanCandidate
+from contracts.models import AgentResponse, AgentStatus, DataRequest, PlanCandidate, ReplanIntent
 
 
 BROKER_MAX_DEPTH = 3
@@ -34,6 +34,63 @@ AGENT_TASK_QUEUES = {
     key: f"finops-{key.replace('_', '-')}-agent-task-queue"
     for key, _ in AGENT_SEQUENCE
 }
+
+
+def valid_agent_keys() -> list[str]:
+    return [key for key, _ in AGENT_SEQUENCE]
+
+
+def agents_before(agent_key: str) -> list[str]:
+    keys = valid_agent_keys()
+    if agent_key not in keys:
+        raise ValueError(f"unknown agent_key: {agent_key}")
+    return keys[: keys.index(agent_key)]
+
+
+def build_replan_context(
+    previous_results: dict[str, Any],
+    intent: ReplanIntent | dict[str, Any],
+) -> dict[str, Any]:
+    validated = ReplanIntent.model_validate(intent)
+    return {
+        "agent_results": dict(previous_results),
+        "replan_constraints": dict(validated.constraints),
+        "replan_forbidden": list(validated.forbidden_actions),
+        "replan_from": validated.replan_from,
+        "replan_intent": validated.model_dump(mode="json"),
+    }
+
+
+def apply_replan_constraints(
+    candidates: list[PlanCandidate],
+    constraints: dict[str, Any],
+) -> list[PlanCandidate]:
+    if not constraints:
+        return candidates
+    constrained = []
+    max_pods = constraints.get("max_pods")
+    max_cost = constraints.get("max_cost_usd")
+    for candidate in candidates:
+        policy_violations = list(candidate.policy_violations)
+        budget_exceeded = candidate.budget_exceeded
+        risk_level = candidate.risk_level
+        if max_pods is not None and candidate.required_pods > int(max_pods):
+            if "max_pods_exceeded" not in policy_violations:
+                policy_violations.append("max_pods_exceeded")
+            risk_level = "high"
+        if max_cost is not None and candidate.estimated_cost_usd > float(max_cost):
+            budget_exceeded = True
+            risk_level = "high"
+        constrained.append(
+            candidate.model_copy(
+                update={
+                    "policy_violations": policy_violations,
+                    "budget_exceeded": budget_exceeded,
+                    "risk_level": risk_level,
+                }
+            )
+        )
+    return constrained
 
 
 def broker_failure(reason: str, message: str) -> dict[str, Any]:
@@ -293,15 +350,23 @@ def build_plan_candidates(
 
     if not candidates:
         return [], None, budget
+    candidates = apply_replan_constraints(
+        candidates,
+        context.get("replan_constraints", {}),
+    )
 
     max_candidate_pods = max(candidate.required_pods for candidate in candidates)
     constraints = {
         "max_pods": float(
+            context.get("replan_constraints", {}).get("max_pods")
+            or
             context.get("constraints", {}).get("max_pods")
             or infra.get("nodegroup_max")
             or max_candidate_pods * 1.25
         ),
         "max_cost_usd": float(
+            context.get("replan_constraints", {}).get("max_cost_usd")
+            or
             context.get("constraints", {}).get("max_cost_usd") or budget
         ),
         "max_p95_ms": max_p95,
@@ -459,6 +524,9 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
         "quality_gate_result": quality_gate,
         "data_collection_issues": data_collection_issues,
         "data_sources": data_sources,
+        "replan_constraints": context.get("replan_constraints", {}),
+        "replan_forbidden": context.get("replan_forbidden", []),
+        "replan_from": context.get("replan_from"),
         "report": {
             "title": "FinOps Event Readiness Report",
             "event": {

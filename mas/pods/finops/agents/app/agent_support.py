@@ -6,11 +6,12 @@ import logging
 import os
 from typing import Any
 
-from contracts.models import AgentResponse, AgentStatus
+from contracts.models import AgentResponse, AgentStatus, DataRequest
 
 
 logger = logging.getLogger(__name__)
 LLM_TIMEOUT_SECONDS = 5
+LLM_JUDGE_TIMEOUT_SECONDS = 10
 
 AGENT_TASK_QUEUES = {
     "business_control": "finops-business-control-agent-task-queue",
@@ -111,6 +112,84 @@ def call_llm(prompt: str, context_data: dict[str, Any]) -> dict[str, Any] | None
             executor.shutdown(wait=False, cancel_futures=True)
     except Exception as exc:
         logger.warning("finops_llm_call_failed: %s", exc)
+        return None
+
+
+async def llm_judge_data_request(
+    agent_key: str,
+    context: dict,
+    rule_result: dict,
+    allowed_targets: list[str],
+) -> DataRequest | None:
+    if not allowed_targets:
+        return None
+
+    prompt = f"""
+현재 분석 결과와 지표를 보고 추가 분석이 필요한지 판단하세요.
+필요하면 다음 JSON 형식으로만 반환하세요.
+필요없으면 null을 반환하세요.
+
+{{
+  "target_agent": "허용된 agent_key 중 하나",
+  "operation": "수행할 작업",
+  "parameters": {{}},
+  "required_fields": [],
+  "reason": "요청 이유"
+}}
+
+허용된 target_agent: {allowed_targets}
+허용되지 않은 Agent 요청은 절대 하지 마세요.
+AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
+반드시 JSON 또는 null만 반환하세요.
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent: {agent_key}\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}\n\n"
+                                f"Rule result:\n{json.dumps(rule_result, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=LLM_JUDGE_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_data_request_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+    if parsed.get("target_agent") not in allowed_targets:
+        return None
+    try:
+        return DataRequest.model_validate(parsed)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_data_request_invalid: %s", exc)
         return None
 
 

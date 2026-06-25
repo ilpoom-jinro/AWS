@@ -17,9 +17,9 @@ AGENT_SEQUENCE = [
 
 
 class DevWorkflowApiTests(unittest.TestCase):
-    def test_seed_definitions_build_six_scenarios(self) -> None:
+    def test_seed_definitions_build_scenarios(self) -> None:
         events = main.TEST_EVENT_SEEDS
-        self.assertEqual(len(events), 6)
+        self.assertEqual(len(events), 7)
         self.assertEqual(
             {event["event_id"] for event in events},
             {
@@ -29,6 +29,7 @@ class DevWorkflowApiTests(unittest.TestCase):
                 "budget-exceeded-event",
                 "policy-blocked-event",
                 "missing-data-event",
+                "soft-bottleneck-event",
             },
         )
         missing = next(

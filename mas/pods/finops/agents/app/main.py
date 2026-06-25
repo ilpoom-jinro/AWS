@@ -18,6 +18,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from app.agent_dispatch import run_agent as run_finops_agent_logic
+from app.agent_dispatch import run_agent_async as run_finops_agent_logic_async
 from app.agent_support import AGENT_TASK_QUEUES
 from contracts.models import AgentResponse, AgentStatus
 
@@ -658,7 +659,7 @@ async def run_finops_agent(
     if agent_key != AGENT_KEY:
         raise ValueError(f"{AGENT_NAME} cannot run agent '{agent_key}'")
     try:
-        raw_response = run_finops_agent_logic(
+        raw_response = await run_finops_agent_logic_async(
             agent_key,
             enrich_context_for_agent(agent_key, context),
         )
