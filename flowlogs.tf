@@ -303,6 +303,25 @@ resource "aws_s3_bucket_policy" "flowlogs_archive" {
             "aws:SourceArn" = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
           }
         }
+      },
+      {
+        # delivery 서비스가 쓰기 전 버킷 ACL·존재 확인 — BucketOwnerEnforced여도 호출 자체는 발생
+        # Resource는 버킷 루트 ARN (ACL은 버킷 속성이라 /AWSLogs/* 붙이면 안 됨)
+        Sid    = "AWSLogDeliveryAclCheck"
+        Effect = "Allow"
+        Principal = {
+          Service = "delivery.logs.amazonaws.com"
+        }
+        Action   = ["s3:GetBucketAcl", "s3:ListBucket"]
+        Resource = aws_s3_bucket.flowlogs_archive[0].arn
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+          ArnLike = {
+            "aws:SourceArn" = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+          }
+        }
       }
     ]
   })

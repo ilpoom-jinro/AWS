@@ -14,6 +14,7 @@ RUN apt-get update \
 COPY pods/finops/agents/app ./app
 COPY pods/finops/infra-execution/app/agent_logic.py ./app/agent_logic.py
 COPY shared ./shared
+COPY contracts ./contracts
 
 EXPOSE 8000
 
