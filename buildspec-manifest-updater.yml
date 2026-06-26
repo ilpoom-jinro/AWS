@@ -283,6 +283,9 @@ phases:
               {"group": "", "kind": "ConfigMap"},
               {"group": "", "kind": "Secret"},
               {"group": "", "kind": "ServiceAccount"},
+              {"group": "external-secrets.io", "kind": "ExternalSecret"},
+              {"group": "rbac.authorization.k8s.io", "kind": "Role"},
+              {"group": "rbac.authorization.k8s.io", "kind": "RoleBinding"},
             ],
           },
         }
