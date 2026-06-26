@@ -1,0 +1,5 @@
+# Presidio 분석 엔진 (PII 탐지). 버전은 빌드 시점 최신 안정판으로 핀 권장.
+presidio-analyzer==2.2.362
+# spaCy 본체 (NLP 엔진). 모델은 Dockerfile에서 별도 download.
+spacy>=3.8,<3.9
+boto3

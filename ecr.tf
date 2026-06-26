@@ -1399,3 +1399,46 @@ resource "aws_ecr_lifecycle_policy" "snapshot_controller" {
     }]
   })
 }
+
+# =============================================
+# PII 스캔 런타임 이미지 (Presidio + spaCy ko)
+# count 게이팅 없음 — enable_pii_scan=false 시에도 이미지 보존
+# =============================================
+resource "aws_ecr_repository" "pii_scan" {
+  name                 = "financial/security/pii-scan"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/security/pii-scan"
+    Purpose   = "pii-scan-runtime"
+    ManagedBy = "terraform"
+    Owner     = "security"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "pii_scan" {
+  repository = aws_ecr_repository.pii_scan.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 PII scan images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

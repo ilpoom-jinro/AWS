@@ -17,3 +17,23 @@ variable "key_sns_arn" {
   description = "key-sns CMK ARN (루트 data-kms.tf에서 전달, #49 security-violation-alert 암호화용)"
   type        = string
 }
+
+variable "enable_pii_scan" {
+  description = "PII 스캔 파이프라인 활성화 플래그 (루트에서 전달)"
+  type        = bool
+}
+
+variable "pii_scan_target_buckets" {
+  description = "PII 스캔 추가 대상 버킷 이름 목록 (루트에서 전달)"
+  type        = list(string)
+}
+
+variable "pii_scan_ecr_image" {
+  description = "PII 스캔 CodeBuild 런타임 이미지 URI — 루트 aws_ecr_repository.pii_scan.repository_url:latest"
+  type        = string
+}
+
+variable "pii_scan_ecr_repo_arn" {
+  description = "PII 스캔 ECR repo ARN — CodeBuild IAM role의 ECR pull 권한 범위 지정"
+  type        = string
+}
