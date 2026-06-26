@@ -1,0 +1,72 @@
+# =============================================================================
+# ApplicationSet: tetragon-install
+# 목적: ArgoCD에 등록된 모든 클러스터에 Tetragon을 자동 배포합니다.
+#
+# 소스: 내부 Gitea (buildspec-gitops-bootstrap.yml에서 helm template으로 렌더링 후 push)
+#   경로: tetragon/install/tetragon.yaml        ← buildspec push 경로와 일치
+#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+#
+# 새 클러스터 자동 적용:
+#   argocd cluster add로 클러스터를 등록하면 ApplicationSet이 즉시
+#   새 Application을 생성하여 Tetragon을 배포합니다.
+#
+# 초기 적용:
+#   buildspec-gitops-bootstrap.yml에서 자동 실행됩니다. (수동 apply 불필요)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tetragon-install
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+
+  generators:
+    # ArgoCD에 등록된 모든 클러스터 대상 (in-cluster 포함)
+    # 새 클러스터를 ArgoCD에 등록하면 자동으로 Tetragon이 배포됩니다.
+    - clusters: {}
+
+  template:
+    metadata:
+      # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
+      name: "tetragon-install-{{.name}}"
+      annotations:
+        # ServerSideDiff: 서버 사이드 dry-run으로 실제 변경분만 비교
+        # IncludeMutationWebhook: 뮤테이션 웹훅 적용 결과를 diff에 반영해 오탐 방지
+        argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
+    spec:
+      project: ops-infra-project
+
+      source:
+        # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
+        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+        targetRevision: main
+        # buildspec에서 CRD 제외 후 렌더링된 Tetragon 매니페스트
+        # CRD는 buildspec에서 양 클러스터에 직접 kubectl apply로 관리
+        path: tetragon/install
+
+      destination:
+        # {{.server}} → 클러스터 API 서버 URL (ArgoCD 클러스터 시크릿에서 주입)
+        server: "{{.server}}"
+        namespace: tetragon
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true    # tetragon 네임스페이스 자동 생성
+          - ServerSideApply=true
+          - Replace=false
+        # Tetragon은 eBPF + privileged DaemonSet — PSS enforce=privileged 필수
+        # API server PSS는 Kyverno가 override 불가이므로 label로 직접 허용해야 함
+        # (baseline이면 API server가 privileged pod를 차단 → 파일 5로도 구제 불가)
+        # audit/warn=restricted: 향후 tightening 검토를 위한 가시성 유지
+        # 파일 5(Kyverno 정책 예외)는 Kyverno-layer 별도 동작 — 이 label과 모순 없음
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted

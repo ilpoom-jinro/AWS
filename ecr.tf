@@ -1399,3 +1399,165 @@ resource "aws_ecr_lifecycle_policy" "snapshot_controller" {
     }]
   })
 }
+
+# =============================================
+# PII 스캔 런타임 이미지 (Presidio + spaCy ko)
+# count 게이팅 없음 — enable_pii_scan=false 시에도 이미지 보존
+# =============================================
+resource "aws_ecr_repository" "pii_scan" {
+  name                 = "financial/security/pii-scan"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/security/pii-scan"
+    Purpose   = "pii-scan-runtime"
+    ManagedBy = "terraform"
+    Owner     = "security"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "pii_scan" {
+  repository = aws_ecr_repository.pii_scan.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 PII scan images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+
+# =============================================================================
+# Tetragon 런타임 이미지 (tetragon, tetragon-operator, hubble-export-stdout)
+# rthooks는 values.yaml에서 enabled=false이므로 repo 생성 제외
+# =============================================================================
+resource "aws_ecr_repository" "tetragon" {
+  name                 = "financial/tetragon"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/tetragon"
+    Purpose   = "tetragon-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "tetragon" {
+  repository = aws_ecr_repository.tetragon.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Tetragon images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "tetragon_operator" {
+  name                 = "financial/tetragon-operator"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/tetragon-operator"
+    Purpose   = "tetragon-operator-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "tetragon_operator" {
+  repository = aws_ecr_repository.tetragon_operator.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Tetragon Operator images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "hubble_export_stdout" {
+  name                 = "financial/hubble-export-stdout"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/hubble-export-stdout"
+    Purpose   = "tetragon-hubble-export-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "hubble_export_stdout" {
+  repository = aws_ecr_repository.hubble_export_stdout.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Hubble Export Stdout images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}

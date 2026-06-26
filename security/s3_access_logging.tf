@@ -130,3 +130,11 @@ resource "aws_s3_bucket_logging" "prowler_findings" {
   target_bucket = aws_s3_bucket.s3_access_logs.id
   target_prefix = "s3-access/prowler-findings/"
 }
+
+resource "aws_s3_bucket_logging" "pii_findings" {
+  count  = var.enable_pii_scan ? 1 : 0
+  bucket = aws_s3_bucket.pii_findings[0].id
+
+  target_bucket = aws_s3_bucket.s3_access_logs.id
+  target_prefix = "s3-access/pii-findings/"
+}

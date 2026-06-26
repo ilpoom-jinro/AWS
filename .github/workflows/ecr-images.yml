@@ -64,6 +64,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_tetragon:
+        description: "Mirror Tetragon images into ECR"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -97,6 +102,12 @@ env:
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
+  TETRAGON_VERSION: "v1.7.0"  # Note: keep in sync with TETRAGON_CHART_VERSION in tools/ansible-codebuild/Dockerfile
+  HUBBLE_EXPORT_STDOUT_VERSION: "v1.1.1"
+  TETRAGON_SOURCE_REGISTRY: quay.io/cilium
+  TETRAGON_REPOSITORY: financial/tetragon
+  TETRAGON_OPERATOR_REPOSITORY: financial/tetragon-operator
+  HUBBLE_EXPORT_STDOUT_REPOSITORY: financial/hubble-export-stdout
   EXTERNAL_SECRETS_VERSION: "v0.10.7"
   EXTERNAL_SECRETS_REPOSITORY: external-secrets/external-secrets
   EXTERNAL_SECRETS_SOURCE_IMAGE: ghcr.io/external-secrets/external-secrets
@@ -140,6 +151,7 @@ jobs:
             echo "istio=false" >> "${GITHUB_OUTPUT}"
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
             echo "kubectl=false" >> "${GITHUB_OUTPUT}"
+            echo "tetragon=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -191,6 +203,12 @@ jobs:
             echo "temporal=true" >> "${GITHUB_OUTPUT}"
           else
             echo "temporal=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+(TETRAGON_VERSION|HUBBLE_EXPORT_STDOUT_VERSION):'; then
+            echo "tetragon=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tetragon=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -280,6 +298,14 @@ jobs:
           -target=aws_ecr_lifecycle_policy.velero_plugin_aws
           -target=aws_ecr_repository.snapshot_controller
           -target=aws_ecr_lifecycle_policy.snapshot_controller
+          -target=aws_ecr_repository.pii_scan
+          -target=aws_ecr_lifecycle_policy.pii_scan
+          -target=aws_ecr_repository.tetragon
+          -target=aws_ecr_lifecycle_policy.tetragon
+          -target=aws_ecr_repository.tetragon_operator
+          -target=aws_ecr_lifecycle_policy.tetragon_operator
+          -target=aws_ecr_repository.hubble_export_stdout
+          -target=aws_ecr_lifecycle_policy.hubble_export_stdout
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -313,6 +339,9 @@ jobs:
           aws ecr describe-repositories --repository-names "${FINOPS_POSTGRES_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${TEMPORAL_SERVER_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${TEMPORAL_UI_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TETRAGON_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TETRAGON_OPERATOR_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${HUBBLE_EXPORT_STDOUT_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -407,6 +436,33 @@ jobs:
           docker pull "${source_image}"
           docker tag "${source_image}" "${target_image}"
           docker push "${target_image}"
+
+      - name: Mirror Tetragon images to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.tetragon == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_tetragon == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # tetragon + tetragon-operator: 공용 태그 TETRAGON_VERSION
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_REPOSITORY}:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:${TETRAGON_VERSION}"
+          docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:latest"
+
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}"
+          docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:latest"
+
+          # hubble-export-stdout: 별도 태그 HUBBLE_EXPORT_STDOUT_VERSION
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
 
       - name: Mirror FinOps runtime images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
