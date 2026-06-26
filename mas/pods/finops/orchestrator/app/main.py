@@ -1097,7 +1097,7 @@ def seed(conn) -> None:
         insert into business_calendar
           (event_id, title, grade, target_users, max_delay_minutes, scheduled_at)
         values
-          ('fomc-briefing', 'FOMC 주식 브리핑 푸시', 'S', 350000, 10, '08:30 KST')
+          ('fomc-briefing', 'FOMC 주식 브리핑 푸시', 'S', 350000, 10, '08:30')
         on conflict (event_id) do update set
           title = excluded.title,
           grade = excluded.grade,
