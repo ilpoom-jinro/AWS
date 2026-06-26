@@ -190,9 +190,9 @@ resource "aws_iam_role_policy" "pii_scan_codebuild" {
       },
       {
         # Private ECR 이미지 pull — Prowler(public ECR)와 달리 SERVICE_ROLE 방식
-        Sid    = "ECRGetAuthToken"
-        Effect = "Allow"
-        Action = ["ecr:GetAuthorizationToken"]
+        Sid      = "ECRGetAuthToken"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
         Resource = "*"
       },
       {
