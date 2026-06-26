@@ -62,6 +62,39 @@ phases:
             -f /workspace/gitops/platform/gateway-api/standard-install.yaml
         done
       - |
+        set -euo pipefail
+
+        # ── snapshot-controller + Velero CRDs — ops cluster only ──
+        # ArgoCD resource.exclusions globally excludes CustomResourceDefinition — pre-apply here.
+        # crds.yaml contains a Helm template directive (InsertCaFrom: cert-manager CA injection,
+        # unused) that causes "error converting YAML to JSON" on raw kubectl apply.
+        # Strip the line before piping to kubectl.
+        grep -v 'InsertCaFrom' /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml \
+          | kubectl --context financial-ops-eks apply --server-side -f -
+
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/velero/crds/
+      - |
+        set -euo pipefail
+
+        # ── Tetragon CRDs — crds-yaml/ (비표준 Helm 경로; --include-crds 미대응), ArgoCD resource.exclusions 제외 ──
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /opt/helm-charts/tetragon/crds-yaml/
+        kubectl --context financial-service-eks apply --server-side \
+          -f /opt/helm-charts/tetragon/crds-yaml/
+      - |
+        set -euo pipefail
+
+        # ── values.yaml 플레이스홀더 치환 — ansible-playbook이 Gitea에 push하기 전에 실행 ──
+        ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+        ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com"
+
+        sed -i "s/REPLACE_WITH_ACCOUNT_ID/${ACCOUNT_ID}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml
+        sed -i "s/REPLACE_WITH_ECR_REGISTRY/${ECR_REGISTRY}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml \
+          /workspace/gitops/platform/helmChart/snapshot-controller/values.yaml
+      - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
           aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true
@@ -177,6 +210,85 @@ phases:
           -f /workspace/kyverno/applicationsets/kyverno-policies-appset.yaml
 
         kill "${KYVERNO_GIT_PF_PID}" >/dev/null 2>&1 || true
+      - |
+        set -euo pipefail
+
+        # ── 내부 Gitea 포트 포워딩 (13002 — Kyverno 블록 종료 후 재사용) ──
+        kubectl --context financial-ops-eks \
+          -n git port-forward svc/internal-git-http 13002:3000 \
+          >/tmp/tetragon-git-pf.log 2>&1 &
+        TETRAGON_GIT_PF_PID=$!
+        trap 'kill "${TETRAGON_GIT_PF_PID}" >/dev/null 2>&1 || true' EXIT
+
+        for i in $(seq 1 30); do
+          if curl -fsS http://127.0.0.1:13002/api/v1/version >/dev/null 2>&1; then
+            break
+          fi
+          if [ "${i}" -eq 30 ]; then
+            echo "Gitea port-forward timed out."
+            cat /tmp/tetragon-git-pf.log || true
+            exit 1
+          fi
+          sleep 2
+        done
+
+        # ── ECR 레지스트리 URL 구성 ──
+        ECR_REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-northeast-2.amazonaws.com"
+        echo "Injecting ECR registry: ${ECR_REGISTRY}"
+
+        TETRAGON_FLAGS=(
+          --namespace tetragon
+          --set "tetragon.image.repository=${ECR_REGISTRY}/financial/tetragon"
+          --set "tetragon.image.tag=latest"
+          --set "tetragonOperator.image.repository=${ECR_REGISTRY}/financial/tetragon-operator"
+          --set "tetragonOperator.image.tag=latest"
+          --set "export.stdout.image.repository=${ECR_REGISTRY}/financial/hubble-export-stdout"
+          --set "export.stdout.image.tag=latest"
+          --set "crds.installMethod=none"
+          --set "tetragon.enableProcessCred=true"
+          --set "tetragon.enableProcessNs=true"
+        )
+
+        # ── tetragon 네임스페이스 사전 생성 ──
+        kubectl --context financial-ops-eks create namespace tetragon --dry-run=client -o yaml \
+          | kubectl --context financial-ops-eks apply -f -
+        kubectl --context financial-service-eks create namespace tetragon --dry-run=client -o yaml \
+          | kubectl --context financial-service-eks apply -f -
+
+        # ── Gitea용 매니페스트 — CRD 제외 (ArgoCD가 관리하는 non-CRD 리소스만) ──
+        # crds-yaml/은 비표준 경로이므로 --include-crds 불필요; kind 필터는 안전 장치.
+        helm template tetragon /opt/helm-charts/tetragon "${TETRAGON_FLAGS[@]}" \
+          | python3 -c 'import sys,yaml;[sys.stdout.write("---\n"+yaml.dump(d)) for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")!="CustomResourceDefinition"]' \
+          > /tmp/tetragon-install.yaml
+
+        # ── Gitea tetragon/ 경로에 렌더링된 매니페스트 push ──
+        rm -rf /tmp/tetragon-gitops
+        git clone \
+          "http://${INTERNAL_GIT_ADMIN_USERNAME}:${INTERNAL_GIT_ADMIN_PASSWORD}@127.0.0.1:13002/gitadmin/platform.git" \
+          /tmp/tetragon-gitops
+        cd /tmp/tetragon-gitops
+
+        git config user.name "Tetragon Bootstrap Bot"
+        git config user.email "tetragon-bootstrap@internal.ops.local"
+
+        mkdir -p tetragon/install tetragon/policies
+        cp /tmp/tetragon-install.yaml tetragon/install/tetragon.yaml
+        cp /workspace/tetragon/policies/*.yaml tetragon/policies/
+
+        git add tetragon/
+        if git diff --cached --quiet; then
+          echo "Tetragon files already up to date in Gitea."
+        else
+          git commit -m "bootstrap: Tetragon install manifests and policies"
+          git push origin main
+        fi
+
+        # ── ArgoCD ApplicationSet 적용 ──
+        kubectl --context financial-ops-eks apply \
+          -f /workspace/tetragon/applicationsets/tetragon-install-appset.yaml \
+          -f /workspace/tetragon/applicationsets/tetragon-policies-appset.yaml
+
+        kill "${TETRAGON_GIT_PF_PID}" >/dev/null 2>&1 || true
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks
       - kubectl --context financial-service-eks get deploy,svc,pods -n stock-demo -o wide || true

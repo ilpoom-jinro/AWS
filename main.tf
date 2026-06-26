@@ -4,10 +4,15 @@ module "iam" {
 }
 
 module "security" {
-  source                 = "./security"
-  kms_key_cloudtrail_arn = data.aws_kms_key.key_cloudtrail.arn
-  account_id             = data.aws_caller_identity.current.account_id
-  key_s3_arn             = data.aws_kms_key.key_s3.arn
+  source                  = "./security"
+  kms_key_cloudtrail_arn  = data.aws_kms_key.key_cloudtrail.arn
+  account_id              = data.aws_caller_identity.current.account_id
+  key_s3_arn              = data.aws_kms_key.key_s3.arn
+  key_sns_arn             = data.aws_kms_key.key_sns.arn
+  enable_pii_scan         = var.enable_pii_scan
+  pii_scan_target_buckets = var.pii_scan_target_buckets
+  pii_scan_ecr_image      = "${aws_ecr_repository.pii_scan.repository_url}:latest"
+  pii_scan_ecr_repo_arn   = aws_ecr_repository.pii_scan.arn
 }
 
 module "vpc1" {
@@ -18,6 +23,7 @@ module "vpc1" {
   kms_key_secretsmanager_arn = data.aws_kms_key.key_secretsmanager.arn
   account_id                 = data.aws_caller_identity.current.account_id
   single_az_mode             = var.single_az_mode
+  rds_backup_retention       = var.rds_backup_retention
 }
 
 module "vpc2" {
@@ -26,8 +32,10 @@ module "vpc2" {
   kms_key_rds_arn            = data.aws_kms_key.key_rds_ops.arn
   kms_key_eks_arn            = data.aws_kms_key.key_eks.arn
   kms_key_secretsmanager_arn = data.aws_kms_key.key_secretsmanager.arn
+  kms_key_s3_arn             = data.aws_kms_key.key_s3.arn
   account_id                 = data.aws_caller_identity.current.account_id
   single_az_mode             = var.single_az_mode
+  rds_backup_retention       = var.rds_backup_retention
 
   depends_on = [module.iam] # mas-policy가 먼저 생성된 후 policy attachment 실행
 }
