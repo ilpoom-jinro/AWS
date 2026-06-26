@@ -1,0 +1,84 @@
+server:
+  enabled: true
+
+  image:
+    repository: REPLACE_WITH_ECR_REGISTRY/financial/mas/temporal/server
+    tag: "1.31.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  config:
+    logLevel: "info"
+
+    persistence:
+      numHistoryShards: 512
+      defaultStore: default
+      visibilityStore: visibility
+
+      datastores:
+        default:
+          sql:
+            pluginName: postgres12_pgx
+            driverName: postgres12_pgx
+            connectAddr: REPLACE_WITH_SERVICE_RDS_ENDPOINT:5432
+            connectProtocol: tcp
+            databaseName: temporal
+            user: temporal_user
+            existingSecret: temporal-rds-credentials
+            secretKey: password
+            createDatabase: false
+            manageSchema: true
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: 1h
+
+        visibility:
+          sql:
+            pluginName: postgres12_pgx
+            driverName: postgres12_pgx
+            connectAddr: REPLACE_WITH_SERVICE_RDS_ENDPOINT:5432
+            connectProtocol: tcp
+            databaseName: temporal_visibility
+            user: temporal_user
+            existingSecret: temporal-rds-credentials
+            secretKey: password
+            createDatabase: false
+            manageSchema: true
+            maxConns: 10
+            maxIdleConns: 10
+            maxConnLifetime: 1h
+
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 3d
+
+web:
+  enabled: true
+
+  image:
+    repository: REPLACE_WITH_ECR_REGISTRY/financial/mas/temporal/ui
+    tag: "2.49.1"
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+admintools:
+  enabled: true
+
+  image:
+    repository: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/temporal
+    tag: "1.31.0"
+    pullPolicy: IfNotPresent
+
+schema:
+  useHelmHooks: true
+
+shims:
+  dockerize: false
+  elasticsearchTool: false
