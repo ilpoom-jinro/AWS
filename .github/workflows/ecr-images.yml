@@ -184,6 +184,12 @@ jobs:
             echo "kubectl=false" >> "${GITHUB_OUTPUT}"
           fi
 
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+(TEMPORAL_VERSION|TEMPORAL_UI_VERSION):'; then
+            echo "temporal=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "temporal=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -418,7 +424,9 @@ jobs:
           docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
 
       - name: Mirror Temporal Server and UI images to ECR
-        if: github.event_name == 'workflow_dispatch' && inputs.mirror_temporal == true
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.temporal == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_temporal == true)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
