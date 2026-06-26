@@ -96,7 +96,7 @@ def main():
     raw_findings, ocsf_findings = [], []
     for bucket in TARGET_BUCKETS:
         for key, text in iter_text_objects(bucket):
-            for r in analyzer.analyze(text=text, language="ko"):
+            for r in analyzer.analyze(text=text, language="ko", score_threshold=0.4):
                 rec = {"bucket": bucket, "key": key, "entity_type": r.entity_type,
                        "score": round(r.score, 3), "start": r.start, "end": r.end}
                 raw_findings.append(rec)
