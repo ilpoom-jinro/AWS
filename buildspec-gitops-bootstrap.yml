@@ -62,6 +62,31 @@ phases:
             -f /workspace/gitops/platform/gateway-api/standard-install.yaml
         done
       - |
+        set -euo pipefail
+
+        # ── snapshot-controller + Velero CRDs — ops cluster only ──
+        # ArgoCD resource.exclusions globally excludes CustomResourceDefinition — pre-apply here.
+        # crds.yaml contains a Helm template directive (InsertCaFrom: cert-manager CA injection,
+        # unused) that causes "error converting YAML to JSON" on raw kubectl apply.
+        # Strip the line before piping to kubectl.
+        grep -v 'InsertCaFrom' /workspace/gitops/platform/helmChart/charts/snapshot-controller/crds.yaml \
+          | kubectl --context financial-ops-eks apply --server-side -f -
+
+        kubectl --context financial-ops-eks apply --server-side \
+          -f /workspace/gitops/platform/helmChart/charts/velero/crds/
+      - |
+        set -euo pipefail
+
+        # ── values.yaml 플레이스홀더 치환 — ansible-playbook이 Gitea에 push하기 전에 실행 ──
+        ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+        ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.ap-northeast-2.amazonaws.com"
+
+        sed -i "s/REPLACE_WITH_ACCOUNT_ID/${ACCOUNT_ID}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml
+        sed -i "s/REPLACE_WITH_ECR_REGISTRY/${ECR_REGISTRY}/g" \
+          /workspace/gitops/platform/helmChart/velero/values.yaml \
+          /workspace/gitops/platform/helmChart/snapshot-controller/values.yaml
+      - |
         ansible-playbook -i inventory/hosts.yml -e @group_vars/all.yml playbooks/gitops-platform-sync.yml || {
           echo "Platform GitOps sync failed. Collecting Ops cluster diagnostics..."
           aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks || true
