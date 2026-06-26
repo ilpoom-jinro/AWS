@@ -280,6 +280,8 @@ jobs:
           -target=aws_ecr_lifecycle_policy.velero_plugin_aws
           -target=aws_ecr_repository.snapshot_controller
           -target=aws_ecr_lifecycle_policy.snapshot_controller
+          -target=aws_ecr_repository.pii_scan
+          -target=aws_ecr_lifecycle_policy.pii_scan
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
