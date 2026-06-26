@@ -63,6 +63,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_kube_state_metrics:
+        description: "Mirror kube-state-metrics"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -106,6 +111,7 @@ jobs:
           MIRROR_AWS_LOAD_BALANCER_CONTROLLER: ${{ inputs.mirror_aws_load_balancer_controller }}
           MIRROR_TEMPO: ${{ inputs.mirror_tempo }}
           MIRROR_METRICS_SERVER: ${{ inputs.mirror_metrics_server }}
+          MIRROR_KUBE_STATE_METRICS: ${{ inputs.mirror_kube_state_metrics }}
         run: |
           set -euo pipefail
 
@@ -127,6 +133,7 @@ jobs:
               aws-load-balancer-controller) [ "${MIRROR_AWS_LOAD_BALANCER_CONTROLLER}" = "true" ] ;;
               tempo) [ "${MIRROR_TEMPO}" = "true" ] ;;
               metrics-server) [ "${MIRROR_METRICS_SERVER}" = "true" ] ;;
+              kube-state-metrics) [ "${MIRROR_KUBE_STATE_METRICS}" = "true" ] ;;
               *) return 1 ;;
             esac
           }

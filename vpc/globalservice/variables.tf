@@ -43,7 +43,7 @@ variable "eks_cluster_version" {
 variable "eks_enabled_cluster_log_types" {
   description = "EKS control plane log types"
   type        = list(string)
-  default     = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  default     = []
 }
 
 variable "eks_node_instance_types" {
@@ -100,6 +100,12 @@ variable "rds_multi_az" {
   description = "Multi-AZ 활성화 여부 (비용 약 2배, 운영 환경에서는 true 권장)"
   type        = bool
   default     = true
+}
+
+variable "rds_backup_retention" {
+  description = "RDS 자동 백업 보관일. Free Plan 계정은 0 필수(retention>0 시 FreeTierRestrictionError). Paid 계정에서만 tfvars로 7 오버라이드."
+  type        = number
+  default     = 0 # Free Plan 안전 기본값
 }
 
 variable "rds_password" {

@@ -223,8 +223,20 @@ variable "single_az_mode" {
   default     = true
 }
 
+variable "rds_backup_retention" {
+  description = "RDS 자동 백업 보관일. Free Plan 계정은 0 필수(retention>0 시 FreeTierRestrictionError). Paid 계정에서만 tfvars로 7 오버라이드."
+  type        = number
+  default     = 0 # Free Plan 안전 기본값
+}
+
 variable "teleport_image_repository_name" {
   description = "ECR repository name for Teleport image"
   type        = string
   default     = "financial/teleport"
+}
+
+variable "enable_flowlog_s3_archive" {
+  description = "VPC Flow Logs ALL 트래픽을 S3(Parquet)에 적재 — vpc1·vpc2 용량·비용 측정용. 측정 완료 후 false로 복원. (선행조건: kms/ apply 후 루트 apply)"
+  type        = bool
+  default     = false
 }

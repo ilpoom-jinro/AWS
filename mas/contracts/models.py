@@ -8,11 +8,13 @@ from __future__ import annotations
 import logging
 import warnings
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     IPvAnyAddress,
     model_validator,
@@ -584,3 +586,155 @@ class ApprovalTicket(WorkflowDerivedMixin):
     """
     slack_message_ts: str
     channel_id: str
+
+
+# ---
+# FinOps agent collaboration contracts
+# ---
+
+class AgentStatus(str, Enum):
+    COMPLETED = "completed"
+    NEEDS_DATA = "needs_data"
+    BLOCKED = "blocked"
+    REQUIRES_REVIEW = "requires_review"
+    FAILED = "failed"
+
+
+class FinOpsAgentContract(BaseModel):
+    """Strict base model for messages exchanged by FinOps agents."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DataRequest(FinOpsAgentContract):
+    target_agent: str
+    operation: str
+    parameters: dict[str, Any]
+    required_fields: list[str]
+    reason: str
+
+
+class AgentTask(FinOpsAgentContract):
+    workflow_id: str
+    agent_key: str
+    agent_name: str
+    objective: str
+    context: dict[str, Any]
+    parameters: dict[str, Any]
+    requested_fields: list[str]
+
+
+class AgentResponse(FinOpsAgentContract):
+    status: AgentStatus
+    agent_key: str
+    agent_name: str
+    result: dict[str, Any]
+    message: str
+    evidence: list[str]
+    data_requests: list[DataRequest]
+    confidence: float = Field(ge=0.0, le=1.0)
+    warnings: list[str]
+    reasoning_source: Literal["rule", "llm", "rule+llm"]
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "AgentResponse":
+        if self.status == AgentStatus.NEEDS_DATA and not self.data_requests:
+            raise ValueError("needs_data responses must include at least one data request")
+        if self.status == AgentStatus.COMPLETED and not self.result:
+            raise ValueError("completed responses must include a non-empty result")
+        return self
+
+
+class PlanCandidate(FinOpsAgentContract):
+    label: str
+    push_window_minutes: int = Field(gt=0)
+    required_pods: int = Field(gt=0)
+    estimated_cost_usd: float = Field(ge=0.0)
+    estimated_p95_ms: float = Field(ge=0.0)
+    risk_level: Literal["low", "medium", "high"]
+    budget_exceeded: bool
+    policy_violations: list[str]
+    score: float = 0.0
+
+
+VALID_FINOPS_AGENT_KEYS = {
+    "business_control",
+    "demand_shaping",
+    "traffic_forecast",
+    "bottleneck_capacity",
+    "infra_execution",
+    "cost",
+    "unit_economics",
+    "policy_guardrail",
+    "observer",
+    "fallback",
+    "postmortem_learning",
+}
+
+
+AGENT_ALLOWED_REQUESTS: dict[str, list[str]] = {
+    "bottleneck_capacity": ["traffic_forecast"],
+    "cost": ["infra_execution"],
+    "policy_guardrail": ["cost", "unit_economics"],
+    "observer": ["traffic_forecast"],
+}
+
+
+class ReplanIntent(FinOpsAgentContract):
+    intent: Literal["replan", "query"]
+    constraints: dict[str, Any]
+    forbidden_actions: list[str]
+    replan_from: str
+    requires_confirmation: bool
+    reason: str
+
+    @model_validator(mode="after")
+    def validate_replan_from(self) -> "ReplanIntent":
+        if self.replan_from not in VALID_FINOPS_AGENT_KEYS:
+            raise ValueError(f"unknown replan_from agent_key: {self.replan_from}")
+        return self
+
+
+class ExecutionMode(str, Enum):
+    DRY_RUN = "dry_run"
+    LIVE = "live"
+
+
+class ExecutionStepType(str, Enum):
+    SCALE_OUT = "scale_out"
+    CACHE_PREWARM = "cache_prewarm"
+    PUSH_SCHEDULE = "push_schedule"
+    VERIFY_READY = "verify_ready"
+    GO_NO_GO = "go_no_go"
+    SCALE_DOWN_WATCH = "scale_down_watch"
+
+
+class ExecutionStepStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ExecutionStep(FinOpsAgentContract):
+    step_id: str
+    step_type: ExecutionStepType
+    scheduled_at: str
+    parameters: dict[str, Any]
+    status: ExecutionStepStatus = ExecutionStepStatus.PENDING
+    result: dict[str, Any] = Field(default_factory=dict)
+    started_at: str | None = None
+    completed_at: str | None = None
+    error: str | None = None
+
+
+class ExecutionPlan(FinOpsAgentContract):
+    planning_workflow_id: str
+    execution_workflow_id: str
+    event_id: str
+    mode: ExecutionMode
+    steps: list[ExecutionStep]
+    overall_status: str = "pending"
+    created_at: str
+    completed_at: str | None = None
