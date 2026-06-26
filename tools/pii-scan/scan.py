@@ -38,7 +38,7 @@ def build_analyzer():
         "models": [{"lang_code": "ko", "model_name": "ko_core_news_md"}],
     }).create_engine()
 
-    registry = RecognizerRegistry()
+    registry = RecognizerRegistry(supported_languages=["ko"])
     # 한국 정형 PII
     registry.add_recognizer(KrRrnRecognizer())            # 주민번호 (체크섬)
     registry.add_recognizer(build_phone_recognizer())     # 휴대전화
