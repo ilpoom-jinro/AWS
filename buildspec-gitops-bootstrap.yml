@@ -271,20 +271,22 @@ phases:
         git config user.name "Tetragon Bootstrap Bot"
         git config user.email "tetragon-bootstrap@internal.ops.local"
 
-        mkdir -p tetragon/install
+        mkdir -p tetragon/install tetragon/policies
         cp /tmp/tetragon-install.yaml tetragon/install/tetragon.yaml
+        cp /workspace/tetragon/policies/*.yaml tetragon/policies/
 
         git add tetragon/
         if git diff --cached --quiet; then
           echo "Tetragon files already up to date in Gitea."
         else
-          git commit -m "bootstrap: Tetragon install manifests"
+          git commit -m "bootstrap: Tetragon install manifests and policies"
           git push origin main
         fi
 
         # ── ArgoCD ApplicationSet 적용 ──
         kubectl --context financial-ops-eks apply \
-          -f /workspace/tetragon/applicationsets/tetragon-install-appset.yaml
+          -f /workspace/tetragon/applicationsets/tetragon-install-appset.yaml \
+          -f /workspace/tetragon/applicationsets/tetragon-policies-appset.yaml
 
         kill "${TETRAGON_GIT_PF_PID}" >/dev/null 2>&1 || true
       - kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
