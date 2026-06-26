@@ -412,13 +412,6 @@ def index() -> str:
 
         <div class="stack">
           <section>
-            <div class="row">
-              <h2>Agent Chat</h2>
-              <span id="conversation-status" class="badge">idle</span>
-            </div>
-            <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
-          </section>
-          <section>
             <h2>ChatOps</h2>
           <p class="muted">완성된 FinOps 보고서에 대해 근거 기반으로 질문합니다. Workflow 변경은 수행하지 않습니다.</p>
           <textarea id="chat-message">왜 Pod가 22개 필요한가?</textarea>
@@ -433,6 +426,16 @@ def index() -> str:
       <section>
         <div class="row"><h2>Agent Progress</h2><span class="badge">live</span></div>
         <div id="agent-cards" class="agent-grid"></div>
+      </section>
+
+      <section>
+        <details>
+          <summary class="row">
+            <span>Workflow Conversation Log</span>
+            <span id="conversation-status" class="badge">idle</span>
+          </summary>
+          <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
+        </details>
       </section>
 
       <section>
@@ -485,6 +488,19 @@ def index() -> str:
       let currentPlanSnapshot = null;
       let currentExecution = null;
       let executionPoller = null;
+      const FINOPS_AGENTS = [
+        ["business_control", "Business Control Agent"],
+        ["demand_shaping", "Demand Shaping Agent"],
+        ["traffic_forecast", "Traffic Forecast Agent"],
+        ["bottleneck_capacity", "Bottleneck Capacity Agent"],
+        ["infra_execution", "Infra Execution Planner"],
+        ["cost", "Cost Agent"],
+        ["unit_economics", "Unit Economics Agent"],
+        ["policy_guardrail", "Policy Guardrail Agent"],
+        ["observer", "Observer Agent"],
+        ["fallback", "Fallback Planner"],
+        ["postmortem_learning", "Postmortem Learning Agent"]
+      ];
 
       async function api(path, options = {}) {
         const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -513,6 +529,8 @@ def index() -> str:
             const done = await loadWorkflow(currentWorkflow);
             if (!done) startWorkflowPolling(currentWorkflow);
           } else {
+            renderAgentCards([]);
+            renderBrokerLog([]);
             renderEmptyConversation();
           }
         } catch (error) {
@@ -1124,9 +1142,25 @@ def index() -> str:
       }
 
       function renderAgentCards(agents) {
-        agentDetails = Object.fromEntries(agents.map(item => [item.agent_key, item]));
+        const byKey = Object.fromEntries((agents || []).map(item => [item.agent_key, item]));
+        const normalizedAgents = FINOPS_AGENTS.map(([agentKey, agentName]) => ({
+          agent_key: agentKey,
+          agent_name: agentName,
+          status: "pending",
+          confidence: null,
+          reasoning_source: "pending",
+          result: {},
+          input_context: {},
+          evidence: [],
+          warnings: [],
+          data_requests: [],
+          started_at: null,
+          completed_at: null,
+          ...(byKey[agentKey] || {})
+        }));
+        agentDetails = Object.fromEntries(normalizedAgents.map(item => [item.agent_key, item]));
         const el = document.getElementById("agent-cards");
-        el.innerHTML = agents.length ? agents.map(item => `
+        el.innerHTML = normalizedAgents.map(item => `
           <div class="agent-card" onclick="openAgentModal('${escapeHtml(item.agent_key)}')">
             <div class="speaker">
               <span>${escapeHtml(item.agent_name)}</span>
@@ -1134,10 +1168,11 @@ def index() -> str:
             </div>
             <p>confidence: ${item.confidence === null ? "-" : Number(item.confidence).toFixed(2)}</p>
             <span class="badge">${escapeHtml(item.reasoning_source || "pending")}</span>
+            ${(item.data_requests || []).length ? `<span class="badge">${item.data_requests.length} data request(s)</span>` : ""}
             <details><summary>Evidence</summary><ul>${(item.evidence || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
             <details><summary>Warnings</summary><ul class="warning">${(item.warnings || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
             <div class="muted">${escapeHtml(item.started_at || "-")} → ${escapeHtml(item.completed_at || "-")}</div>
-          </div>`).join("") : '<div class="muted">Waiting for agent activities.</div>';
+          </div>`).join("");
       }
 
       function openAgentModal(agentKey) {
@@ -1299,6 +1334,8 @@ def index() -> str:
           currentExecution = null;
           pendingReplan = null;
           document.getElementById("execution-section").hidden = true;
+          renderAgentCards([]);
+          renderBrokerLog([]);
           renderCallingConversation();
           const eventId = document.getElementById("event-select").value || "fomc-briefing";
           const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});
@@ -1308,6 +1345,85 @@ def index() -> str:
         } catch (error) {
           showError(error);
         }
+      }
+
+      function renderCandidates(candidates, recommended) {
+        const section = document.getElementById("candidate-section");
+        if (!candidates || !candidates.length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        const recommendedLabel = recommended && recommended.label;
+        document.getElementById("candidate-table").innerHTML = `
+          <table class="candidate-table">
+            <thead>
+              <tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th><th>추천</th></tr>
+            </thead>
+            <tbody>${candidates.map(item => `
+              <tr class="${item.label === recommendedLabel ? "recommended" : ""}">
+                <td>${escapeHtml(item.label || "-")}</td>
+                <td>${escapeHtml(item.push_window_minutes ?? "-")}분</td>
+                <td>${escapeHtml(item.required_pods ?? "-")}</td>
+                <td>$${Number(item.estimated_cost_usd || 0).toFixed(2)}</td>
+                <td>${escapeHtml(item.estimated_p95_ms ?? "-")}ms</td>
+                <td>${escapeHtml(item.risk_level || "-")}</td>
+                <td>${Number(item.score || 0).toFixed(4)}</td>
+                <td>${item.label === recommendedLabel ? "추천" : ""}</td>
+              </tr>`).join("")}</tbody>
+          </table>`;
+      }
+
+      function renderQualityGate(gate) {
+        const section = document.getElementById("quality-section");
+        if (!gate || !Object.keys(gate).length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        document.getElementById("quality-gate").innerHTML = `
+          <p><strong>${gate.passed ? "✓ 통과" : "✗ 실패"}</strong></p>
+          <ul class="issue">${(gate.issues || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>이슈 없음</li>"}</ul>
+          <ul class="warning">${(gate.warnings || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>경고 없음</li>"}</ul>`;
+      }
+
+      function renderPlanComparison(currentCandidates) {
+        const previousCandidates = previousPlanSnapshot?.plan_candidates || [];
+        if (!previousCandidates.length || !currentCandidates.length) return;
+        const rows = (items) => items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.label || "-")}</td>
+            <td>${escapeHtml(item.push_window_minutes ?? "-")}분</td>
+            <td>${escapeHtml(item.required_pods ?? "-")}</td>
+            <td>$${Number(item.estimated_cost_usd || 0).toFixed(2)}</td>
+            <td>${escapeHtml(item.estimated_p95_ms ?? "-")}ms</td>
+            <td>${escapeHtml(item.risk_level || "-")}</td>
+            <td>${Number(item.score || 0).toFixed(4)}</td>
+          </tr>
+        `).join("");
+        document.getElementById("candidate-table").innerHTML += `
+          <h3>이전 계획 후보</h3>
+          <p class="muted">Previous workflow: ${escapeHtml(previousWorkflow || "-")}</p>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(previousCandidates)}</tbody>
+          </table>
+          <h3>새 계획 후보</h3>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(currentCandidates)}</tbody>
+          </table>`;
+      }
+
+      function renderBrokerLog(entries) {
+        const el = document.getElementById("broker-log");
+        el.innerHTML = entries && entries.length ? entries.map(item => {
+          const requester = agentDetails[item.requester_agent]?.agent_name || item.requester_agent || "Agent";
+          const target = agentDetails[item.target_agent]?.agent_name || item.target_agent || "Agent";
+          const cache = item.cache_hit ? "✓ 캐시 히트" : "↻ 새 실행";
+          const fields = (item.result_fields || []).join(", ") || "none";
+          return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation || "-")}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status || "-")} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
+        }).join("") : '<span class="muted">No broker calls.</span>';
       }
 
       loadDashboard();
