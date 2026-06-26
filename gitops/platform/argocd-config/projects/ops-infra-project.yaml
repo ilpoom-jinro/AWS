@@ -36,6 +36,9 @@ spec:
       namespace: external-secrets
     - name: financial-service-eks
       namespace: external-secrets
+    # Velero 백업/복원
+    - server: https://kubernetes.default.svc
+      namespace: velero
     # 모든 등록 클러스터 → kyverno 네임스페이스 (ApplicationSet cluster generator 와일드카드 대응)
     - server: "*"
       namespace: kyverno
@@ -69,6 +72,9 @@ spec:
     # ESO ClusterSecretStore — 클러스터 스코프 리소스
     - group: external-secrets.io
       kind: ClusterSecretStore
+    # Velero CSI Data Mover가 감지하는 VolumeSnapshotClass
+    - group: snapshot.storage.k8s.io
+      kind: VolumeSnapshotClass
       # metrics-server가 등록하는 Aggregated API
     - group: apiregistration.k8s.io
       kind: APIService

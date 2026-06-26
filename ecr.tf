@@ -611,6 +611,82 @@ resource "aws_ecr_lifecycle_policy" "finops_temporal" {
   })
 }
 
+resource "aws_ecr_repository" "temporal_server" {
+  name                 = "financial/mas/temporal/server"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/server"
+    Purpose   = "temporal-server-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_server" {
+  repository = aws_ecr_repository.temporal_server.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal Server images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "temporal_ui" {
+  name                 = "financial/mas/temporal/ui"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/ui"
+    Purpose   = "temporal-ui-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_ui" {
+  repository = aws_ecr_repository.temporal_ui.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal UI images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "finops_postgres" {
   name                 = "financial/mas/finops/postgres"
   image_tag_mutability = "MUTABLE"
@@ -1210,6 +1286,108 @@ resource "aws_ecr_lifecycle_policy" "monitoring_kube_state_metrics" {
     rules = [{
       rulePriority = 1
       description  = "Keep the last 10 kube-state-metrics images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero" {
+  name                 = "velero/velero"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero" {
+  repository = aws_ecr_repository.velero.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero_plugin_aws" {
+  name                 = "velero/velero-plugin-for-aws"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero-plugin-for-aws"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero_plugin_aws" {
+  repository = aws_ecr_repository.velero_plugin_aws.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero AWS plugin images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "snapshot_controller" {
+  name                 = "sig-storage/snapshot-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "sig-storage/snapshot-controller"
+    Purpose   = "csi-snapshot-controller-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "snapshot_controller" {
+  repository = aws_ecr_repository.snapshot_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 snapshot-controller images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
