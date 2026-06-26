@@ -42,10 +42,11 @@ from app.workflows import FinOpsEventWorkflow
 from contracts.models import ExecutionMode, ExecutionPlan, ExecutionStep, AgentResponse, ReplanIntent
 
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops",
-)
+DB_HOST = os.getenv("DB_HOST", "finops-db")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "finops")
+DB_USER = os.getenv("DB_USER", "finops")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "finops")
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
 TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "finops-agent-task-queue")
 FINOPS_NAMESPACE = os.getenv("FINOPS_NAMESPACE", "finops-mas")
@@ -85,7 +86,14 @@ def utcnow() -> str:
 
 
 def connect():
-    return psycopg.connect(DATABASE_URL, autocommit=True)
+    return psycopg.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        autocommit=True,
+    )
 
 
 def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
