@@ -56,6 +56,9 @@ on:
         type: boolean
       mirror_temporal:
         description: "Mirror Temporal server and UI images into ECR"
+        required: true
+        default: false
+        type: boolean
       mirror_velero:
         description: "Mirror Velero and snapshot-controller images into ECR"
         required: true
