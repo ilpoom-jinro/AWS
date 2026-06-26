@@ -65,7 +65,7 @@ env:
   TF_VAR_dev_mode: "true"
   TF_VAR_ops_vpc_command: ${{ inputs.ops_vpc_command || 'kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide' }}
   TF_VAR_enable_flowlog_s3_archive: "true"
-  TF_VAR_enable_pii_scan: "true"
+  TF_VAR_enable_pii_scan: "false"
 
 jobs:
   plan:
