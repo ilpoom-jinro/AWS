@@ -223,6 +223,12 @@ variable "single_az_mode" {
   default     = true
 }
 
+variable "rds_backup_retention" {
+  description = "RDS 자동 백업 보관일. Free Plan 계정은 0 필수(retention>0 시 FreeTierRestrictionError). Paid 계정에서만 tfvars로 7 오버라이드."
+  type        = number
+  default     = 0 # Free Plan 안전 기본값
+}
+
 variable "teleport_image_repository_name" {
   description = "ECR repository name for Teleport image"
   type        = string

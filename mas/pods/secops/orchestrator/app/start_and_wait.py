@@ -2,13 +2,17 @@
 실제 Temporal 서버(localhost:7233)에 SecOpsWorkflow를 시작하고 결과를 기다린다.
 
 run_demo.py와의 차이:
-    run_demo  = 임베디드 서버 + 자동 승인 (한 방에 끝)
-    이 파일    = 실제 서버 + 자동 승인 안 함 → wait_condition에서 멈춰 외부 signal을 기다림
-                (= Slack 봇이 보낼 승인을 signal_approval.py로 수동 시뮬레이션하기 위함)
+    run_demo  = 임베디드 서버 + 자동 승인 (한 방에 끝, 슬랙 불필요)
+    이 파일    = 실제 서버 + 자동 승인 안 함 → 승인 Activity(슬랙 봇)를 거쳐 사람 결정 대기
 
 전제 (다른 터미널에서 실행 중이어야 함):
     1) temporal server start-dev
-    2) python -m pods.secops.orchestrator.app.worker
+    2) python -m pods.secops.orchestrator.app.worker     ← SecOps 워커
+    3) python slack-hitl/bot.py                           ← 슬랙 봇 (HITL 큐 + Socket Mode)
+
+흐름: 이 스크립트가 워크플로우 시작 → 봇이 슬랙에 승인 메시지 게시 →
+      사람이 슬랙에서 '✅ 승인' 클릭 → 봇이 submit_approval 시그널 전송 → 여기서 결과 출력.
+      (봇 없이 수동으로 깨우려면 signal_approval.py 사용 — 단, 그땐 봇 대신 HITL 큐 스텁 워커 필요)
 
 실행 (mas/ 에서):
     python -m pods.secops.orchestrator.app.start_and_wait

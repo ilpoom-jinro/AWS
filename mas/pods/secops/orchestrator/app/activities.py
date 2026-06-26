@@ -33,18 +33,34 @@ from contracts.models import (
     SecurityEvent,
 )
 
+from .retrieval import RetrievedChunk, get_retriever
+
 USE_REAL_BEDROCK = os.getenv("USE_REAL_BEDROCK", "false").lower() == "true"
+
+# 이벤트 → 규정 검색 쿼리 키워드 (한국어 규정 본문과 매칭되도록)
+THREAT_QUERY_TERMS = {
+    "abnormal_outbound": "비정상 외부 송신 트래픽 데이터 유출 outbound",
+    "data_exfiltration": "데이터 유출 외부 반출 대량 전송 신용정보 개인정보",
+    "port_scan": "포트 스캔 침입 비정상 접근 탐지 차단",
+    "policy_violation": "정책 위반 접근통제 비인가 통신",
+}
 
 
 # =====================================================================
 # 노드 로직 (secops_graph_prototype.py와 동일 — Activity가 자체 완결되도록 인라인)
 # =====================================================================
-def retrieve_regulations(event: SecurityEvent) -> list[str]:
-    """RAG stub. 실제로는 Bedrock Knowledge Base retrieve (S3 규정 문서)."""
-    return [
-        "전자금융감독규정 제13조 (해킹 등 방지대책)",
-        "신용정보법 제19조 (신용정보전산시스템의 안전보호)",
-    ]
+def _build_query(event: SecurityEvent) -> str:
+    terms = THREAT_QUERY_TERMS.get(event.threat_type, "")
+    return f"{terms} {event.direction} {event.destination_ip} {event.raw_log}"
+
+
+def retrieve_regulations(event: SecurityEvent) -> list[RetrievedChunk]:
+    """
+    RAG 검색. 백엔드는 retrieval.get_retriever()가 env로 선택:
+        기본 = LocalRegulationRetriever (레포 안 규정 발췌, 발표 시연용)
+        USE_BEDROCK_KB=true = BedrockKBRetriever (실제 KB)
+    """
+    return get_retriever().retrieve(_build_query(event), top_k=3)
 
 
 def _parse_llm_json(text: str) -> dict:
@@ -60,36 +76,47 @@ def _parse_llm_json(text: str) -> dict:
         return json.loads(payload[s : e + 1])
 
 
-def analyze_violation(event: SecurityEvent, regulations: list[str]) -> dict:
+def analyze_violation(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
     if not USE_REAL_BEDROCK:
         if event.destination_ip.is_private:
             return {"violated_regulations": [],
                     "violation_description": "내부 대상 트래픽 — 위반 아님(stub 판단)"}
+        # 검색된 규정 근거를 그대로 인용해 판단에 박는다 (화면에 보이는 RAG 근거)
+        sources = list(dict.fromkeys(c.source for c in chunks)) or ["(검색 결과 없음)"]
+        evidence = ""
+        if chunks:
+            top = chunks[0]
+            evidence = (f" 검색된 규정 근거 — 「{top.source}」: "
+                        f"\"{top.text[:120].strip()}…\" (관련도 {top.score}).")
         return {
-            "violated_regulations": regulations,
+            "violated_regulations": sources,
             "violation_description": (
                 f"{event.source_pod}가 외부 {event.destination_ip}:{event.destination_port}로 "
-                "비정상 대용량 outbound. 금융 데이터 유출 정황으로 규제 위반 소지."
+                f"비정상 대용량 outbound 전송.{evidence} 데이터 유출 정황으로 위 규정 위반 소지."
             ),
         }
-    return _analyze_with_bedrock(event, regulations)
+    return _analyze_with_bedrock(event, chunks)
 
 
-def _analyze_with_bedrock(event: SecurityEvent, regulations: list[str]) -> dict:
-    """실제 Bedrock 호출. 에러는 계약 규칙대로 분류."""
+def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
+    """실제 Bedrock 호출 — 검색된 규정 근거를 grounding으로 넣어 판단. 에러는 계약 규칙대로 분류."""
     from botocore.exceptions import ClientError
     from shared.bedrock import ClaudeModel, get_bedrock_client
 
     client = get_bedrock_client()
     model_id = os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value)
     system_prompt = (
-        "너는 금융 보안 규제 분석기다. 보안 이벤트가 제시된 규정을 위반하는지 판단해라. "
+        "너는 금융 보안 규제 분석기다. 보안 이벤트가 '검색된 규정 근거'를 위반하는지, "
+        "반드시 그 근거에 기반해 판단해라. 근거에 없는 규정은 지어내지 마라. "
         "반드시 아래 JSON 스키마만 출력해라.\n"
         '{"violated_regulations": [string], "violation_description": string}'
     )
+    grounding = "\n\n".join(
+        f"[{c.source}] (관련도 {c.score})\n{c.text}" for c in chunks
+    ) or "(검색 결과 없음)"
     user_text = (
         f"[보안 이벤트]\n{event.model_dump_json(indent=2)}\n\n"
-        "[검토 대상 규정]\n" + "\n".join(f"- {r}" for r in regulations)
+        f"[검색된 규정 근거]\n{grounding}"
     )
     try:
         resp = client.converse(
@@ -163,8 +190,8 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
 @activity.defn(name="map_regulation")
 async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     """RAG 규정 조회 + Claude 위반 분석 + Blast Radius + 격리 정책 생성."""
-    regulations = retrieve_regulations(event)
-    analysis = analyze_violation(event, regulations)
+    chunks = retrieve_regulations(event)
+    analysis = analyze_violation(event, chunks)
     safe, detail = check_blast_radius(event)
     return RegulationMapping(
         workflow_id=event.workflow_id,           # 같은 workflow_id 전파
