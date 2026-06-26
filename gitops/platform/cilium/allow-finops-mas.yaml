@@ -1,0 +1,53 @@
+# finops-mas 네임스페이스 Cilium 정책 (ops 클러스터)
+#
+# 확인된 의존성 (manifest 기반):
+#   finops-ui             → finops-orchestrator:80(8000)
+#   finops-orchestrator   → finops-temporal:7233 (gRPC)
+#   finops-orchestrator   → finops-db:5432 (PostgreSQL, 클러스터 내부 pod)
+#   finops-*-agent (11개) → finops-temporal:7233 (gRPC)
+#   finops-*-agent (11개) → finops-db:5432 (PostgreSQL)
+#   finops-*-agent (11개) → AWS Bedrock (external, FQDN 파일에서 처리)
+#   finops-cost-agent     → AWS Athena (external, FQDN 파일에서 처리)
+#
+# 공통 레이블: app.kubernetes.io/part-of: finops-mas
+# finops-db: 외부 RDS가 아닌 클러스터 내부 PostgreSQL pod
+---
+# intra-finops-mas: 같은 네임스페이스 파드 간 전체 허용
+# (ui→orchestrator, agents→temporal, agents→db 모두 포함)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-finops-mas
+spec:
+  description: "finops-mas 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: finops-mas
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: finops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: finops-mas
+---
+# finops-mas → observability(alloy) OTLP trace (매니페스트에 명시 없음, 향후 추가 시 활성화)
+# 현재 finops-mas 워크로드에서 OTLP export 설정 미발견 → audit 후 확인 예정
+# apiVersion: cilium.io/v2
+# kind: CiliumClusterwideNetworkPolicy
+# metadata:
+#   name: allow-finops-mas-to-alloy
+# spec:
+#   endpointSelector:
+#     matchLabels:
+#       io.kubernetes.pod.namespace: finops-mas
+#   egress:
+#     - toEndpoints:
+#         - matchLabels:
+#             io.kubernetes.pod.namespace: observability
+#             app.kubernetes.io/name: alloy
+#       toPorts:
+#         - ports:
+#             - port: "4317"
+#               protocol: TCP

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Istio Ambient 충돌 방지 (항상 최우선)
+  - allow-ambient-hostprobes.yaml
+
+  # 시스템 기반 allow
+  - allow-dns.yaml
+  - allow-kube-apiserver.yaml
+  - allow-node-local.yaml
+  - allow-ztunnel-hbone.yaml
+
+  # 네임스페이스별 intra allow (시스템)
+  - allow-intra-namespace.yaml
+
+  # 앱별 allow
+  - allow-stock-demo.yaml
+  - allow-finops-mas.yaml
+
+  # FQDN egress
+  - allow-fqdn-finops-mas.yaml
+
+  # default-deny는 반드시 마지막 (policyAuditMode=true 동안 AUDIT만, enforce 전환 시 여기서 통제)
+  - default-deny.yaml
