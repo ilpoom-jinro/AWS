@@ -156,19 +156,19 @@ resource "aws_glue_catalog_table" "cloudtrail" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    "projection.enabled"        = "true"
-    "projection.region.type"    = "enum"
+    "projection.enabled"     = "true"
+    "projection.region.type" = "enum"
     # 실제 로그 확인 리전 17개 중 주 쿼리 대상 2개 — 추가 리전 필요 시 여기에 추가
-    "projection.region.values"  = "us-east-1,ap-northeast-2"
-    "projection.year.type"      = "integer"
-    "projection.year.range"     = "2026,2030"
-    "projection.year.digits"    = "4"
-    "projection.month.type"     = "integer"
-    "projection.month.range"    = "1,12"
-    "projection.month.digits"   = "2"
-    "projection.day.type"       = "integer"
-    "projection.day.range"      = "1,31"
-    "projection.day.digits"     = "2"
+    "projection.region.values" = "us-east-1,ap-northeast-2"
+    "projection.year.type"     = "integer"
+    "projection.year.range"    = "2026,2030"
+    "projection.year.digits"   = "4"
+    "projection.month.type"    = "integer"
+    "projection.month.range"   = "1,12"
+    "projection.month.digits"  = "2"
+    "projection.day.type"      = "integer"
+    "projection.day.range"     = "1,31"
+    "projection.day.digits"    = "2"
     # $${...}: Terraform 이스케이프 → AWS에는 ${...} 전달 → Athena가 파티션 값으로 치환
     "storage.location.template" = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/$${region}/$${year}/$${month}/$${day}/"
     "classification"            = "cloudtrail"
@@ -194,13 +194,13 @@ resource "aws_glue_catalog_table" "cloudtrail" {
 
   storage_descriptor {
     # 루트 경로 — Athena는 storage.location.template로 실제 파티션 경로 결정
-    location      = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/"
+    location = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/"
     # gzip JSON 해제 + CloudTrail Records[] 구조 처리 전용 InputFormat
     input_format  = "com.amazon.emr.hive.SpecialEMRInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
 
     ser_de_info {
-      name                  = "cloudtrail"
+      name = "cloudtrail"
       # Records[] 배열 래퍼 제거 + 중첩 JSON → Hive 타입 자동 변환
       serialization_library = "com.amazon.emr.hive.serde.CloudTrailSerde"
       parameters = {
@@ -325,8 +325,8 @@ resource "aws_glue_catalog_table" "alb" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    "projection.enabled"        = "true"
-    "projection.region.type"    = "enum"
+    "projection.enabled"     = "true"
+    "projection.region.type" = "enum"
     # 현재 로그 적재 리전 — 새 리전 ALB 추가 시 values 확장
     "projection.region.values"  = "ap-northeast-2"
     "projection.year.type"      = "integer"
@@ -536,17 +536,17 @@ resource "aws_glue_catalog_table" "prowler" {
   table_type    = "EXTERNAL_TABLE"
 
   parameters = {
-    "projection.enabled"            = "true"
-    "projection.date.type"          = "date"
+    "projection.enabled"   = "true"
+    "projection.date.type" = "date"
     # Java SimpleDateFormat 패턴 (Athena 파티션 projection 표준)
-    "projection.date.format"        = "yyyy-MM-dd"
+    "projection.date.format" = "yyyy-MM-dd"
     # NOW: Athena 런타임 현재 날짜로 자동 치환 → 스캔 주기와 무관하게 최신 결과 포함
     "projection.date.range"         = "2026-01-01,NOW"
     "projection.date.interval"      = "1"
     "projection.date.interval.unit" = "DAYS"
     # buildspec-prowler.yml과 경로 정합: .ocsf.json은 ${date}/ocsf/ 에만 업로드됨
-    "storage.location.template"     = "s3://financial-prowler-findings-${var.account_id}/$${date}/ocsf/"
-    "classification"                = "json"
+    "storage.location.template" = "s3://financial-prowler-findings-${var.account_id}/$${date}/ocsf/"
+    "classification"            = "json"
   }
 
   partition_keys {
@@ -565,10 +565,10 @@ resource "aws_glue_catalog_table" "prowler" {
       serialization_library = "org.openx.data.jsonserde.JsonSerDe"
       parameters = {
         # 파일이 [{...},{...}] 형식 → 배열 외부 괄호 제거 후 각 원소를 1행으로 처리
-        "strip.outer.array"    = "TRUE"
+        "strip.outer.array" = "TRUE"
         # .csv/.html/compliance/* 파일이 JSON 파싱 실패 시 조용히 건너뜀
         "ignore.malformed.json" = "TRUE"
-        "serialization.format" = "1"
+        "serialization.format"  = "1"
       }
     }
 
