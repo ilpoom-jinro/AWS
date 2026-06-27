@@ -6,7 +6,11 @@ locals {
   argocd_redis_image_repository      = "${local.ecr_registry}/${var.argocd_redis_image_repository_name}"
   demo_backend_image_repository      = "${local.ecr_registry}/${var.demo_backend_image_repository_name}"
   demo_frontend_image_repository     = "${local.ecr_registry}/${var.demo_frontend_image_repository_name}"
-  istio_image_repository_prefix      = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
+  istio_image_repository_prefix        = "${local.ecr_registry}/${var.istio_image_repository_prefix}"
+  cilium_image_repository              = "${local.ecr_registry}/financial/cilium"
+  cilium_operator_image_repository     = "${local.ecr_registry}/financial/cilium-operator"
+  cilium_envoy_image_repository        = "${local.ecr_registry}/financial/cilium-envoy"
+  cilium_hubble_relay_image_repository = "${local.ecr_registry}/financial/cilium-hubble-relay"
 }
 
 resource "aws_security_group" "ansible_codebuild" {
@@ -245,6 +249,26 @@ resource "aws_codebuild_project" "ansible_bootstrap" {
     environment_variable {
       name  = "ISTIO_IMAGE_TAG"
       value = var.istio_image_tag
+    }
+
+    environment_variable {
+      name  = "CILIUM_IMAGE_REPOSITORY"
+      value = local.cilium_image_repository
+    }
+
+    environment_variable {
+      name  = "CILIUM_OPERATOR_IMAGE_REPOSITORY"
+      value = local.cilium_operator_image_repository
+    }
+
+    environment_variable {
+      name  = "CILIUM_ENVOY_IMAGE_REPOSITORY"
+      value = local.cilium_envoy_image_repository
+    }
+
+    environment_variable {
+      name  = "CILIUM_HUBBLE_RELAY_IMAGE_REPOSITORY"
+      value = local.cilium_hubble_relay_image_repository
     }
 
     environment_variable {
