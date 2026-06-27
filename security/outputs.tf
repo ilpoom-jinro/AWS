@@ -2,3 +2,41 @@ output "api_anomaly_alert_sns_topic_arn" {
   description = "api-anomaly-alert SNS 토픽 ARN — Slack 담당자가 구독 추가 시 참조"
   value       = aws_sns_topic.api_anomaly_alert.arn
 }
+
+# ─────────────────────────────────────────────
+# SIEM Athena 레이어 outputs
+# ─────────────────────────────────────────────
+output "siem_athena_workgroup" {
+  description = "SIEM Athena 워크그룹 이름 — Athena Console에서 워크그룹 선택 시 참조"
+  value       = aws_athena_workgroup.siem.name
+}
+
+output "siem_glue_database" {
+  description = "SIEM Glue 데이터베이스 이름"
+  value       = aws_glue_catalog_database.siem.name
+}
+
+output "siem_cloudtrail_table" {
+  description = "CloudTrail Glue 테이블 이름"
+  value       = aws_glue_catalog_table.cloudtrail.name
+}
+
+output "siem_alb_table" {
+  description = "ALB Access Logs Glue 테이블 이름"
+  value       = aws_glue_catalog_table.alb.name
+}
+
+output "siem_prowler_table" {
+  description = "Prowler OCSF Glue 테이블 이름"
+  value       = aws_glue_catalog_table.prowler.name
+}
+
+output "siem_athena_results_bucket_arn" {
+  description = "SIEM Athena 쿼리 결과 버킷 ARN"
+  value       = aws_s3_bucket.siem_athena_results.arn
+}
+
+output "siem_athena_query_role_arn" {
+  description = "SIEM Athena 쿼리 전용 IAM 역할 ARN — 보안 담당자 AssumeRole 대상"
+  value       = aws_iam_role.siem_athena_query.arn
+}
