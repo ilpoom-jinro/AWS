@@ -29,7 +29,7 @@ spec:
                 - git
                 - istio-system
                 - observability
-                - falco
+                - tetragon  # Tetragon hostNetwork DaemonSet — ambient ztunnel 인터셉트 충돌 방지
       mutate:
         patchStrategicMerge:
           metadata:

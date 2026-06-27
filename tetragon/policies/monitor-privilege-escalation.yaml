@@ -1,0 +1,40 @@
+# TracingPolicy: monitor-privilege-escalation
+# 목적: 권한 상승 시도 관찰 — setresuid/setresgid 경유 sudo·su 탐지 포함
+# __sys_setresuid/gid: syscall wrapper가 아닌 커널 내부 함수 직접 후킹
+#   → sys_setuid 후킹만으로는 sudo/su(setresuid 경유) 권한 상승을 놓침
+# uid/gid 컨텍스트는 enableProcessCred=true로 이벤트에 자동 첨부
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: monitor-privilege-escalation
+spec:
+  kprobes:
+    - call: "__sys_setresuid"
+      syscall: false            # 커널 내부 함수 — syscall wrapper 아님
+      args:
+        - index: 0
+          type: "int"           # ruid
+        - index: 1
+          type: "int"           # euid
+        - index: 2
+          type: "int"           # suid
+      # ── MAS 단계 전환 시 아래 주석 해제 ──────────────────────────────────
+      # selectors:
+      #   - matchArgs:
+      #       - index: 1
+      #         operator: "Equal"
+      #         values:
+      #           - "0"            # euid=0 (root) 상승 시도
+      #     matchActions:          # MAS 단계에서 주석 해제 시 차단(Sigkill) 발효
+      #       - action: Sigkill
+      # ──────────────────────────────────────────────────────────────────────
+    - call: "__sys_setresgid"
+      syscall: false            # 커널 내부 함수 — syscall wrapper 아님
+      args:
+        - index: 0
+          type: "int"           # rgid
+        - index: 1
+          type: "int"           # egid
+        - index: 2
+          type: "int"           # sgid
+      # selectors: setresuid와 동일 패턴 (egid=0 상승 시도, index 1)

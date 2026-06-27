@@ -5,13 +5,13 @@ from typing import Any
 
 
 TEST_EVENT_SEEDS = [
-    {"event_id": "normal-event", "title": "Normal business push", "grade": "A", "target_users": 100000, "scheduled_at": "09:00 KST", "baseline_peak_rps": 600, "required_app_pods": 12, "rds_cpu_percent": 45, "event_incremental_budget_usd": 60.0},
-    {"event_id": "traffic-spike-event", "title": "Traffic spike push", "grade": "S", "target_users": 500000, "scheduled_at": "10:00 KST", "baseline_peak_rps": 3500, "required_app_pods": 65, "rds_cpu_percent": 72, "event_incremental_budget_usd": 200.0},
-    {"event_id": "db-bottleneck-event", "title": "Database bottleneck drill", "grade": "A", "target_users": 200000, "scheduled_at": "11:00 KST", "baseline_peak_rps": 1100, "traffic_rps": 2000, "required_app_pods": 36, "rds_cpu_percent": 88, "event_incremental_budget_usd": 120.0},
-    {"event_id": "budget-exceeded-event", "title": "Low budget push", "grade": "B", "target_users": 50000, "scheduled_at": "12:00 KST", "baseline_peak_rps": 500, "required_app_pods": 10, "rds_cpu_percent": 42, "event_incremental_budget_usd": 20.0},
-    {"event_id": "policy-blocked-event", "title": "Policy blocked push", "grade": "S", "target_users": 350000, "scheduled_at": "13:00 KST", "baseline_peak_rps": 1420, "required_app_pods": 29, "rds_cpu_percent": 68, "event_incremental_budget_usd": 95.0, "allowed_actions": False},
-    {"event_id": "missing-data-event", "title": "Missing observability data push", "grade": "A", "target_users": 150000, "scheduled_at": "14:00 KST", "baseline_peak_rps": 900, "required_app_pods": 18, "rds_cpu_percent": 55, "event_incremental_budget_usd": 75.0, "omit_traffic_signal": True, "omit_cost_signal": True},
-    {"event_id": "soft-bottleneck-event", "title": "Soft Bottleneck Test", "grade": "A", "target_users": 180000, "scheduled_at": "14:00 KST", "baseline_peak_rps": 950, "required_app_pods": 22, "rds_cpu_percent": 75, "redis_cache_hit_ratio_percent": 72, "event_incremental_budget_usd": 95.0},
+    {"event_id": "normal-event", "title": "일반 비즈니스 푸시", "grade": "A", "target_users": 100000, "scheduled_at": "09:00", "baseline_peak_rps": 600, "required_app_pods": 12, "rds_cpu_percent": 45, "event_incremental_budget_usd": 60.0},
+    {"event_id": "traffic-spike-event", "title": "대규모 트래픽 급증 푸시", "grade": "S", "target_users": 500000, "scheduled_at": "10:00", "baseline_peak_rps": 3500, "required_app_pods": 65, "rds_cpu_percent": 72, "event_incremental_budget_usd": 200.0},
+    {"event_id": "db-bottleneck-event", "title": "DB 병목 대응 리허설", "grade": "A", "target_users": 200000, "scheduled_at": "11:00", "baseline_peak_rps": 1100, "traffic_rps": 2000, "required_app_pods": 36, "rds_cpu_percent": 88, "event_incremental_budget_usd": 120.0},
+    {"event_id": "budget-exceeded-event", "title": "저예산 제한 푸시", "grade": "B", "target_users": 50000, "scheduled_at": "12:00", "baseline_peak_rps": 500, "required_app_pods": 10, "rds_cpu_percent": 42, "event_incremental_budget_usd": 20.0},
+    {"event_id": "policy-blocked-event", "title": "정책 차단 검증 푸시", "grade": "S", "target_users": 350000, "scheduled_at": "13:00", "baseline_peak_rps": 1420, "required_app_pods": 29, "rds_cpu_percent": 68, "event_incremental_budget_usd": 95.0, "allowed_actions": False},
+    {"event_id": "missing-data-event", "title": "관측 데이터 누락 푸시", "grade": "A", "target_users": 150000, "scheduled_at": "14:00", "baseline_peak_rps": 900, "required_app_pods": 18, "rds_cpu_percent": 55, "event_incremental_budget_usd": 75.0, "omit_traffic_signal": True, "omit_cost_signal": True},
+    {"event_id": "soft-bottleneck-event", "title": "경계성 병목 판단 테스트", "grade": "A", "target_users": 180000, "scheduled_at": "14:00", "baseline_peak_rps": 950, "required_app_pods": 22, "rds_cpu_percent": 75, "redis_cache_hit_ratio_percent": 72, "event_incremental_budget_usd": 95.0},
 ]
 
 

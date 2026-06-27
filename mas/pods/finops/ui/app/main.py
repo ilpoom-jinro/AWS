@@ -379,33 +379,33 @@ def index() -> str:
         <div class="muted">Demand shaping first, infrastructure second.</div>
       </div>
       <div class="toolbar">
-        <select id="event-select" aria-label="FinOps test scenario"></select>
-        <button onclick="runPlan()">Run FinOps Plan</button>
-        <button id="retry" class="secondary" onclick="retryPlan()" disabled>Retry Workflow</button>
+        <select id="event-select" aria-label="FinOps 시나리오 선택"></select>
+        <button onclick="runPlan()">FinOps 실행</button>
+        <button id="retry" class="secondary" onclick="retryPlan()" disabled>다시 실행</button>
       </div>
     </header>
     <main>
       <section>
         <div class="summary">
           <div>
-            <h2>Final Plan</h2>
+            <h2>최종 계획</h2>
             <div id="status" class="badge" style="margin-top: 8px;">idle</div>
           </div>
           <div class="metric">
-            <div class="card"><div class="muted">Before Peak</div><div id="before" class="value">-</div></div>
-            <div class="card"><div class="muted">After Peak</div><div id="after" class="value">-</div></div>
-            <div class="card"><div class="muted">Required Pods</div><div id="pods" class="value">-</div></div>
-            <div class="card"><div class="muted">Cost</div><div id="cost" class="value">-</div></div>
+            <div class="card"><div class="muted">조정 전 Peak</div><div id="before" class="value">-</div></div>
+            <div class="card"><div class="muted">조정 후 Peak</div><div id="after" class="value">-</div></div>
+            <div class="card"><div class="muted">필요 Pod</div><div id="pods" class="value">-</div></div>
+            <div class="card"><div class="muted">예상 비용</div><div id="cost" class="value">-</div></div>
           </div>
-          <button id="approve" onclick="approvePlan()" disabled>Approve Dry-run</button>
+          <button id="approve" onclick="approvePlan()" disabled>Dry-run 승인</button>
         </div>
       </section>
 
       <div class="content-grid">
         <section>
           <div class="row">
-            <h2>Business Calendar</h2>
-            <span id="calendar-month" class="badge">Month</span>
+            <h2>예약 일정</h2>
+            <span id="calendar-month" class="badge">월간</span>
           </div>
           <div id="calendar" class="calendar-grid"></div>
         </section>
@@ -413,17 +413,14 @@ def index() -> str:
         <div class="stack">
           <section>
             <div class="row">
-              <h2>Agent Chat</h2>
-              <span id="conversation-status" class="badge">idle</span>
+              <h2>FinOps 대화</h2>
+              <span id="conversation-status" class="badge">대기</span>
             </div>
-            <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
-          </section>
-          <section>
-            <h2>ChatOps</h2>
-          <p class="muted">완성된 FinOps 보고서에 대해 근거 기반으로 질문합니다. Workflow 변경은 수행하지 않습니다.</p>
+          <p class="muted">Agent 진행 로그와 운영자 채팅을 한 곳에서 확인합니다.</p>
+          <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
           <textarea id="chat-message">왜 Pod가 22개 필요한가?</textarea>
             <div class="row" style="margin-top: 10px;">
-              <button id="chat-send" class="secondary" onclick="sendChat()" disabled>Ask Report</button>
+              <button id="chat-send" class="secondary" onclick="sendChat()" disabled>보고서에 질문</button>
               <div id="toast"></div>
             </div>
           </section>
@@ -431,22 +428,17 @@ def index() -> str:
       </div>
 
       <section>
-        <div class="row"><h2>Agent Progress</h2><span class="badge">live</span></div>
-        <div id="agent-cards" class="agent-grid"></div>
-      </section>
-
-      <section>
-        <h2>Data Broker Requests</h2>
-        <div id="broker-log" class="muted">No broker calls.</div>
+        <h2>Agent 간 데이터 요청</h2>
+        <div id="broker-log" class="muted">Agent 간 추가 데이터 요청이 없습니다.</div>
       </section>
 
       <section id="candidate-section" hidden>
-        <h2>Plan Candidates</h2>
+        <h2>후보 계획 비교</h2>
         <div id="candidate-table"></div>
       </section>
 
       <section id="quality-section" hidden>
-        <h2>Quality Gate</h2>
+        <h2>품질 검증 결과</h2>
         <div id="quality-gate"></div>
       </section>
 
@@ -485,6 +477,19 @@ def index() -> str:
       let currentPlanSnapshot = null;
       let currentExecution = null;
       let executionPoller = null;
+      const FINOPS_AGENTS = [
+        ["business_control", "Business Control Agent"],
+        ["demand_shaping", "Demand Shaping Agent"],
+        ["traffic_forecast", "Traffic Forecast Agent"],
+        ["bottleneck_capacity", "Bottleneck Capacity Agent"],
+        ["infra_execution", "Infra Execution Planner"],
+        ["cost", "Cost Agent"],
+        ["unit_economics", "Unit Economics Agent"],
+        ["policy_guardrail", "Policy Guardrail Agent"],
+        ["observer", "Observer Agent"],
+        ["fallback", "Fallback Planner"],
+        ["postmortem_learning", "Postmortem Learning Agent"]
+      ];
 
       async function api(path, options = {}) {
         const res = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -496,13 +501,27 @@ def index() -> str:
         document.getElementById("toast").textContent = error.message || String(error);
       }
 
+      function cleanScheduledAt(value) {
+        return String(value || "").replace(/\\s*KST\\s*/i, "").trim();
+      }
+
+      function scenarioLabel(item) {
+        const time = cleanScheduledAt(item.scheduled_at);
+        const users = Number(item.target_users || 0).toLocaleString();
+        return `${item.title} · ${time} 예약 · ${item.grade}등급 · ${users}명`;
+      }
+
+      function syncAgentDetails(agents) {
+        agentDetails = Object.fromEntries((agents || []).map(item => [item.agent_key, item]));
+      }
+
       async function loadDashboard() {
         try {
           const data = await api("/api/dashboard");
           calendarItems = data.calendar || [];
           const select = document.getElementById("event-select");
           select.innerHTML = calendarItems.map(item => `
-            <option value="${escapeHtml(item.event_id)}">${escapeHtml(item.event_id)} · ${escapeHtml(item.title)}</option>
+            <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
           `).join("");
           renderCalendar(calendarItems);
           if (data.active_workflow) {
@@ -513,6 +532,8 @@ def index() -> str:
             const done = await loadWorkflow(currentWorkflow);
             if (!done) startWorkflowPolling(currentWorkflow);
           } else {
+            syncAgentDetails([]);
+            renderBrokerLog([]);
             renderEmptyConversation();
           }
         } catch (error) {
@@ -526,10 +547,10 @@ def index() -> str:
         const year = now.getFullYear();
         const month = now.getMonth();
         document.getElementById("calendar-month").textContent =
-          now.toLocaleString("en", {month: "short", year: "numeric"});
+          `${year}년 ${month + 1}월`;
         const first = new Date(year, month, 1);
         const last = new Date(year, month + 1, 0);
-        const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const names = ["일", "월", "화", "수", "목", "금", "토"];
         const headers = names.map(name => `<div class="day-name">${name}</div>`).join("");
         const days = [];
         for (let i = 0; i < first.getDay(); i++) {
@@ -539,7 +560,7 @@ def index() -> str:
           const date = new Date(year, month, day);
           const isToday = date.toDateString() === now.toDateString();
           const events = isToday ? items.map(item => `
-            <div class="event-pill">${item.title}<br>${item.scheduled_at} / Grade ${item.grade}</div>
+            <div class="event-pill">${item.title}<br>${cleanScheduledAt(item.scheduled_at)} 예약 / ${item.grade}등급</div>
           `).join("") : "";
           days.push(`
             <div class="day ${isToday ? "today" : ""}">
@@ -843,7 +864,7 @@ def index() -> str:
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
             <div class="bubble operator">
-              <div class="speaker"><span>Operator</span><span class="badge">question</span></div>
+              <div class="speaker"><span>운영자</span><span class="badge">질문</span></div>
               <p>${escapeHtml(message)}</p>
             </div>
             ${renderChatReply(data)}
@@ -853,7 +874,7 @@ def index() -> str:
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
             <div class="bubble agent">
-              <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">error</span></div>
+              <div class="speaker"><span>FinOps 보고서 분석가</span><span class="badge">오류</span></div>
               <p>보고서 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</p>
             </div>
           `;
@@ -883,19 +904,37 @@ def index() -> str:
 
       function agentLabel(agentKey) {
         const labels = {
-          business_control: "Business Control",
-          demand_shaping: "Demand Shaping",
-          traffic_forecast: "Traffic Forecast",
-          bottleneck_capacity: "Bottleneck Capacity",
-          infra_execution: "Infra Execution",
-          cost: "Cost",
-          unit_economics: "Unit Economics",
-          policy_guardrail: "Policy Guardrail",
-          observer: "Observer",
+          business_control: "비즈니스 일정",
+          demand_shaping: "수요 분산",
+          traffic_forecast: "트래픽 예측",
+          bottleneck_capacity: "병목 분석",
+          infra_execution: "인프라 실행",
+          cost: "비용 분석",
+          unit_economics: "단위 경제성",
+          policy_guardrail: "정책 검증",
+          observer: "관측",
           fallback: "Fallback",
-          postmortem_learning: "Postmortem Learning"
+          postmortem_learning: "사후 학습"
         };
         return labels[agentKey] || agentKey;
+      }
+
+      function displayAgentName(name) {
+        const labels = {
+          "Business Control Agent": "비즈니스 일정 Agent",
+          "Demand Shaping Agent": "수요 분산 Agent",
+          "Traffic Forecast Agent": "트래픽 예측 Agent",
+          "Bottleneck Capacity Agent": "병목 분석 Agent",
+          "Infra Execution Planner": "인프라 실행 Agent",
+          "Cost Agent": "비용 분석 Agent",
+          "Unit Economics Agent": "단위 경제성 Agent",
+          "Policy Guardrail Agent": "정책 검증 Agent",
+          "Observer Agent": "관측 Agent",
+          "Fallback Planner": "Fallback Agent",
+          "Postmortem Learning Agent": "사후 학습 Agent",
+          "Orchestrator": "Orchestrator"
+        };
+        return labels[name] || name;
       }
 
       function renderChatReply(data) {
@@ -903,7 +942,7 @@ def index() -> str:
           `<span class="badge">${escapeHtml(agentLabel(source))}</span>`
         ).join(" ");
         const tools = (data.tools_used || []).length
-          ? `<details><summary>Tools used</summary><p>${(data.tools_used || []).map(escapeHtml).join(", ")}</p></details>`
+          ? `<details><summary>사용한 조회 도구</summary><p>${(data.tools_used || []).map(escapeHtml).join(", ")}</p></details>`
           : "";
         const replanActions = data.pending_replan ? `
           <div class="row" style="margin-top: 10px;">
@@ -912,8 +951,8 @@ def index() -> str:
           </div>` : "";
         return `
           <div class="bubble agent">
-            <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">answer</span></div>
-            <p>${escapeHtml(data.answer || "보고서 데이터를 불러올 수 없습니다")}</p>
+            <div class="speaker"><span>FinOps 보고서 분석가</span><span class="badge">답변</span></div>
+            <p>${escapeHtml(data.answer || "보고서 데이터를 불러올 수 없습니다.")}</p>
             <div>${sources}</div>
             ${tools}
             ${replanActions}
@@ -949,8 +988,8 @@ def index() -> str:
         const el = document.getElementById("agent-chat");
         el.innerHTML += `
           <div class="bubble agent">
-            <div class="speaker"><span>FinOps Report Analyst</span><span class="badge">cancelled</span></div>
-            <p>재계획 요청을 취소했습니다. 기존 보고서 질의는 계속할 수 있습니다.</p>
+            <div class="speaker"><span>FinOps 보고서 분석가</span><span class="badge">취소</span></div>
+            <p>재계획 요청을 취소했습니다. 기존 보고서에 대한 질문은 계속할 수 있습니다.</p>
           </div>
         `;
       }
@@ -1028,13 +1067,13 @@ def index() -> str:
         const messages = data.conversation && data.conversation.length
           ? data.conversation.map(item => `
             <div class="bubble agent">
-              <div class="speaker"><span>${escapeHtml(item.sender)}</span><span class="badge">to ${escapeHtml(item.receiver)}</span></div>
+              <div class="speaker"><span>${escapeHtml(displayAgentName(item.sender))}</span><span class="badge">→ ${escapeHtml(displayAgentName(item.receiver))}</span></div>
               <p>${escapeHtml(item.message)}</p>
             </div>
           `).join("")
           : (data.timeline || []).map(item => `
             <div class="bubble agent">
-              <div class="speaker"><span>${escapeHtml(item.agent)}</span><span class="badge">${escapeHtml(item.status)}</span></div>
+              <div class="speaker"><span>${escapeHtml(displayAgentName(item.agent))}</span><span class="badge">${escapeHtml(item.status)}</span></div>
               <p>${escapeHtml(narrate(item))}</p>
             </div>
           `).join("");
@@ -1048,36 +1087,36 @@ def index() -> str:
         return calendarItems.find(item => item.event_id === selectedId) || calendarItems[0];
       }
 
-      function eventIntroBubble(label = "request") {
+      function eventIntroBubble(label = "요청") {
         const event = selectedEvent();
         if (!event) return "";
         const users = Number(event.target_users || 0).toLocaleString();
         return `
           <div class="bubble operator">
-            <div class="speaker"><span>Operator</span><span class="badge">event</span></div>
-            <p>${escapeHtml(event.scheduled_at)} ${escapeHtml(event.title)}: ${escapeHtml(label)} for ${users} target users.</p>
+            <div class="speaker"><span>운영자</span><span class="badge">예약 일정</span></div>
+            <p>${escapeHtml(cleanScheduledAt(event.scheduled_at))} 예약된 ${escapeHtml(event.title)} 일정으로 FinOps 분석을 ${escapeHtml(label)}합니다. 예상 대상자는 ${users}명입니다.</p>
           </div>
         `;
       }
 
       function renderEmptyConversation() {
-        document.getElementById("conversation-status").textContent = "ready";
+        document.getElementById("conversation-status").textContent = "대기";
         document.getElementById("agent-chat").innerHTML = `
           <div class="bubble agent">
-            <div class="speaker"><span>FinOps MAS</span><span class="badge">ready</span></div>
-            <p>Run the FinOps plan to execute the Temporal workflow and collect each agent result.</p>
+            <div class="speaker"><span>FinOps MAS</span><span class="badge">준비 완료</span></div>
+            <p>시나리오를 선택하고 FinOps 실행을 누르면, Agent들이 일정 확인부터 비용·정책 검증까지 진행 상황을 이 대화창에 순서대로 올립니다.</p>
           </div>
         `;
         updateChatAvailability();
       }
 
       function renderCallingConversation() {
-        document.getElementById("conversation-status").textContent = "calling_agents";
+        document.getElementById("conversation-status").textContent = "Agent 호출 중";
         conversationHistory = [];
-        document.getElementById("agent-chat").innerHTML = eventIntroBubble("FinOps plan") + `
+        document.getElementById("agent-chat").innerHTML = eventIntroBubble("시작") + `
           <div class="bubble agent">
-            <div class="speaker"><span>Orchestrator</span><span class="badge">calling</span></div>
-            <p>The Temporal workflow is dispatching work to the FinOps agent task queues.</p>
+            <div class="speaker"><span>Orchestrator</span><span class="badge">진행 중</span></div>
+            <p>Temporal Workflow를 시작했고, 필요한 Agent들에게 순서대로 작업을 전달하고 있습니다.</p>
           </div>
         `;
         updateChatAvailability("running");
@@ -1086,18 +1125,18 @@ def index() -> str:
       function narrate(item) {
         const r = item.result || {};
         const summaries = {
-          "Business Control Agent": `Event grade ${r.grade || "unknown"}; approval ${r.approval_required ? "required" : "not required"}.`,
-          "Demand Shaping Agent": `Send window ${r.send_window_minutes || "-"} minutes; estimated peak reduction ${r.peak_reduction_percent || "-"}%.`,
-          "Traffic Forecast Agent": `Peak changes from ${r.peak_rps_before || "-"} to ${r.peak_rps_after || "-"} RPS; ${r.required_app_pods || "-"} pods required.`,
-          "Bottleneck Capacity Agent": `Capacity status ${r.status || "unknown"}; DB CPU ${r.db_cpu || "-"}; cache hit ratio ${r.cache_hit_ratio || "-"}.`,
-          "Infra Execution Planner": `Scale out at ${r.scale_out_at || "-"}; prewarm at ${r.prewarm_at || "-"}.`,
-          "Cost Agent": `Estimated incremental cost $${r.total || "-"}.`,
-          "Unit Economics Agent": `Cost-to-value ratio ${r.cost_ratio || "-"}.`,
-          "Policy Guardrail Agent": `Approval ${r.approval_required ? "required" : "not required"}.`,
-          "Observer Agent": r.recommendation || "Monitoring thresholds prepared.",
-          "Fallback Planner": "Fallback actions prepared for approval or infrastructure failure.",
-          "Postmortem Learning Agent": `Profile update ${r.profile_update || "pending"}.`,
-          "Dry-run Execution": "The approved operation plan was validated in dry-run mode."
+          "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
+          "Traffic Forecast Agent": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
+          "Bottleneck Capacity Agent": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
+          "Infra Execution Planner": `인프라 실행 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
+          "Cost Agent": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
+          "Unit Economics Agent": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
+          "Policy Guardrail Agent": `정책 가드레일을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "Observer Agent": r.recommendation || "이벤트 중 관측 기준과 알림 기준을 준비했습니다.",
+          "Fallback Planner": "실행이 불안정할 때 사용할 fallback 대응안을 준비했습니다.",
+          "Postmortem Learning Agent": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
+          "Dry-run Execution": "승인된 실행 계획을 실제 변경 없이 dry-run으로 검증했습니다."
         };
         return summaries[item.agent] || JSON.stringify(r);
       }
@@ -1118,15 +1157,31 @@ def index() -> str:
               <p>${escapeHtml(narrate(item))}</p>
             </div>
           `).join("");
-        el.innerHTML = eventIntroBubble("FinOps plan") + messages;
+        el.innerHTML = eventIntroBubble("분석") + messages;
         el.scrollTop = el.scrollHeight;
         updateChatAvailability(data.status);
       }
 
       function renderAgentCards(agents) {
-        agentDetails = Object.fromEntries(agents.map(item => [item.agent_key, item]));
+        const byKey = Object.fromEntries((agents || []).map(item => [item.agent_key, item]));
+        const normalizedAgents = FINOPS_AGENTS.map(([agentKey, agentName]) => ({
+          agent_key: agentKey,
+          agent_name: agentName,
+          status: "pending",
+          confidence: null,
+          reasoning_source: "pending",
+          result: {},
+          input_context: {},
+          evidence: [],
+          warnings: [],
+          data_requests: [],
+          started_at: null,
+          completed_at: null,
+          ...(byKey[agentKey] || {})
+        }));
+        agentDetails = Object.fromEntries(normalizedAgents.map(item => [item.agent_key, item]));
         const el = document.getElementById("agent-cards");
-        el.innerHTML = agents.length ? agents.map(item => `
+        el.innerHTML = normalizedAgents.map(item => `
           <div class="agent-card" onclick="openAgentModal('${escapeHtml(item.agent_key)}')">
             <div class="speaker">
               <span>${escapeHtml(item.agent_name)}</span>
@@ -1134,10 +1189,11 @@ def index() -> str:
             </div>
             <p>confidence: ${item.confidence === null ? "-" : Number(item.confidence).toFixed(2)}</p>
             <span class="badge">${escapeHtml(item.reasoning_source || "pending")}</span>
+            ${(item.data_requests || []).length ? `<span class="badge">${item.data_requests.length} data request(s)</span>` : ""}
             <details><summary>Evidence</summary><ul>${(item.evidence || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
             <details><summary>Warnings</summary><ul class="warning">${(item.warnings || []).map(value => `<li>${escapeHtml(value)}</li>`).join("") || "<li>-</li>"}</ul></details>
             <div class="muted">${escapeHtml(item.started_at || "-")} → ${escapeHtml(item.completed_at || "-")}</div>
-          </div>`).join("") : '<div class="muted">Waiting for agent activities.</div>';
+          </div>`).join("");
       }
 
       function openAgentModal(agentKey) {
@@ -1165,7 +1221,7 @@ def index() -> str:
           const cache = item.cache_hit ? "✓ cache hit" : "✗ new execution";
           const fields = (item.result_fields || []).join(", ") || "none";
           return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation)}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status)} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
-        }).join("") : '<span class="muted">No broker calls.</span>';
+        }).join("") : '<span class="muted">Agent 간 추가 데이터 요청이 없습니다.</span>';
       }
 
       async function retryPlan() {
@@ -1284,7 +1340,7 @@ def index() -> str:
         ]);
         renderPlan(data);
         renderConversation(data);
-        renderAgentCards(agents);
+        syncAgentDetails(agents);
         renderBrokerLog(brokerLog);
         return !["running", "starting"].includes(data.status || "running");
       }
@@ -1293,12 +1349,14 @@ def index() -> str:
         try {
           stopWorkflowPolling();
           stopExecutionPolling();
-          document.getElementById("toast").textContent = "Temporal workflow 시작 중...";
+          document.getElementById("toast").textContent = "FinOps 분석을 시작하는 중입니다...";
           previousWorkflow = null;
           previousPlanSnapshot = null;
           currentExecution = null;
           pendingReplan = null;
           document.getElementById("execution-section").hidden = true;
+          syncAgentDetails([]);
+          renderBrokerLog([]);
           renderCallingConversation();
           const eventId = document.getElementById("event-select").value || "fomc-briefing";
           const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});
@@ -1308,6 +1366,85 @@ def index() -> str:
         } catch (error) {
           showError(error);
         }
+      }
+
+      function renderCandidates(candidates, recommended) {
+        const section = document.getElementById("candidate-section");
+        if (!candidates || !candidates.length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        const recommendedLabel = recommended && recommended.label;
+        document.getElementById("candidate-table").innerHTML = `
+          <table class="candidate-table">
+            <thead>
+              <tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th><th>추천</th></tr>
+            </thead>
+            <tbody>${candidates.map(item => `
+              <tr class="${item.label === recommendedLabel ? "recommended" : ""}">
+                <td>${escapeHtml(item.label || "-")}</td>
+                <td>${escapeHtml(item.push_window_minutes ?? "-")}분</td>
+                <td>${escapeHtml(item.required_pods ?? "-")}</td>
+                <td>$${Number(item.estimated_cost_usd || 0).toFixed(2)}</td>
+                <td>${escapeHtml(item.estimated_p95_ms ?? "-")}ms</td>
+                <td>${escapeHtml(item.risk_level || "-")}</td>
+                <td>${Number(item.score || 0).toFixed(4)}</td>
+                <td>${item.label === recommendedLabel ? "추천" : ""}</td>
+              </tr>`).join("")}</tbody>
+          </table>`;
+      }
+
+      function renderQualityGate(gate) {
+        const section = document.getElementById("quality-section");
+        if (!gate || !Object.keys(gate).length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        document.getElementById("quality-gate").innerHTML = `
+          <p><strong>${gate.passed ? "✓ 통과" : "✗ 실패"}</strong></p>
+          <ul class="issue">${(gate.issues || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>이슈 없음</li>"}</ul>
+          <ul class="warning">${(gate.warnings || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>경고 없음</li>"}</ul>`;
+      }
+
+      function renderPlanComparison(currentCandidates) {
+        const previousCandidates = previousPlanSnapshot?.plan_candidates || [];
+        if (!previousCandidates.length || !currentCandidates.length) return;
+        const rows = (items) => items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.label || "-")}</td>
+            <td>${escapeHtml(item.push_window_minutes ?? "-")}분</td>
+            <td>${escapeHtml(item.required_pods ?? "-")}</td>
+            <td>$${Number(item.estimated_cost_usd || 0).toFixed(2)}</td>
+            <td>${escapeHtml(item.estimated_p95_ms ?? "-")}ms</td>
+            <td>${escapeHtml(item.risk_level || "-")}</td>
+            <td>${Number(item.score || 0).toFixed(4)}</td>
+          </tr>
+        `).join("");
+        document.getElementById("candidate-table").innerHTML += `
+          <h3>이전 계획 후보</h3>
+          <p class="muted">Previous workflow: ${escapeHtml(previousWorkflow || "-")}</p>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(previousCandidates)}</tbody>
+          </table>
+          <h3>새 계획 후보</h3>
+          <table class="candidate-table">
+            <thead><tr><th>후보</th><th>Push 분산</th><th>Pod</th><th>예상 비용</th><th>예상 p95</th><th>위험</th><th>점수</th></tr></thead>
+            <tbody>${rows(currentCandidates)}</tbody>
+          </table>`;
+      }
+
+      function renderBrokerLog(entries) {
+        const el = document.getElementById("broker-log");
+        el.innerHTML = entries && entries.length ? entries.map(item => {
+          const requester = agentDetails[item.requester_agent]?.agent_name || item.requester_agent || "Agent";
+          const target = agentDetails[item.target_agent]?.agent_name || item.target_agent || "Agent";
+          const cache = item.cache_hit ? "✓ 캐시 히트" : "↻ 새 실행";
+          const fields = (item.result_fields || []).join(", ") || "none";
+          return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation || "-")}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status || "-")} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
+        }).join("") : '<span class="muted">Agent 간 추가 데이터 요청이 없습니다.</span>';
       }
 
       loadDashboard();

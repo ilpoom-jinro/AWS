@@ -42,10 +42,11 @@ from app.workflows import FinOpsEventWorkflow
 from contracts.models import ExecutionMode, ExecutionPlan, ExecutionStep, AgentResponse, ReplanIntent
 
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops",
-)
+DB_HOST = os.getenv("DB_HOST", "finops-db")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "finops")
+DB_USER = os.getenv("DB_USER", "finops")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "finops")
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "finops-temporal.finops-mas.svc.cluster.local:7233")
 TEMPORAL_TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "finops-agent-task-queue")
 FINOPS_NAMESPACE = os.getenv("FINOPS_NAMESPACE", "finops-mas")
@@ -85,7 +86,14 @@ def utcnow() -> str:
 
 
 def connect():
-    return psycopg.connect(DATABASE_URL, autocommit=True)
+    return psycopg.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        autocommit=True,
+    )
 
 
 def run_readonly_command(name: str, command: list[str]) -> dict[str, Any]:
@@ -990,7 +998,12 @@ def seed_event(conn, definition: dict[str, Any]) -> None:
         insert into business_calendar
           (event_id, title, grade, target_users, max_delay_minutes, scheduled_at)
         values (%s, %s, %s, %s, %s, %s)
-        on conflict (event_id) do nothing
+        on conflict (event_id) do update set
+          title = excluded.title,
+          grade = excluded.grade,
+          target_users = excluded.target_users,
+          max_delay_minutes = excluded.max_delay_minutes,
+          scheduled_at = excluded.scheduled_at
         """,
         tuple(calendar.values()),
     )
@@ -1092,8 +1105,13 @@ def seed(conn) -> None:
         insert into business_calendar
           (event_id, title, grade, target_users, max_delay_minutes, scheduled_at)
         values
-          ('fomc-briefing', 'FOMC stock briefing push', 'S', 350000, 10, '08:30 KST')
-        on conflict (event_id) do nothing
+          ('fomc-briefing', 'FOMC 주식 브리핑 푸시', 'S', 350000, 10, '08:30')
+        on conflict (event_id) do update set
+          title = excluded.title,
+          grade = excluded.grade,
+          target_users = excluded.target_users,
+          max_delay_minutes = excluded.max_delay_minutes,
+          scheduled_at = excluded.scheduled_at
         """
     )
     conn.execute(

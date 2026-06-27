@@ -240,3 +240,15 @@ variable "enable_flowlog_s3_archive" {
   type        = bool
   default     = false
 }
+
+variable "enable_pii_scan" {
+  description = "PII 스캔 파이프라인 활성화 플래그 — 더미 데이터 검증 완료 후 MAS 단계에서 true. false일 때 S3/CodeBuild/IAM만 내려가고 ECR 이미지는 유지."
+  type        = bool
+  default     = false
+}
+
+variable "pii_scan_target_buckets" {
+  description = "PII 스캔 추가 대상 버킷 이름 목록 (testdata 버킷은 코드가 자동 포함하므로 기본값 빈 배열 가능)"
+  type        = list(string)
+  default     = []
+}
