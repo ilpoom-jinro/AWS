@@ -18,7 +18,8 @@ spec:
               protocol: TCP
   egress:
     - toCIDR:
-        - 10.20.0.2/32
+        - 10.20.0.2/32  # ops VPC DNS
+        - 10.10.0.2/32  # service VPC DNS
       toPorts:
         - ports:
             - port: "53"
