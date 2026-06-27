@@ -23,8 +23,10 @@ spec:
             dns:
               - matchPattern: "*.amazonaws.com"
     - toFQDNs:
-        # S3: VPC gateway endpoint 사용 시 toFQDNs 불안정 가능 → 실제 트래픽을 Hubble로 확인 후 필요 시 toCIDR/toEntities:world로 교체
+        # S3 path-style: VPC gateway endpoint 사용 시 toFQDNs 불안정 가능 → Hubble 확인 후 필요 시 toCIDR/toEntities:world로 교체
         - matchName: "s3.ap-northeast-2.amazonaws.com"
+        # S3 virtual-hosted style: <bucket>.s3.ap-northeast-2.amazonaws.com
+        - matchPattern: "*.s3.ap-northeast-2.amazonaws.com"
         - matchName: "ec2.ap-northeast-2.amazonaws.com"
         - matchName: "kms.ap-northeast-2.amazonaws.com"
       toPorts:

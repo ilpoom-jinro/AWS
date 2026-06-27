@@ -3,7 +3,7 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-fqdn-albc
 spec:
-  description: "aws-load-balancer-controller → EC2/ELB/ACM/IAM FQDN egress 허용"
+  description: "aws-load-balancer-controller → EC2/ELB/ACM/IAM/Shield FQDN egress 허용"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: kube-system
@@ -27,6 +27,8 @@ spec:
         - matchName: "elasticloadbalancing.ap-northeast-2.amazonaws.com"
         - matchName: "acm.ap-northeast-2.amazonaws.com"
         - matchName: "iam.amazonaws.com"
+        # shield는 us-east-1 글로벌 엔드포인트 사용 — audit에서 주기적 호출 확인됨
+        - matchName: "shield.us-east-1.amazonaws.com"
       toPorts:
         - ports:
             - port: "443"
