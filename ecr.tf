@@ -1445,9 +1445,166 @@ resource "aws_ecr_lifecycle_policy" "pii_scan" {
 
 
 # =============================================================================
+# ==============================================================================
+# Cilium 런타임 이미지 (agent, operator-generic, envoy, hubble-relay)
+# operator Helm value는 "financial/cilium-operator" (template이 -generic suffix 자동 추가)
+# ==============================================================================
+resource "aws_ecr_repository" "cilium" {
+  name                 = "financial/cilium"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium" {
+  repository = aws_ecr_repository.cilium.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium agent images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_operator_generic" {
+  name                 = "financial/cilium-operator-generic"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-operator-generic"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_operator_generic" {
+  repository = aws_ecr_repository.cilium_operator_generic.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium operator images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_envoy" {
+  name                 = "financial/cilium-envoy"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-envoy"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_envoy" {
+  repository = aws_ecr_repository.cilium_envoy.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium envoy images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_hubble_relay" {
+  name                 = "financial/cilium-hubble-relay"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-hubble-relay"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_hubble_relay" {
+  repository = aws_ecr_repository.cilium_hubble_relay.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium hubble-relay images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# ==============================================================================
 # Tetragon 런타임 이미지 (tetragon, tetragon-operator, hubble-export-stdout)
 # rthooks는 values.yaml에서 enabled=false이므로 repo 생성 제외
-# =============================================================================
+# ==============================================================================
 resource "aws_ecr_repository" "tetragon" {
   name                 = "financial/tetragon"
   image_tag_mutability = "MUTABLE"

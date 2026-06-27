@@ -23,10 +23,15 @@
       kubeProxyReplacement: false
       encryption:
         enabled: false
+      envoy:
+        image:
+          repository: "{{ cilium_envoy_image_repository }}"
       hubble:
         enabled: true
         relay:
           enabled: true
+          image:
+            repository: "{{ cilium_hubble_relay_image_repository }}"
         metrics:
           enabled:
             - dns

@@ -69,6 +69,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_cilium:
+        description: "Mirror Cilium images into ECR (agent, operator-generic, envoy, hubble-relay)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -108,6 +113,13 @@ env:
   TETRAGON_REPOSITORY: financial/tetragon
   TETRAGON_OPERATOR_REPOSITORY: financial/tetragon-operator
   HUBBLE_EXPORT_STDOUT_REPOSITORY: financial/hubble-export-stdout
+  CILIUM_VERSION: "1.16.5"  # Note: keep in sync with CILIUM_CHART_VERSION in tools/ansible-codebuild/Dockerfile
+  CILIUM_ENVOY_TAG: "v1.30.8-1733837904-eaae5aca0fb988583e5617170a65ac5aa51c0aa8"  # helm chart 1.16.5 번들 envoy 태그
+  CILIUM_SOURCE_REGISTRY: quay.io/cilium
+  CILIUM_REPOSITORY: financial/cilium
+  CILIUM_OPERATOR_REPOSITORY: financial/cilium-operator-generic
+  CILIUM_ENVOY_REPOSITORY: financial/cilium-envoy
+  CILIUM_HUBBLE_RELAY_REPOSITORY: financial/cilium-hubble-relay
   EXTERNAL_SECRETS_VERSION: "v0.10.7"
   EXTERNAL_SECRETS_REPOSITORY: external-secrets/external-secrets
   EXTERNAL_SECRETS_SOURCE_IMAGE: ghcr.io/external-secrets/external-secrets
@@ -306,6 +318,14 @@ jobs:
           -target=aws_ecr_lifecycle_policy.tetragon_operator
           -target=aws_ecr_repository.hubble_export_stdout
           -target=aws_ecr_lifecycle_policy.hubble_export_stdout
+          -target=aws_ecr_repository.cilium
+          -target=aws_ecr_lifecycle_policy.cilium
+          -target=aws_ecr_repository.cilium_operator_generic
+          -target=aws_ecr_lifecycle_policy.cilium_operator_generic
+          -target=aws_ecr_repository.cilium_envoy
+          -target=aws_ecr_lifecycle_policy.cilium_envoy
+          -target=aws_ecr_repository.cilium_hubble_relay
+          -target=aws_ecr_lifecycle_policy.cilium_hubble_relay
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -342,6 +362,10 @@ jobs:
           aws ecr describe-repositories --repository-names "${TETRAGON_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${TETRAGON_OPERATOR_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${HUBBLE_EXPORT_STDOUT_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_OPERATOR_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_ENVOY_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_HUBBLE_RELAY_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -463,6 +487,39 @@ jobs:
           docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
           docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
           docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
+
+      - name: Mirror Cilium images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_cilium == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # agent (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_REPOSITORY}:latest"
+
+          # operator-generic (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:latest"
+
+          # envoy (별도 태그 CILIUM_ENVOY_TAG — chart 1.16.5 번들)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}" "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:${CILIUM_ENVOY_TAG}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}" "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:${CILIUM_ENVOY_TAG}"
+          docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:latest"
+
+          # hubble-relay (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:latest"
 
       - name: Mirror FinOps runtime images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
