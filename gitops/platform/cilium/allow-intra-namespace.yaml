@@ -60,6 +60,27 @@ spec:
             - port: "3000"
               protocol: TCP
 ---
+# gitea(internal-git) ingress: argocd-repo-server로부터 3000 수신
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-git-from-argocd
+spec:
+  description: "gitea:3000 ingress 허용 (argocd-repo-server에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: git
+      app.kubernetes.io/name: internal-git
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argocd
+            app.kubernetes.io/name: argocd-repo-server
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
