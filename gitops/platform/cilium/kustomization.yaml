@@ -7,6 +7,7 @@ resources:
 
   # 시스템 기반 allow
   - allow-dns.yaml
+  - allow-dns-ingress.yaml
   - allow-kube-apiserver.yaml
   - allow-node-local.yaml
   - allow-ztunnel-hbone.yaml
