@@ -1,0 +1,33 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-velero
+spec:
+  description: "velero → S3/EC2/KMS FQDN egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: velero
+      app.kubernetes.io/name: velero
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    - toFQDNs:
+        # S3: VPC gateway endpoint 사용 시 toFQDNs 불안정 가능 → 실제 트래픽을 Hubble로 확인 후 필요 시 toCIDR/toEntities:world로 교체
+        - matchName: "s3.ap-northeast-2.amazonaws.com"
+        - matchName: "ec2.ap-northeast-2.amazonaws.com"
+        - matchName: "kms.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

@@ -14,11 +14,19 @@ spec:
         - 10.20.12.0/24
       toPorts:
         - ports:
-            - port: "9411"
+            - port: "3200"
+              protocol: TCP
+            - port: "4317"
               protocol: TCP
             - port: "4318"
               protocol: TCP
+            - port: "9411"
+              protocol: TCP
             - port: "14250"
+              protocol: TCP
+            - port: "14268"
+              protocol: TCP
+            - port: "55678"
               protocol: TCP
             - port: "55680"
               protocol: TCP

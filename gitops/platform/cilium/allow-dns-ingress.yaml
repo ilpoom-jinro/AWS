@@ -16,3 +16,12 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+  egress:
+    - toCIDR:
+        - 10.20.0.2/32
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
