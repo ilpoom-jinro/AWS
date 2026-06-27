@@ -44,7 +44,7 @@
             - flow
             - port-distribution
             - icmp
-      policyAuditMode: true
+      policyAuditMode: false
       operator:
         replicas: 1
         image:
