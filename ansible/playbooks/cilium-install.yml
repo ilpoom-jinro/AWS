@@ -26,12 +26,16 @@
       envoy:
         image:
           repository: "{{ cilium_envoy_image_repository }}"
+          tag: "{{ cilium_envoy_image_tag }}"
+          useDigest: false
       hubble:
         enabled: true
         relay:
           enabled: true
           image:
             repository: "{{ cilium_hubble_relay_image_repository }}"
+            tag: "{{ cilium_image_tag }}"
+            useDigest: false
         metrics:
           enabled:
             - dns
@@ -45,9 +49,12 @@
         replicas: 1
         image:
           repository: "{{ cilium_operator_image_repository }}"
+          tag: "{{ cilium_image_tag }}"
+          useDigest: false
       image:
         repository: "{{ cilium_image_repository }}"
         tag: "{{ cilium_image_tag }}"
+        useDigest: false
 
   tasks:
     - name: Update kubeconfig for Cilium target clusters
