@@ -18,6 +18,7 @@ resources:
   # 앱별 allow
   - allow-stock-demo.yaml
   - allow-finops-mas.yaml
+  - allow-observability-nlb.yaml
 
   # FQDN egress
   - allow-fqdn-finops-mas.yaml
