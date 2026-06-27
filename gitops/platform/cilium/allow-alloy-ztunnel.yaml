@@ -3,16 +3,38 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-alloy-ztunnel
 spec:
-  description: "alloy-ops → ztunnel 15020 egress 허용 (ztunnel은 hostNetwork → entity: host/remote-node)"
+  description: "alloy-ops → ztunnel 15020 egress 허용"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: observability
       app.kubernetes.io/name: alloy
       app.kubernetes.io/instance: observability-alloy-ops
   egress:
-    - toEntities:
-        - host
-        - remote-node
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+            app: ztunnel
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ztunnel-alloy-ingress
+spec:
+  description: "ztunnel 15020 ingress 허용 (alloy-ops에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: ztunnel
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
       toPorts:
         - ports:
             - port: "15020"
