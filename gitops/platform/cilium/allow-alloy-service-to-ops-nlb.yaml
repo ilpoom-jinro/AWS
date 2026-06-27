@@ -1,0 +1,27 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-service-to-ops-nlb
+spec:
+  # alloy-service (service 클러스터) → ops 클러스터 NLB 수신 엔드포인트 egress 허용
+  # 대상: Loki:3100 / Thanos receive:19291 / Tempo OTLP:4317 (loki.write, prometheus.remote_write, otelcol.exporter.otlp)
+  # NLB IP는 gitops-platform-sync 런타임 주입 → /32 미확정
+  # toCIDR ops VPC CIDR(10.20.0.0/16)로 제한 (toEntities: world 금지, 망분리)
+  # Hubble audit 후 NLB IP /32 확인되면 더 좁힐 수 있음 (현재는 /16 허용)
+  description: "alloy-service → ops NLB(Loki:3100/Thanos:19291/Tempo:4317) egress 허용 (toCIDR 10.20.0.0/16, service 클러스터)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-service
+  egress:
+    - toCIDR:
+        - 10.20.0.0/16
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+            - port: "19291"
+              protocol: TCP
+            - port: "4317"
+              protocol: TCP
