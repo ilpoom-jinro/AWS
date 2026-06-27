@@ -15,13 +15,17 @@ resources:
   # 네임스페이스별 intra allow (시스템)
   - allow-intra-namespace.yaml
 
-  # 앱별 allow
-  - allow-stock-demo.yaml
+  # 앱별 allow (ops 클러스터)
   - allow-finops-mas.yaml
   - allow-observability-nlb.yaml
   - allow-alloy-ztunnel.yaml
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
+
+  # 앱별 allow (service 클러스터)
+  - allow-stock-demo.yaml
+  - allow-alloy-service-ztunnel.yaml
+  - allow-alloy-service-scraping.yaml
 
   # FQDN egress
   - allow-fqdn-finops-mas.yaml
