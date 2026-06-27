@@ -15,6 +15,10 @@ resources:
   # 네임스페이스별 intra allow (시스템)
   - allow-intra-namespace.yaml
 
+  # apiserver admission webhook allow (ops + service 양쪽)
+  - allow-apiserver-albc-webhook.yaml
+  - allow-apiserver-kyverno-webhook.yaml
+
   # 앱별 allow (ops 클러스터)
   - allow-finops-mas.yaml
   - allow-observability-nlb.yaml
@@ -27,6 +31,7 @@ resources:
   - allow-stock-demo.yaml
   - allow-alloy-service-ztunnel.yaml
   - allow-alloy-service-scraping.yaml
+  - allow-alloy-service-to-ops-nlb.yaml
 
   # FQDN egress
   - allow-fqdn-finops-mas.yaml

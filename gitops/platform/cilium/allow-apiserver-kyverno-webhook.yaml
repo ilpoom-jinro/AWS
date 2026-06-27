@@ -1,0 +1,24 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver-kyverno-webhook
+spec:
+  # kube-apiserver → Kyverno admissionController MutatingAdmissionWebhook 호출 허용
+  # kyverno helm values: admissionController.service.port=443 → container port 9443 (Kyverno v1.13.x 기본값)
+  # Cilium은 파드 레벨 적용: Service(443)가 DNAT → pod(9443) — 정책은 9443 사용
+  # app.kubernetes.io/component: admission-controller 로 admission-controller 파드만 선택
+  # (background/cleanup/reports controller 제외)
+  # ops + service 양쪽 클러스터 동일 적용
+  description: "kube-apiserver → kyverno admission-controller:9443 ingress 허용 (admission webhook)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kyverno
+      app.kubernetes.io/name: kyverno
+      app.kubernetes.io/component: admission-controller
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "9443"
+              protocol: TCP
