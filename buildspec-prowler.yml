@@ -4,12 +4,24 @@ phases:
     commands:
       # prowler 공식 이미지엔 awscli가 없음 → S3 업로드용으로 설치 (root 경고 억제)
       - pip install awscli --quiet --root-user-action=ignore || pip3 install awscli --quiet --root-user-action=ignore
+      # jq: 공식 이미지에 포함되어 있으나 latest 태그 변경 대비 방어적 설치
+      - which jq || apt-get install -y jq
   build:
     commands:
       # prowler는 이미지의 venv 안에 있고 PATH에 없음 → 절대경로 호출
       # OCSF 포함 3종을 로컬에 출력. -z: FAIL 있어도 exit 3 무시(빌드 성공 처리)
       - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
-      # .ocsf.json → ${date}/ocsf/  : Athena prowler 테이블 스캔 대상 (siem-athena.tf storage.location.template)
-      - aws s3 cp /tmp/prowler-out/ "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/" --recursive --exclude "*" --include "*.ocsf.json"
+      # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
+      # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
+      # jq -c '.[]': 배열 분해 + 한 줄에 객체 하나(NDJSON) → OpenX SerDe 정상 처리
+      # findings 0건이면 jq 출력 없음 → 업로드 생략(Athena 0행, 정상)
+      - |
+        ocsf_file=$(find /tmp/prowler-out -name "*.ocsf.json" | head -1)
+        converted=$(jq -c '.[]' "${ocsf_file}")
+        if [ -n "${converted}" ]; then
+          echo "${converted}" | aws s3 cp - "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/prowler.ocsf.json"
+        else
+          echo "Prowler findings 0건 — ocsf/ 업로드 생략"
+        fi
       # 나머지(csv/html/compliance/*.csv) → ${date}/reports/ : 감사 증적 보존, Athena 스캔 범위 밖
       - aws s3 cp /tmp/prowler-out/ "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/reports/" --recursive --exclude "*.ocsf.json"
