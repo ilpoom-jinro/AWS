@@ -90,6 +90,9 @@ spec:
     # Tetragon TracingPolicy — 클러스터 스코프 리소스 (tetragon/policies ApplicationSet 대비)
     - group: cilium.io
       kind: TracingPolicy
+    # Cilium 네트워크 정책 — 클러스터 스코프 (cilium-policies ApplicationSet 대비)
+    - group: cilium.io
+      kind: CiliumClusterwideNetworkPolicy
   namespaceResourceWhitelist:
     # 인프라 Helm 차트는 ServiceMonitor, PDB, MutatingWebhookConfiguration 등
     # 다양한 extension 리소스를 배포하므로 네임스페이스 수준은 와일드카드 허용
