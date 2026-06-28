@@ -683,7 +683,7 @@ resource "aws_glue_catalog_table" "prowler" {
 # ─────────────────────────────────────────────
 resource "aws_iam_role" "siem_athena_query" {
   name        = "financial-siem-athena-query-role"
-  description = "SIEM Athena 쿼리 전용 역할 — 보안 담당자 AssumeRole, MAS Phase Agent 재사용 예정"
+  description = "SIEM Athena query execution role - AssumeRole by security user, reused by MAS agent"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
