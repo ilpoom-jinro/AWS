@@ -564,9 +564,7 @@ resource "aws_glue_catalog_table" "prowler" {
       name                  = "prowler_ocsf"
       serialization_library = "org.openx.data.jsonserde.JsonSerDe"
       parameters = {
-        # 파일이 [{...},{...}] 형식 → 배열 외부 괄호 제거 후 각 원소를 1행으로 처리
-        "strip.outer.array" = "TRUE"
-        # .csv/.html/compliance/* 파일이 JSON 파싱 실패 시 조용히 건너뜀
+        # buildspec-prowler.yml에서 jq -c '.[]'로 NDJSON 변환 후 업로드 → strip.outer.array 불필요
         "ignore.malformed.json" = "TRUE"
         "serialization.format"  = "1"
       }
