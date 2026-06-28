@@ -196,7 +196,7 @@ resource "aws_glue_catalog_table" "cloudtrail" {
     # 루트 경로 — Athena는 storage.location.template로 실제 파티션 경로 결정
     location = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/"
     # gzip JSON 해제 + CloudTrail Records[] 구조 처리 전용 InputFormat
-    input_format  = "com.amazon.emr.hive.SpecialEMRInputFormat"
+    input_format  = "com.amazon.emr.cloudtrail.CloudTrailInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
 
     ser_de_info {
