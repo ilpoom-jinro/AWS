@@ -70,3 +70,43 @@ spec:
         - ports:
             - port: "4318"
               protocol: TCP
+---
+# stock-demo → istiod CA(15012) egress — gateway/waypoint 인증서 서명(CSR)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-stock-demo-to-istiod
+spec:
+  description: "stock-demo gateway/waypoint → istio-system istiod:15012 CA egress 허용 (Envoy CSR 서명)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+            app: istiod
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP
+---
+# istiod ← stock-demo:15012 ingress (쌍)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-istiod-from-stock-demo
+spec:
+  description: "istio-system istiod ← stock-demo:15012 CA ingress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: istiod
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP
