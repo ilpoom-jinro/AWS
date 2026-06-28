@@ -4,8 +4,6 @@ phases:
     commands:
       # prowler 공식 이미지엔 awscli가 없음 → S3 업로드용으로 설치 (root 경고 억제)
       - pip install awscli --quiet --root-user-action=ignore || pip3 install awscli --quiet --root-user-action=ignore
-      # jq: 공식 이미지에 포함되어 있으나 latest 태그 변경 대비 방어적 설치
-      - which jq || apt-get install -y jq
   build:
     commands:
       # prowler는 이미지의 venv 안에 있고 PATH에 없음 → 절대경로 호출
@@ -13,11 +11,11 @@ phases:
       - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
       # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
       # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
-      # jq -c '.[]': 배열 분해 + 한 줄에 객체 하나(NDJSON) → OpenX SerDe 정상 처리
-      # findings 0건이면 jq 출력 없음 → 업로드 생략(Athena 0행, 정상)
+      # python3: 배열 각 원소를 json.dumps()로 한 줄씩 출력(NDJSON) → OpenX SerDe 정상 처리
+      # findings 0건([])이면 출력 없음 → converted 비어 업로드 생략(Athena 0행, 정상)
       - |
         ocsf_file=$(find /tmp/prowler-out -name "*.ocsf.json" | head -1)
-        converted=$(jq -c '.[]' "${ocsf_file}")
+        converted=$(python3 -c "import json,sys; [print(json.dumps(o)) for o in json.load(open(sys.argv[1]))]" "${ocsf_file}")
         if [ -n "${converted}" ]; then
           echo "${converted}" | aws s3 cp - "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/prowler.ocsf.json"
         else
