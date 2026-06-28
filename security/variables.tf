@@ -37,3 +37,9 @@ variable "pii_scan_ecr_repo_arn" {
   description = "PII 스캔 ECR repo ARN — CodeBuild IAM role의 ECR pull 권한 범위 지정"
   type        = string
 }
+
+variable "aws_region" {
+  description = "AWS 배포 리전 — SIEM Athena results 버킷 이름 suffix용 (finops 패턴 준수)"
+  type        = string
+  default     = "ap-northeast-2"
+}
