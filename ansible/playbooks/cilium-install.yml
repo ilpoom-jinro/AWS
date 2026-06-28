@@ -44,7 +44,8 @@
             - flow
             - port-distribution
             - icmp
-      policyAuditMode: false
+      # 임시 audit — 재구축 후 누락 정책 보강 중. 전수 검증 후 false 복귀 (망분리 #79)
+      policyAuditMode: true
       operator:
         replicas: 1
         image:
