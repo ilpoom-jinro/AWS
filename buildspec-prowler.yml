@@ -11,13 +11,13 @@ phases:
       - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
       # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
       # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
-      # python3: 배열 각 원소를 json.dumps()로 한 줄씩 출력(NDJSON) → OpenX SerDe 정상 처리
-      # findings 0건([])이면 출력 없음 → converted 비어 업로드 생략(Athena 0행, 정상)
+      # python3로 NDJSON 변환 결과를 파일로 저장 → 변수 경유 시 ARG_MAX 초과 방지
+      # findings 0건([])이면 0바이트 파일 → [ -s ] false → 업로드 생략(Athena 0행, 정상)
       - |
         ocsf_file=$(find /tmp/prowler-out -name "*.ocsf.json" | head -1)
-        converted=$(python3 -c "import json,sys; [print(json.dumps(o)) for o in json.load(open(sys.argv[1]))]" "${ocsf_file}")
-        if [ -n "${converted}" ]; then
-          echo "${converted}" | aws s3 cp - "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/prowler.ocsf.json"
+        python3 -c "import json,sys; [print(json.dumps(o)) for o in json.load(open(sys.argv[1]))]" "${ocsf_file}" > /tmp/prowler.ndjson
+        if [ -s /tmp/prowler.ndjson ]; then
+          aws s3 cp /tmp/prowler.ndjson "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/prowler.ocsf.json"
         else
           echo "Prowler findings 0건 — ocsf/ 업로드 생략"
         fi
