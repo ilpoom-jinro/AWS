@@ -74,6 +74,11 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_trivy:
+        description: "Mirror Trivy Operator images into ECR (trivy-operator, trivy, trivy-db, trivy-java-db, node-collector)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -140,6 +145,15 @@ env:
   SNAPSHOT_CONTROLLER_VERSION: "v8.6.0"  # Note: keep in sync with helmChart/snapshot-controller/values.yaml image.tag
   SNAPSHOT_CONTROLLER_REPOSITORY: sig-storage/snapshot-controller
   SNAPSHOT_CONTROLLER_SOURCE_IMAGE: registry.k8s.io/sig-storage/snapshot-controller
+  TRIVY_OPERATOR_VERSION: "0.31.2"  # Note: trivy-operator chart 0.33.2 appVersion. Keep in sync with TRIVY_OPERATOR_CHART_VERSION in tools/ansible-codebuild/Dockerfile
+  TRIVY_VERSION: "0.71.1"  # trivy 스캐너 이미지 태그 (trivy.image.tag)
+  TRIVY_DB_VERSION: "2"  # 취약점 DB OCI 아티팩트 태그
+  TRIVY_JAVA_DB_VERSION: "1"  # Java 취약점 DB OCI 아티팩트 태그
+  NODE_COLLECTOR_VERSION: "0.3.1"  # infra-assessment/CIS 컴플라이언스 스캔용 Job 이미지
+  TRIVY_SOURCE_REGISTRY: docker.io/aquasec
+  NODE_COLLECTOR_SOURCE_IMAGE: ghcr.io/aquasecurity/node-collector
+  TRIVY_REPOSITORY_PREFIX: financial/trivy
+  NODE_COLLECTOR_REPOSITORY: financial/trivy/node-collector
 
 jobs:
   images:
@@ -164,6 +178,7 @@ jobs:
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
             echo "kubectl=false" >> "${GITHUB_OUTPUT}"
             echo "tetragon=false" >> "${GITHUB_OUTPUT}"
+            echo "trivy=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -221,6 +236,12 @@ jobs:
             echo "tetragon=true" >> "${GITHUB_OUTPUT}"
           else
             echo "tetragon=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+(TRIVY_OPERATOR_VERSION|TRIVY_VERSION|TRIVY_DB_VERSION|TRIVY_JAVA_DB_VERSION|NODE_COLLECTOR_VERSION):'; then
+            echo "trivy=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "trivy=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -326,6 +347,16 @@ jobs:
           -target=aws_ecr_lifecycle_policy.cilium_envoy
           -target=aws_ecr_repository.cilium_hubble_relay
           -target=aws_ecr_lifecycle_policy.cilium_hubble_relay
+          -target=aws_ecr_repository.trivy_operator
+          -target=aws_ecr_lifecycle_policy.trivy_operator
+          -target=aws_ecr_repository.trivy
+          -target=aws_ecr_lifecycle_policy.trivy
+          -target=aws_ecr_repository.trivy_db
+          -target=aws_ecr_lifecycle_policy.trivy_db
+          -target=aws_ecr_repository.trivy_java_db
+          -target=aws_ecr_lifecycle_policy.trivy_java_db
+          -target=aws_ecr_repository.node_collector
+          -target=aws_ecr_lifecycle_policy.node_collector
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -366,6 +397,11 @@ jobs:
           aws ecr describe-repositories --repository-names "${CILIUM_OPERATOR_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${CILIUM_ENVOY_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${CILIUM_HUBBLE_RELAY_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TRIVY_REPOSITORY_PREFIX}/trivy-operator"
+          aws ecr describe-repositories --repository-names "${TRIVY_REPOSITORY_PREFIX}/trivy"
+          aws ecr describe-repositories --repository-names "${TRIVY_REPOSITORY_PREFIX}/trivy-db"
+          aws ecr describe-repositories --repository-names "${TRIVY_REPOSITORY_PREFIX}/trivy-java-db"
+          aws ecr describe-repositories --repository-names "${NODE_COLLECTOR_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -487,6 +523,44 @@ jobs:
           docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
           docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
           docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
+
+      - name: Mirror Trivy images to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.trivy == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_trivy == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # trivy-operator
+          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-operator:${TRIVY_OPERATOR_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-operator:${TRIVY_OPERATOR_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:${TRIVY_OPERATOR_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-operator:${TRIVY_OPERATOR_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:latest"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:${TRIVY_OPERATOR_VERSION}"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:latest"
+
+          # trivy (스캐너 바이너리)
+          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy:${TRIVY_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy:${TRIVY_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:${TRIVY_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy:${TRIVY_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:latest"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:${TRIVY_VERSION}"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:latest"
+
+          # trivy-db: 취약점 DB OCI 아티팩트 — trivy-operator가 런타임에 주기적으로 pull
+          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
+
+          # trivy-java-db: Java 취약점 DB OCI 아티팩트
+          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
+          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
+          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
+
+          # node-collector: infra-assessment/CIS 컴플라이언스 스캔용 Job 이미지
+          docker pull "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}"
+          docker tag "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}" "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:${NODE_COLLECTOR_VERSION}"
+          docker tag "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}" "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:${NODE_COLLECTOR_VERSION}"
+          docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:latest"
 
       - name: Mirror Cilium images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_cilium == true

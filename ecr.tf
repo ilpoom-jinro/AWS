@@ -1718,3 +1718,198 @@ resource "aws_ecr_lifecycle_policy" "hubble_export_stdout" {
     }]
   })
 }
+
+# ==============================================================================
+# Trivy 런타임 이미지 (trivy-operator, trivy, trivy-db, trivy-java-db, node-collector)
+# trivy-db/trivy-java-db는 취약점 DB OCI 아티팩트 — trivy-operator가 주기적으로 pull
+# policiesBundle(trivy-checks)은 useEmbeddedRegoPolicies=true(기본값)로 미사용 → repo 생성 제외
+# ==============================================================================
+resource "aws_ecr_repository" "trivy_operator" {
+  name                 = "financial/trivy/trivy-operator"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/trivy/trivy-operator"
+    Purpose   = "trivy-operator-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "trivy_operator" {
+  repository = aws_ecr_repository.trivy_operator.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Trivy Operator images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "trivy" {
+  name                 = "financial/trivy/trivy"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/trivy/trivy"
+    Purpose   = "trivy-scanner-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "trivy" {
+  repository = aws_ecr_repository.trivy.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Trivy scanner images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "trivy_db" {
+  name                 = "financial/trivy/trivy-db"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/trivy/trivy-db"
+    Purpose   = "trivy-vulnerability-db"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "trivy_db" {
+  repository = aws_ecr_repository.trivy_db.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 5 Trivy DB images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "trivy_java_db" {
+  name                 = "financial/trivy/trivy-java-db"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/trivy/trivy-java-db"
+    Purpose   = "trivy-vulnerability-db"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "trivy_java_db" {
+  repository = aws_ecr_repository.trivy_java_db.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 5 Trivy Java DB images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "node_collector" {
+  name                 = "financial/trivy/node-collector"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/trivy/node-collector"
+    Purpose   = "trivy-node-collector-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "node_collector" {
+  repository = aws_ecr_repository.node_collector.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Node Collector images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
