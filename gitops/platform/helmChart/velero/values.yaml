@@ -1,0 +1,56 @@
+image:
+  repository: REPLACE_WITH_ECR_REGISTRY/velero/velero
+  tag: v1.15.0
+  pullPolicy: IfNotPresent
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: REPLACE_WITH_ECR_REGISTRY/velero/velero-plugin-for-aws:v1.11.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  uploaderType: kopia
+  # Enable CSI VolumeSnapshot -> S3 data mover (EBS snapshot uploaded via Kopia then deleted)
+  features: EnableCSI,EnableCSIVolumeDataMover
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: financial-velero-backup-REPLACE_WITH_ACCOUNT_ID
+      default: true
+      config:
+        region: ap-northeast-2
+        # S3 SSE-KMS key (alias reference for account migration compatibility)
+        kmsKeyId: alias/key-s3
+  volumeSnapshotLocation:
+    - name: default
+      provider: aws
+      config:
+        region: ap-northeast-2
+
+credentials:
+  # Credentials injected via Pod Identity - no Secret needed
+  useSecret: false
+
+serviceAccount:
+  server:
+    create: true
+    name: velero
+
+# chart 8.x: node-agent is enabled via top-level deployNodeAgent (no nodeAgent.enabled key)
+# node-agent shares the velero SA - no separate SA
+deployNodeAgent: true
+
+nodeAgent:
+  # node-agent is a DaemonSet - requires privileged for hostPath mounts
+  podSecurityContext:
+    runAsUser: 0
+  containerSecurityContext:
+    privileged: true
+
+# velero-upgrade-crds hook disabled: CRDs are managed directly via buildspec (consistent
+# with ArgoCD CRD exclusion pattern). Hook uses docker.io/bitnami/kubectl which cannot
+# be pulled in the private cluster, causing ImagePullBackOff and blocking sync.
+upgradeCRDs: false

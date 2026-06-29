@@ -1,0 +1,208 @@
+# 시스템 네임스페이스 intra-namespace allow 정책 모음
+#
+# {{.PodNamespace}} Go 템플릿은 CiliumClusterwideNetworkPolicy v1.16.5에서 미지원.
+# Kyverno 전용 문법임. Cilium에서 "같은 네임스페이스" 허용은 네임스페이스별 명시가 필요.
+# 앱 네임스페이스(stock-demo, finops-mas)는 각자 allow 파일에서 처리.
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-kube-system
+spec:
+  description: "kube-system 내부 파드 간 통신 허용 (cilium-agent, coredns, hubble-relay 등)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-argocd
+spec:
+  description: "argocd 내부 파드 간 통신 허용 (server, repo-server, controller, redis, dex)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: argocd
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argocd
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argocd
+---
+# ArgoCD repo-server → internal git server(git 네임스페이스) 크로스네임스페이스 허용
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-to-git
+spec:
+  description: "argocd repo-server → git 네임스페이스 internal-git-http:3000 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: argocd
+      app.kubernetes.io/name: argocd-repo-server
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: git
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+# gitea(internal-git) ingress: argocd-repo-server로부터 3000 수신
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-git-from-argocd
+spec:
+  description: "gitea:3000 ingress 허용 (argocd-repo-server에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: git
+      app.kubernetes.io/name: internal-git
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argocd
+            app.kubernetes.io/name: argocd-repo-server
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-istio-system
+spec:
+  description: "istio-system 내부 파드 간 통신 허용 (istiod, ztunnel, istio-cni)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-observability
+spec:
+  description: "observability 내부 파드 간 통신 허용 (loki, grafana, alloy, thanos, tempo)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-tetragon
+spec:
+  description: "tetragon 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: tetragon
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: tetragon
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: tetragon
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-kyverno
+spec:
+  description: "kyverno 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kyverno
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kyverno
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kyverno
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-external-secrets
+spec:
+  description: "external-secrets 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: external-secrets
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: external-secrets
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: external-secrets
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-velero
+spec:
+  description: "velero 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: velero
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: velero
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: velero
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-git
+spec:
+  description: "git(internal-git) 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: git
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: git
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: git

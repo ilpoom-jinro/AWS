@@ -1,0 +1,27 @@
+# TracingPolicy: monitor-sensitive-file-access
+# 목적: k8s SA 토큰·클라우드 자격증명 경로 open 감지
+# Prefix 연산자 — values 중 하나라도 매칭되면 이벤트 발생 (OR 조건)
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: monitor-sensitive-file-access
+spec:
+  kprobes:
+    - call: "sys_openat"
+      syscall: true
+      args:
+        - index: 1
+          type: "string"    # 파일 경로 (index 0은 dirfd, int)
+      selectors:
+        - matchArgs:
+            - index: 1
+              operator: "Prefix"
+              values:
+                - "/var/run/secrets/kubernetes.io/serviceaccount"  # k8s SA 토큰
+                - "/root/.aws"                                      # AWS 자격증명
+                - "/root/.config"                                   # 클라우드 CLI config
+          # ── MAS 단계 전환 시 아래 주석 해제 ──────────────────────────────
+          # matchActions:          # MAS 단계에서 주석 해제 시 차단(EACCES) 발효
+          #   - action: Override
+          #     argError: -13      # EACCES — 프로세스 종료 대신 접근 거부로 처리
+          # ────────────────────────────────────────────────────────────────

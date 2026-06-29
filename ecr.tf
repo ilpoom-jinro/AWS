@@ -611,6 +611,82 @@ resource "aws_ecr_lifecycle_policy" "finops_temporal" {
   })
 }
 
+resource "aws_ecr_repository" "temporal_server" {
+  name                 = "financial/mas/temporal/server"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/server"
+    Purpose   = "temporal-server-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_server" {
+  repository = aws_ecr_repository.temporal_server.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal Server images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "temporal_ui" {
+  name                 = "financial/mas/temporal/ui"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/mas/temporal/ui"
+    Purpose   = "temporal-ui-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "temporal_ui" {
+  repository = aws_ecr_repository.temporal_ui.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Temporal UI images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
 resource "aws_ecr_repository" "finops_postgres" {
   name                 = "financial/mas/finops/postgres"
   image_tag_mutability = "MUTABLE"
@@ -1210,6 +1286,427 @@ resource "aws_ecr_lifecycle_policy" "monitoring_kube_state_metrics" {
     rules = [{
       rulePriority = 1
       description  = "Keep the last 10 kube-state-metrics images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero" {
+  name                 = "velero/velero"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero" {
+  repository = aws_ecr_repository.velero.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "velero_plugin_aws" {
+  name                 = "velero/velero-plugin-for-aws"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "velero/velero-plugin-for-aws"
+    Purpose   = "velero-backup-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "velero_plugin_aws" {
+  repository = aws_ecr_repository.velero_plugin_aws.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Velero AWS plugin images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "snapshot_controller" {
+  name                 = "sig-storage/snapshot-controller"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "sig-storage/snapshot-controller"
+    Purpose   = "csi-snapshot-controller-runtime"
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "snapshot_controller" {
+  repository = aws_ecr_repository.snapshot_controller.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 snapshot-controller images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# =============================================
+# PII 스캔 런타임 이미지 (Presidio + spaCy ko)
+# count 게이팅 없음 — enable_pii_scan=false 시에도 이미지 보존
+# =============================================
+resource "aws_ecr_repository" "pii_scan" {
+  name                 = "financial/security/pii-scan"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/security/pii-scan"
+    Purpose   = "pii-scan-runtime"
+    ManagedBy = "terraform"
+    Owner     = "security"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "pii_scan" {
+  repository = aws_ecr_repository.pii_scan.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 PII scan images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+
+# =============================================================================
+# ==============================================================================
+# Cilium 런타임 이미지 (agent, operator-generic, envoy, hubble-relay)
+# operator Helm value는 "financial/cilium-operator" (template이 -generic suffix 자동 추가)
+# ==============================================================================
+resource "aws_ecr_repository" "cilium" {
+  name                 = "financial/cilium"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium" {
+  repository = aws_ecr_repository.cilium.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium agent images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_operator_generic" {
+  name                 = "financial/cilium-operator-generic"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-operator-generic"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_operator_generic" {
+  repository = aws_ecr_repository.cilium_operator_generic.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium operator images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_envoy" {
+  name                 = "financial/cilium-envoy"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-envoy"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_envoy" {
+  repository = aws_ecr_repository.cilium_envoy.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium envoy images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "cilium_hubble_relay" {
+  name                 = "financial/cilium-hubble-relay"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/cilium-hubble-relay"
+    Purpose   = "cilium-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "cilium_hubble_relay" {
+  repository = aws_ecr_repository.cilium_hubble_relay.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Cilium hubble-relay images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# ==============================================================================
+# Tetragon 런타임 이미지 (tetragon, tetragon-operator, hubble-export-stdout)
+# rthooks는 values.yaml에서 enabled=false이므로 repo 생성 제외
+# ==============================================================================
+resource "aws_ecr_repository" "tetragon" {
+  name                 = "financial/tetragon"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/tetragon"
+    Purpose   = "tetragon-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "tetragon" {
+  repository = aws_ecr_repository.tetragon.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Tetragon images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "tetragon_operator" {
+  name                 = "financial/tetragon-operator"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/tetragon-operator"
+    Purpose   = "tetragon-operator-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "tetragon_operator" {
+  repository = aws_ecr_repository.tetragon_operator.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Tetragon Operator images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+resource "aws_ecr_repository" "hubble_export_stdout" {
+  name                 = "financial/hubble-export-stdout"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "financial/hubble-export-stdout"
+    Purpose   = "tetragon-hubble-export-runtime"
+    ManagedBy = "terraform"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "hubble_export_stdout" {
+  repository = aws_ecr_repository.hubble_export_stdout.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 10 Hubble Export Stdout images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"

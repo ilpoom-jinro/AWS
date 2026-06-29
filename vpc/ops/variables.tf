@@ -143,6 +143,12 @@ variable "rds_multi_az" {
   default     = true
 }
 
+variable "rds_backup_retention" {
+  description = "RDS 자동 백업 보관일. Free Plan 계정은 0 필수(retention>0 시 FreeTierRestrictionError). Paid 계정에서만 tfvars로 7 오버라이드."
+  type        = number
+  default     = 0 # Free Plan 안전 기본값
+}
+
 variable "rds_password" {
   description = "RDS 마스터 비밀번호 — 루트 secrets.tf의 random_password.ops_rds에서 주입"
   type        = string
@@ -167,5 +173,10 @@ variable "kms_key_eks_arn" {
 
 variable "kms_key_secretsmanager_arn" {
   description = "Secrets Manager CMK ARN — rotation Lambda가 CMK 복호화에 사용"
+  type        = string
+}
+
+variable "kms_key_s3_arn" {
+  description = "S3 버킷 암호화에 사용할 KMS CMK ARN (alias/key-s3) — Velero IAM 정책에서 백업 버킷 SSE-KMS 접근 권한 부여에 사용"
   type        = string
 }

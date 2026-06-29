@@ -28,9 +28,13 @@ Temporal 결정성(Determinism) 주의:
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import timedelta
 
 from temporalio import workflow
+
+# 승인(공통 HITL) Activity가 도는 전용 task queue. slack-hitl 봇과 반드시 동일해야 함.
+HITL_TASK_QUEUE = os.getenv("HITL_TASK_QUEUE", "hitl-approval-queue")
 
 # 비결정 코드/외부 모듈은 sandbox를 통과시켜 import
 with workflow.unsafe.imports_passed_through():
@@ -107,6 +111,7 @@ class SecOpsWorkflow:
         )
         ticket = await workflow.execute_activity(
             send_approval_request, approval_req,
+            task_queue=HITL_TASK_QUEUE,   # 공통 슬랙 봇 큐로 라우팅 (.activities 스텁은 run_demo용)
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
         )
         await self._audit(event.workflow_id, "approval_requested", "Slack 승인 요청 전송",

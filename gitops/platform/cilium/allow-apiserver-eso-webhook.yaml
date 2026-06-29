@@ -1,0 +1,17 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver-eso-webhook
+spec:
+  description: "kube-apiserver → external-secrets-webhook 10250 ingress 허용 (admission/conversion webhook)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: external-secrets
+      app.kubernetes.io/name: external-secrets-webhook
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP

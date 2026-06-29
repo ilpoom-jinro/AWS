@@ -178,6 +178,9 @@ resource "aws_eks_node_group" "service" {
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   instance_types  = var.eks_node_instance_types
   capacity_type   = var.eks_node_capacity_type
+  # AL2023 명시 고정 — EKS 1.35는 ami_type 미지정 시 이미 AL2023가 기본값이나,
+  # AWS 기본값 변경에 의존하지 않도록 명시. (SELinux permissive / IMDSv2-only / 최소 패키지 보안 기본값)
+  ami_type = "AL2023_x86_64_STANDARD"
   # disk_size는 launch_template 사용 시 지정 불가 → launch template block_device_mappings로 이전
 
   scaling_config {

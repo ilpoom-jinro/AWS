@@ -218,6 +218,10 @@
             - apiGroups: [kyverno.io, wgpolicyk8s.io]
               resources: ["*"]
               verbs: [get, list, watch, create, update, patch, delete]
+            # TracingPolicy는 클러스터 스코프 리소스 → RoleBinding으로 부여 불가
+            - apiGroups: [cilium.io]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRoleBinding 생성 — argocd-manager-cluster-reader
       kubernetes.core.k8s:
@@ -283,6 +287,7 @@
         - observability
         - stock-demo
         - kyverno
+        - tetragon          # tetragon RoleBinding 전 사전 생성
         - external-secrets
         # istio-system은 Istio 설치 시 이미 존재하므로 별도 생성 불필요
       changed_when: false
@@ -310,6 +315,7 @@
         - istio-system     # istio-policies-service 배포 대상
         - stock-demo       # service-demo-app 배포 대상
         - kyverno          # kyverno ApplicationSet 배포 대상
+        - tetragon         # tetragon ApplicationSet 배포 대상
         - kube-system      # aws-load-balancer-controller-service 배포 대상
         - external-secrets # external-secrets-service ESO Helm 리소스 배포 대상
 

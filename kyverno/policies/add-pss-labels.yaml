@@ -23,7 +23,7 @@
 #   git           — Gitea 등 내부 Git 서비스
 #   istio-system  — Istio 사이드카 인젝터 및 컨트롤 플레인
 #   observability — Prometheus node-exporter 등 노드 수준 메트릭 수집기
-#   falco         — Falco 런타임 보안 DaemonSet (syscall 감지를 위해 privileged 필요)
+#   tetragon      — Tetragon eBPF 런타임 보안 DaemonSet (커널 수준 이벤트 수집을 위해 privileged 필요)
 #
 # 동작 확인:
 #   kubectl create ns test-ns
@@ -44,7 +44,7 @@ metadata:
       enforce: baseline 으로 위험 설정을 차단하고,
       audit/warn: restricted 로 보안 강화 현황을 가시화합니다.
       시스템 컴포넌트 네임스페이스(kube-system, kyverno, argocd, git,
-      istio-system, observability, falco)는 예외 처리됩니다.
+      istio-system, observability, tetragon)은 예외 처리됩니다.
 spec:
   # background: false → 기존 네임스페이스는 대상 제외 (신규 생성만 변경)
   background: false
@@ -70,7 +70,7 @@ spec:
                 - git           # 내부 Git 서비스
                 - istio-system  # Istio 컨트롤 플레인 및 사이드카 인젝터
                 - observability # Prometheus node-exporter 등 노드 메트릭 수집기
-                - falco         # Falco 런타임 보안 DaemonSet
+                - tetragon      # Tetragon eBPF 런타임 보안 DaemonSet (privileged 필요, PSS baseline 자동 부여 제외)
       mutate:
         patchStrategicMerge:
           metadata:

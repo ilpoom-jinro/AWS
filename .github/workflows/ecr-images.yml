@@ -54,6 +54,26 @@ on:
         required: true
         default: false
         type: boolean
+      mirror_temporal:
+        description: "Mirror Temporal server and UI images into ECR"
+        required: true
+        default: false
+        type: boolean
+      mirror_velero:
+        description: "Mirror Velero and snapshot-controller images into ECR"
+        required: true
+        default: false
+        type: boolean
+      mirror_tetragon:
+        description: "Mirror Tetragon images into ECR"
+        required: true
+        default: false
+        type: boolean
+      mirror_cilium:
+        description: "Mirror Cilium images into ECR (agent, operator-generic, envoy, hubble-relay)"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -87,6 +107,19 @@ env:
   KYVERNO_SOURCE_REGISTRY: reg.kyverno.io/kyverno
   KUBECTL_VERSION: "v1.30.2"  # Note: keep in sync with cleanupJobs/webhooksCleanup/policyReportsCleanup image.tag in kyverno/helm/values.yaml
   KUBECTL_REPOSITORY: financial/kyverno/kubectl
+  TETRAGON_VERSION: "v1.7.0"  # Note: keep in sync with TETRAGON_CHART_VERSION in tools/ansible-codebuild/Dockerfile
+  HUBBLE_EXPORT_STDOUT_VERSION: "v1.1.1"
+  TETRAGON_SOURCE_REGISTRY: quay.io/cilium
+  TETRAGON_REPOSITORY: financial/tetragon
+  TETRAGON_OPERATOR_REPOSITORY: financial/tetragon-operator
+  HUBBLE_EXPORT_STDOUT_REPOSITORY: financial/hubble-export-stdout
+  CILIUM_VERSION: "1.16.5"  # Note: keep in sync with CILIUM_CHART_VERSION in tools/ansible-codebuild/Dockerfile
+  CILIUM_ENVOY_TAG: "v1.30.8-1733837904-eaae5aca0fb988583e5617170a65ac5aa51c0aa8"  # helm chart 1.16.5 번들 envoy 태그
+  CILIUM_SOURCE_REGISTRY: quay.io/cilium
+  CILIUM_REPOSITORY: financial/cilium
+  CILIUM_OPERATOR_REPOSITORY: financial/cilium-operator-generic
+  CILIUM_ENVOY_REPOSITORY: financial/cilium-envoy
+  CILIUM_HUBBLE_RELAY_REPOSITORY: financial/cilium-hubble-relay
   EXTERNAL_SECRETS_VERSION: "v0.10.7"
   EXTERNAL_SECRETS_REPOSITORY: external-secrets/external-secrets
   EXTERNAL_SECRETS_SOURCE_IMAGE: ghcr.io/external-secrets/external-secrets
@@ -94,6 +127,19 @@ env:
   FINOPS_TEMPORAL_SOURCE_IMAGE: docker.io/temporalio/admin-tools:latest
   FINOPS_POSTGRES_REPOSITORY: financial/mas/finops/postgres
   FINOPS_POSTGRES_SOURCE_IMAGE: docker.io/library/postgres:16-alpine
+  TEMPORAL_VERSION: "1.31.0"
+  TEMPORAL_UI_VERSION: "2.49.1"
+  TEMPORAL_SERVER_REPOSITORY: financial/mas/temporal/server
+  TEMPORAL_UI_REPOSITORY:     financial/mas/temporal/ui
+  VELERO_VERSION: "v1.15.0"  # Note: keep in sync with helmChart/velero/values.yaml image.tag
+  VELERO_REPOSITORY: velero/velero
+  VELERO_SOURCE_IMAGE: docker.io/velero/velero
+  VELERO_PLUGIN_AWS_VERSION: "v1.11.0"  # Note: keep in sync with helmChart/velero/values.yaml initContainers image
+  VELERO_PLUGIN_AWS_REPOSITORY: velero/velero-plugin-for-aws
+  VELERO_PLUGIN_AWS_SOURCE_IMAGE: docker.io/velero/velero-plugin-for-aws
+  SNAPSHOT_CONTROLLER_VERSION: "v8.6.0"  # Note: keep in sync with helmChart/snapshot-controller/values.yaml image.tag
+  SNAPSHOT_CONTROLLER_REPOSITORY: sig-storage/snapshot-controller
+  SNAPSHOT_CONTROLLER_SOURCE_IMAGE: registry.k8s.io/sig-storage/snapshot-controller
 
 jobs:
   images:
@@ -117,6 +163,7 @@ jobs:
             echo "istio=false" >> "${GITHUB_OUTPUT}"
             echo "kyverno=false" >> "${GITHUB_OUTPUT}"
             echo "kubectl=false" >> "${GITHUB_OUTPUT}"
+            echo "tetragon=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -162,6 +209,18 @@ jobs:
             echo "kubectl=true" >> "${GITHUB_OUTPUT}"
           else
             echo "kubectl=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+(TEMPORAL_VERSION|TEMPORAL_UI_VERSION):'; then
+            echo "temporal=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "temporal=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if git diff "${before}" "${{ github.sha }}" -- .github/workflows/ecr-images.yml | grep -Eq '^\+\s+(TETRAGON_VERSION|HUBBLE_EXPORT_STDOUT_VERSION):'; then
+            echo "tetragon=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tetragon=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Configure AWS credentials
@@ -239,8 +298,34 @@ jobs:
           -target=aws_ecr_lifecycle_policy.external_secrets
           -target=aws_ecr_repository.metrics_server
           -target=aws_ecr_lifecycle_policy.metrics_server
+          -target=aws_ecr_repository.temporal_server
+          -target=aws_ecr_lifecycle_policy.temporal_server
+          -target=aws_ecr_repository.temporal_ui
+          -target=aws_ecr_lifecycle_policy.temporal_ui
           -target=aws_ecr_repository.monitoring_kube_state_metrics
           -target=aws_ecr_lifecycle_policy.monitoring_kube_state_metrics
+          -target=aws_ecr_repository.velero
+          -target=aws_ecr_lifecycle_policy.velero
+          -target=aws_ecr_repository.velero_plugin_aws
+          -target=aws_ecr_lifecycle_policy.velero_plugin_aws
+          -target=aws_ecr_repository.snapshot_controller
+          -target=aws_ecr_lifecycle_policy.snapshot_controller
+          -target=aws_ecr_repository.pii_scan
+          -target=aws_ecr_lifecycle_policy.pii_scan
+          -target=aws_ecr_repository.tetragon
+          -target=aws_ecr_lifecycle_policy.tetragon
+          -target=aws_ecr_repository.tetragon_operator
+          -target=aws_ecr_lifecycle_policy.tetragon_operator
+          -target=aws_ecr_repository.hubble_export_stdout
+          -target=aws_ecr_lifecycle_policy.hubble_export_stdout
+          -target=aws_ecr_repository.cilium
+          -target=aws_ecr_lifecycle_policy.cilium
+          -target=aws_ecr_repository.cilium_operator_generic
+          -target=aws_ecr_lifecycle_policy.cilium_operator_generic
+          -target=aws_ecr_repository.cilium_envoy
+          -target=aws_ecr_lifecycle_policy.cilium_envoy
+          -target=aws_ecr_repository.cilium_hubble_relay
+          -target=aws_ecr_lifecycle_policy.cilium_hubble_relay
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Login to Amazon ECR
@@ -272,6 +357,15 @@ jobs:
           aws ecr describe-repositories --repository-names "${KUBECTL_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${FINOPS_TEMPORAL_REPOSITORY}"
           aws ecr describe-repositories --repository-names "${FINOPS_POSTGRES_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_SERVER_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TEMPORAL_UI_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TETRAGON_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${TETRAGON_OPERATOR_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${HUBBLE_EXPORT_STDOUT_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_OPERATOR_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_ENVOY_REPOSITORY}"
+          aws ecr describe-repositories --repository-names "${CILIUM_HUBBLE_RELAY_REPOSITORY}"
 
       - name: Build and push Ansible CodeBuild image
         if: >
@@ -367,6 +461,66 @@ jobs:
           docker tag "${source_image}" "${target_image}"
           docker push "${target_image}"
 
+      - name: Mirror Tetragon images to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.tetragon == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_tetragon == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # tetragon + tetragon-operator: 공용 태그 TETRAGON_VERSION
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_REPOSITORY}:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:${TETRAGON_VERSION}"
+          docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:latest"
+
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}"
+          docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:latest"
+
+          # hubble-export-stdout: 별도 태그 HUBBLE_EXPORT_STDOUT_VERSION
+          docker pull "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker tag "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}" "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}"
+          docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
+
+      - name: Mirror Cilium images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_cilium == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # agent (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_REPOSITORY}:latest"
+
+          # operator-generic (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:latest"
+
+          # envoy (별도 태그 CILIUM_ENVOY_TAG — chart 1.16.5 번들)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}" "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:${CILIUM_ENVOY_TAG}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}" "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:${CILIUM_ENVOY_TAG}"
+          docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:latest"
+
+          # hubble-relay (CILIUM_VERSION)
+          docker pull "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:v${CILIUM_VERSION}"
+          docker tag "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}" "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:v${CILIUM_VERSION}"
+          docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:latest"
+
       - name: Mirror FinOps runtime images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
         env:
@@ -385,6 +539,34 @@ jobs:
           docker push "${postgres_target}"
           docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
 
+      - name: Mirror Temporal Server and UI images to ECR
+        if: >
+          (github.event_name == 'push' && steps.changes.outputs.temporal == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mirror_temporal == true)
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          # Server
+          server_source="docker.io/temporalio/server:${TEMPORAL_VERSION}"
+          server_target="${REGISTRY}/${TEMPORAL_SERVER_REPOSITORY}:${TEMPORAL_VERSION}"
+          docker pull "${server_source}"
+          docker tag "${server_source}" "${server_target}"
+          docker push "${server_target}"
+
+          # UI
+          ui_source="docker.io/temporalio/ui:${TEMPORAL_UI_VERSION}"
+          ui_target="${REGISTRY}/${TEMPORAL_UI_REPOSITORY}:${TEMPORAL_UI_VERSION}"
+          docker pull "${ui_source}"
+          docker tag "${ui_source}" "${ui_target}"
+          docker push "${ui_target}"
+
+          # Admin-tools 
+          admin_source="docker.io/temporalio/admin-tools:${TEMPORAL_VERSION}"
+          admin_target="${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}:${TEMPORAL_VERSION}"
+          docker pull "${admin_source}"
+          docker tag "${admin_source}" "${admin_target}"
+          docker push "${admin_target}"
+
       - name: Mirror External Secrets Operator image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_external_secrets == true
         env:
@@ -396,6 +578,29 @@ jobs:
           docker pull "${source_image}"
           docker tag "${source_image}" "${target_image}"
           docker push "${target_image}"
+
+      - name: Mirror Velero and snapshot-controller images to ECR
+        if: github.event_name == 'workflow_dispatch' && inputs.mirror_velero == true
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          docker pull "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}"
+          docker tag "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}" "${REGISTRY}/${VELERO_REPOSITORY}:${VELERO_VERSION}"
+          docker tag "${VELERO_SOURCE_IMAGE}:${VELERO_VERSION}" "${REGISTRY}/${VELERO_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${VELERO_REPOSITORY}:${VELERO_VERSION}"
+          docker push "${REGISTRY}/${VELERO_REPOSITORY}:latest"
+
+          docker pull "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker tag "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}" "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker tag "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}" "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}"
+          docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:latest"
+
+          docker pull "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker tag "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}" "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker tag "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}" "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:latest"
+          docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}"
+          docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:latest"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true
