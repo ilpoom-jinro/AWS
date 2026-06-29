@@ -74,3 +74,7 @@ spec:
                       MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGTzogFzs9wxXOrmxu8CGRGbPYvB
                       88Ihie/vHhc9lUjgunlLNQ4Ll5hElSnhLJqvtovlrBrZRe4Swhrl5TiyEhg==
                       -----END PUBLIC KEY-----
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true
