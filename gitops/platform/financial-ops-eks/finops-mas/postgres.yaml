@@ -28,8 +28,6 @@ spec:
         app.kubernetes.io/name: finops-db
         app.kubernetes.io/part-of: finops-mas
     spec:
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
