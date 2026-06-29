@@ -1,0 +1,24 @@
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-backup
+  namespace: velero
+spec:
+  # 매일 KST 12:00 (UTC 03:00) — 트래픽 저점
+  schedule: "0 3 * * *"
+  template:
+    includedNamespaces:
+      - git
+      - observability
+    # git: Gitea(internal-git) PVC만, observability: Tempo PVC만 선택
+    # Velero는 Pod → PVC 참조 체인으로 PVC를 발견 — PVC 레이블 불필요
+    orLabelSelectors:
+      - matchLabels:
+          app.kubernetes.io/name: internal-git
+      - matchLabels:
+          app.kubernetes.io/name: tempo
+          app.kubernetes.io/instance: observability-tempo
+    ttl: 336h  # 14일 보관
+    snapshotMoveData: true           # EBS 스냅샷 → S3 이동(Kopia), 스냅샷 이후 삭제
+    defaultVolumesToFsBackup: false  # CSI 스냅샷 우선, FS 백업 폴백 비활성
+    storageLocation: default

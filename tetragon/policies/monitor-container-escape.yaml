@@ -1,0 +1,21 @@
+# TracingPolicy: monitor-container-escape
+# 목적: 커널 모듈 로드 시도 감지 — 컨테이너 탈출 대표 징후
+# init_module: insmod 경로, finit_module: 파일 디스크립터 경로 모두 감지
+# network connect 계열은 제외 (Cilium #79 영역)
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: monitor-container-escape
+spec:
+  kprobes:
+    - call: "sys_init_module"
+      syscall: true
+      # selectors 미정의 → 모든 커널 모듈 로드 이벤트 수집
+      # ── MAS 단계 전환 시 아래 주석 해제 ──────────────────────────────────
+      # selectors:
+      #   - matchActions:          # 조건 없이 모든 호출 차단(Sigkill) 발효
+      #       - action: Sigkill
+      # ──────────────────────────────────────────────────────────────────────
+    - call: "sys_finit_module"
+      syscall: true
+      # selectors: sys_init_module과 동일 패턴

@@ -96,6 +96,11 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
       - name: Mirror selected monitoring images
         shell: bash
         env:
@@ -156,7 +161,9 @@ jobs:
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
-            docker push "${target_image}"
+            PUSH_OUT=$(docker push "${target_image}")
+            DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+            cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/images.tsv; echo)
 
       - name: Build selected custom monitoring images
@@ -193,5 +200,7 @@ jobs:
               -t "${target_image}" \
               "${build_context}"
 
-            docker push "${target_image}"
+            PUSH_OUT=$(docker push "${target_image}")
+            DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+            cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/custom-images.tsv; echo)

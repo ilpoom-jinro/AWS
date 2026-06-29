@@ -1,0 +1,37 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-trivy
+spec:
+  description: "trivy-operator → ECR(취약점 DB OCI 아티팩트) FQDN egress 허용"
+  # Kyverno/Tetragon과 달리 Trivy는 trivy-db/trivy-java-db OCI 아티팩트를 컨테이너
+  # 바이너리가 직접 pull(파드 네트워크 경유) → kubelet/containerd의 이미지 pull과
+  # 달리 Cilium 정책 대상. operator pod + 임시 scan/node-collector Job pod를 모두
+  # 포괄하기 위해 app label 대신 네임스페이스 전체를 selector로 사용.
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: trivy
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    - toFQDNs:
+        - matchPattern: "*.dkr.ecr.ap-northeast-2.amazonaws.com"
+        # ECR 블롭 스토리지(레이어/OCI 아티팩트 본문)는 GET 요청에 대해 S3 호스팅
+        # presigned URL로 307 redirect — 실제 데이터는 이 호스트로 전송됨.
+        # (velero S3 규칙과 동일한 패턴; 미차단 확인은 배포 후 Hubble로 검증 필요)
+        - matchPattern: "*.s3.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
