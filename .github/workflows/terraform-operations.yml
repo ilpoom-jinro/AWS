@@ -65,7 +65,8 @@ env:
   TF_VAR_dev_mode: "true"
   TF_VAR_ops_vpc_command: ${{ inputs.ops_vpc_command || 'kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide' }}
   TF_VAR_enable_flowlog_s3_archive: "true"
-  
+  TF_VAR_enable_pii_scan: "false"
+
 jobs:
   plan:
     name: Terraform Plan
@@ -379,6 +380,39 @@ jobs:
             done
           done
 
+      # PVC 선삭제: 고아 EBS 방지
+      # EKS destroy 전에 PVC를 지우지 않으면 EBS 볼륨이 available 상태로 잔존한다.
+      # 클러스터 접근 불가(이미 삭제됨 등) 시에도 destroy가 중단되지 않도록 continue-on-error.
+      - name: Delete PVCs before EKS destroy
+        if: inputs.action == 'destroy'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+
+          delete_pvcs() {
+            local cluster="$1"
+            echo "=== ${cluster}: PVC 정리 시작 ==="
+
+            if ! aws eks update-kubeconfig --name "${cluster}" --region "${AWS_REGION}"; then
+              echo "::warning::${cluster} kubeconfig 갱신 실패 — 이미 삭제됐거나 접근 불가. 스킵."
+              return
+            fi
+
+            namespaces=$(kubectl get ns -o jsonpath='{.items[*].metadata.name}' 2>/dev/null) || true
+            for ns in $namespaces; do
+              kubectl delete pvc --all -n "${ns}" --timeout=120s || true
+            done
+
+            echo "=== ${cluster}: PVC 정리 완료 ==="
+          }
+
+          delete_pvcs financial-ops-eks
+          delete_pvcs financial-service-eks
+
+          echo "EBS 볼륨 해제 대기 (60s)..."
+          sleep 60
+
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >
@@ -411,6 +445,15 @@ jobs:
           -target=aws_sns_topic.security_alerts
           -target=aws_cloudwatch_metric_alarm.db_port_probe_vpc1
           -target=aws_cloudwatch_metric_alarm.reject_burst_vpc1
+          -target=aws_s3_bucket.flowlogs_archive
+          -target=aws_s3_bucket_versioning.flowlogs_archive
+          -target=aws_s3_bucket_ownership_controls.flowlogs_archive
+          -target=aws_s3_bucket_public_access_block.flowlogs_archive
+          -target=aws_s3_bucket_server_side_encryption_configuration.flowlogs_archive
+          -target=aws_s3_bucket_object_lock_configuration.flowlogs_archive
+          -target=aws_s3_bucket_lifecycle_configuration.flowlogs_archive
+          -target=aws_s3_bucket_policy.flowlogs_archive
+          -target=aws_flow_log.s3_archive
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply secrets

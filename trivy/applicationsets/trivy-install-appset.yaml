@@ -1,0 +1,75 @@
+# =============================================================================
+# ApplicationSet: trivy-install
+# 목적: ArgoCD에 등록된 모든 클러스터에 Trivy Operator를 자동 배포합니다.
+#
+# 소스: 내부 Gitea (buildspec-gitops-bootstrap.yml에서 helm template으로 렌더링 후 push)
+#   경로: trivy/install/trivy-operator.yaml      ← buildspec push 경로와 일치
+#   URL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+#
+# 새 클러스터 자동 적용:
+#   argocd cluster add로 클러스터를 등록하면 ApplicationSet이 즉시
+#   새 Application을 생성하여 Trivy Operator를 배포합니다.
+#
+# 초기 적용:
+#   buildspec-gitops-bootstrap.yml에서 자동 실행됩니다. (수동 apply 불필요)
+#
+# Trivy는 Kyverno/Tetragon과 달리 정책 CR이 없어 *-policies ApplicationSet이 없습니다.
+# Cluster*Report(취약점/설정/RBAC 등) CRD 인스턴스는 컨트롤러가 런타임에 생성하므로
+# GitOps로 관리하지 않습니다.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: trivy-install
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+
+  generators:
+    # ArgoCD에 등록된 모든 클러스터 대상 (in-cluster 포함)
+    # 새 클러스터를 ArgoCD에 등록하면 자동으로 Trivy Operator가 배포됩니다.
+    - clusters: {}
+
+  template:
+    metadata:
+      # {{.name}} → ArgoCD 등록 클러스터 이름 (in-cluster, financial-service-eks 등)
+      name: "trivy-install-{{.name}}"
+      annotations:
+        # ServerSideDiff: 서버 사이드 dry-run으로 실제 변경분만 비교
+        # IncludeMutationWebhook: 뮤테이션 웹훅 적용 결과를 diff에 반영해 오탐 방지
+        argocd.argoproj.io/compare-options: ServerSideDiff=true,IncludeMutationWebhook=true
+    spec:
+      project: ops-infra-project
+
+      source:
+        # 내부 Gitea — 네트워크 격리 환경에서 접근 가능
+        repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+        targetRevision: main
+        # buildspec에서 CRD 제외 후 렌더링된 Trivy Operator 매니페스트
+        # CRD는 buildspec에서 양 클러스터에 직접 kubectl apply로 관리
+        path: trivy/install
+
+      destination:
+        # {{.server}} → 클러스터 API 서버 URL (ArgoCD 클러스터 시크릿에서 주입)
+        server: "{{.server}}"
+        namespace: trivy
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true    # trivy 네임스페이스 자동 생성
+          - ServerSideApply=true
+          - Replace=false
+        # node-collector(infra-assessment/CIS 컴플라이언스 스캔)가 호스트 파일시스템을
+        # 읽기 전용 hostPath로 마운트 — Baseline PSS는 hostPath 볼륨 자체를 차단하므로
+        # Kyverno 웹훅으로도 구제 불가 (Tetragon eBPF DaemonSet과 동일한 이유로 privileged 필요)
+        # audit/warn=restricted: 향후 tightening 검토를 위한 가시성 유지
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: privileged
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted

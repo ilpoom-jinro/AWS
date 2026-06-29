@@ -1,0 +1,112 @@
+# stock-demo 네임스페이스 Cilium 정책 (service 클러스터)
+#
+# 확인된 의존성 (manifest 기반):
+#   ALB → stock-gw(Istio Gateway pod):80
+#   stock-gw → stock-web:80 (ztunnel/waypoint 경유)
+#   stock-web → stock-api(backend service):8000
+#   stock-web → observability-alloy-service.observability:4318 (OTLP trace)
+#   stock-api → observability-alloy-service.observability:4318 (OTLP trace)
+#   stock-api → RDS:5432 ← DB_HOST가 Secret에서 주입됨, FQDN 미확정 → audit 후 FQDN 추가 예정
+#
+# 미확인 (manifest 없음):
+#   - Istio Gateway pod의 정확한 label: gateway.networking.k8s.io/gateway-name=stock-gw 추정,
+#     실제 pod label은 Istio 버전에 따라 다를 수 있음. 인트라 허용으로 우선 처리.
+---
+# intra-stock-demo: 같은 네임스페이스 파드 간 전체 허용
+# ztunnel(host entity)이 waypoint(pod)로 HBONE 연결하는 경로도 포함
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-stock-demo
+spec:
+  description: "stock-demo 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+---
+# 외부 → stock-gw ingress (ALB가 직접 파드로 전달하는 HTTP)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-stock-demo-ingress-external
+spec:
+  description: "외부(ALB) → stock-gw:80 ingress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+  ingress:
+    - fromEntities:
+        - world
+        - cluster
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+---
+# stock-demo → observability(alloy): OTLP trace 전송
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-stock-demo-to-alloy
+spec:
+  description: "stock-demo → observability/alloy:4318 OTLP trace egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+      toPorts:
+        - ports:
+            - port: "4318"
+              protocol: TCP
+---
+# stock-demo → istiod CA(15012) egress — gateway/waypoint 인증서 서명(CSR)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-stock-demo-to-istiod
+spec:
+  description: "stock-demo gateway/waypoint → istio-system istiod:15012 CA egress 허용 (Envoy CSR 서명)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+            app: istiod
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP
+---
+# istiod ← stock-demo:15012 ingress (쌍)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-istiod-from-stock-demo
+spec:
+  description: "istio-system istiod ← stock-demo:15012 CA ingress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: istiod
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+      toPorts:
+        - ports:
+            - port: "15012"
+              protocol: TCP

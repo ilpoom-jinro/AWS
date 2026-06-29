@@ -1,0 +1,14 @@
+﻿installCRDs: true
+
+controller:
+  replicaCount: 2
+  image:
+    # Mirror registry.k8s.io/sig-storage/snapshot-controller from public ECR.
+    repository: REPLACE_WITH_ECR_REGISTRY/sig-storage/snapshot-controller
+    tag: v8.6.0
+    pullPolicy: IfNotPresent
+
+# conversion-webhook disabled: only needed for VolumeSnapshot v1beta1<->v1 conversion.
+# EKS 1.35 + Velero CSI use v1 only, so it is unnecessary. Avoids mirroring an extra image.
+webhook:
+  enabled: false

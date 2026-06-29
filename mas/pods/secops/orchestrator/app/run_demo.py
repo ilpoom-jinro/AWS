@@ -38,7 +38,7 @@ from .activities import (
     record_audit_log,
     send_approval_request,
 )
-from .workflow import SecOpsWorkflow
+from .workflow import HITL_TASK_QUEUE, SecOpsWorkflow
 
 TASK_QUEUE = "secops-task-queue"
 
@@ -46,7 +46,8 @@ TASK_QUEUE = "secops-task-queue"
 async def main() -> None:
     print("[demo] 임베디드 Temporal dev 서버 시작 중... (최초 실행 시 바이너리 다운로드)")
     async with await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter) as env:
-        async with Worker(
+        # SecOps 워커(워크플로우 + 에이전트 Activity)
+        secops_worker = Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[SecOpsWorkflow],
@@ -55,10 +56,16 @@ async def main() -> None:
                 map_regulation,
                 apply_isolation,
                 generate_compliance_report,
-                send_approval_request,
                 record_audit_log,
             ],
-        ):
+        )
+        # 승인 큐 워커 — 실제 봇 대신 스텁 send_approval_request (슬랙 없이 데모 완주용)
+        hitl_stub_worker = Worker(
+            env.client,
+            task_queue=HITL_TASK_QUEUE,
+            activities=[send_approval_request],
+        )
+        async with secops_worker, hitl_stub_worker:
             wf_id = f"secops-{uuid.uuid4().hex[:8]}"
             handle = await env.client.start_workflow(
                 SecOpsWorkflow.run,

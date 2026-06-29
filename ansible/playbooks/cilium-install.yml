@@ -1,0 +1,291 @@
+﻿- name: Install Cilium on Service and Ops EKS clusters
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    cilium_clusters:
+      - name: service
+        cluster_name: "{{ service_eks_cluster_name }}"
+        kube_context: "{{ service_kube_context }}"
+      - name: ops
+        cluster_name: "{{ ops_eks_cluster_name }}"
+        kube_context: "{{ ops_kube_context }}"
+
+    # chaining 모드: aws-node(VPC CNI)가 IPAM 유지, Cilium은 eBPF 정책만 담당
+    # encryption.enabled=false: Istio ztunnel이 mTLS 담당
+    # policyAuditMode=true: default-deny 걸려도 DROP 대신 AUDIT verdict → 확인 후 false로 enforce
+    cilium_values:
+      cni:
+        chainingMode: aws-cni
+        exclusive: false
+      enableIPv4Masquerade: false
+      routingMode: native
+      kubeProxyReplacement: false
+      encryption:
+        enabled: false
+      envoy:
+        image:
+          repository: "{{ cilium_envoy_image_repository }}"
+          tag: "{{ cilium_envoy_image_tag }}"
+          useDigest: false
+      hubble:
+        enabled: true
+        relay:
+          enabled: true
+          image:
+            repository: "{{ cilium_hubble_relay_image_repository }}"
+            tag: "{{ cilium_image_tag }}"
+            useDigest: false
+        metrics:
+          enabled:
+            - dns
+            - drop
+            - tcp
+            - flow
+            - port-distribution
+            - icmp
+      # 임시 audit — 재구축 후 누락 정책 보강 중. 전수 검증 후 false 복귀 (망분리 #79)
+      policyAuditMode: true
+      operator:
+        replicas: 1
+        image:
+          repository: "{{ cilium_operator_image_repository }}"
+          tag: "{{ cilium_image_tag }}"
+          useDigest: false
+      image:
+        repository: "{{ cilium_image_repository }}"
+        tag: "{{ cilium_image_tag }}"
+        useDigest: false
+
+  tasks:
+    - name: Update kubeconfig for Cilium target clusters
+      ansible.builtin.command:
+        cmd: >
+          aws eks update-kubeconfig
+          --region {{ aws_region }}
+          --name {{ item.cluster_name }}
+          --alias {{ item.kube_context }}
+      loop: "{{ cilium_clusters }}"
+      changed_when: false
+
+    - name: Check Kubernetes API reachability for Cilium target clusters
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          get --raw=/version
+          --request-timeout=10s
+      loop: "{{ cilium_clusters }}"
+      register: cilium_api_reachability
+      changed_when: false
+      ignore_errors: true
+
+    - name: Print Kubernetes API reachability failures
+      ansible.builtin.debug:
+        msg:
+          cluster: "{{ item.item.name }}"
+          context: "{{ item.item.kube_context }}"
+          stdout: "{{ item.stdout | default('') }}"
+          stderr: "{{ item.stderr | default('') }}"
+          rc: "{{ item.rc | default('') }}"
+      loop: "{{ cilium_api_reachability.results | default([]) }}"
+      when: item.failed | default(false)
+
+    - name: Stop when Kubernetes API is not reachable
+      ansible.builtin.fail:
+        msg: "Kubernetes API is not reachable. Check VPC peering, routes, EKS cluster security group 443, CodeBuild egress, and private DNS."
+      when: >
+        cilium_api_reachability.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
+    - name: Remove stuck Cilium Helm releases before install
+      ansible.builtin.shell: |
+        set -e
+        status="$(
+          helm --kube-context {{ item.0.kube_context }} \
+            -n {{ cilium_namespace }} \
+            status {{ item.1 }} -o json 2>/dev/null \
+          | python3 -c 'import json, sys; print(json.load(sys.stdin).get("info", {}).get("status", ""))' \
+          || true
+        )"
+
+        case "${status}" in
+          failed|pending-install|pending-upgrade|pending-rollback|uninstalling)
+            helm --kube-context {{ item.0.kube_context }} \
+              -n {{ cilium_namespace }} \
+              uninstall {{ item.1 }} \
+              --wait \
+              --timeout {{ cilium_rollout_timeout }} || true
+            ;;
+        esac
+      loop: "{{ cilium_clusters | product(['cilium']) | list }}"
+      changed_when: false
+
+    - name: Install or upgrade Cilium
+      kubernetes.core.helm:
+        context: "{{ item.kube_context }}"
+        release_name: cilium
+        release_namespace: "{{ cilium_namespace }}"
+        chart_ref: "{{ cilium_chart_ref }}"
+        create_namespace: false
+        values: "{{ cilium_values }}"
+        wait: false
+        timeout: "{{ cilium_helm_timeout }}"
+      loop: "{{ cilium_clusters }}"
+      register: cilium_helm_results
+      ignore_errors: true
+
+    - name: Show Cilium pod state when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          get pods -o wide
+      loop: "{{ cilium_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium recent events when install fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ cilium_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium Helm status when install fails
+      ansible.builtin.command:
+        cmd: >
+          helm --kube-context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          status cilium
+      loop: "{{ cilium_helm_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Cilium install fails
+      ansible.builtin.fail:
+        msg: "Cilium Helm install failed. Check the pod, event, and Helm status output above."
+      when: >
+        cilium_helm_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
+    - name: Wait for Cilium agent DaemonSet rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ cilium_namespace }}
+          rollout status daemonset/cilium
+          --timeout={{ cilium_rollout_timeout }}
+      loop: "{{ cilium_clusters }}"
+      register: cilium_ds_rollout_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show Cilium pod state when agent rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          get pods -o wide
+      loop: "{{ cilium_ds_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium recent events when agent rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          get events --sort-by=.lastTimestamp
+      loop: "{{ cilium_ds_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium agent logs when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          logs daemonset/cilium
+          --tail=100
+      loop: "{{ cilium_ds_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Cilium agent rollout fails
+      ansible.builtin.fail:
+        msg: "Cilium agent rollout failed. Check the pod, event, and log output above."
+      when: >
+        cilium_ds_rollout_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
+    - name: Wait for Cilium operator Deployment rollout
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ cilium_namespace }}
+          rollout status deployment/cilium-operator
+          --timeout={{ cilium_rollout_timeout }}
+      loop: "{{ cilium_clusters }}"
+      register: cilium_op_rollout_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Show Cilium operator pod state when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          get pods -l app.kubernetes.io/name=cilium-operator -o wide
+      loop: "{{ cilium_op_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Show Cilium operator logs when rollout fails
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.item.kube_context }}
+          -n {{ cilium_namespace }}
+          logs deployment/cilium-operator
+          --tail=100
+      loop: "{{ cilium_op_rollout_results.results | default([]) }}"
+      when: item.failed | default(false)
+      changed_when: false
+      failed_when: false
+
+    - name: Stop when Cilium operator rollout fails
+      ansible.builtin.fail:
+        msg: "Cilium operator rollout failed. Check the pod and log output above."
+      when: >
+        cilium_op_rollout_results.results
+        | selectattr('failed', 'defined')
+        | selectattr('failed')
+        | list
+        | length > 0
+
+    - name: Verify Cilium pods
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ item.kube_context }}
+          -n {{ cilium_namespace }}
+          get pods -l app.kubernetes.io/part-of=cilium
+      loop: "{{ cilium_clusters }}"
+      changed_when: false

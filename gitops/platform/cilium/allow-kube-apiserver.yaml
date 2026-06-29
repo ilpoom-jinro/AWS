@@ -1,0 +1,10 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-kube-apiserver-egress
+spec:
+  description: "모든 파드 → kube-apiserver(443) egress 허용"
+  endpointSelector: {}
+  egress:
+    - toEntities:
+        - kube-apiserver
