@@ -239,12 +239,12 @@ class DataBrokerUnitTests(unittest.TestCase):
 
         context["broker_results"]["traffic_forecast"] = resolved
         completed = bottleneck.evaluate(context)
-        self.assertIsInstance(completed, AgentResponse)
-        self.assertEqual(completed.status, AgentStatus.COMPLETED)
+        self.assertIsInstance(completed, tuple)
         self.assertEqual(
-            completed.result["validated_rps"],
+            completed[0]["validated_rps"],
             resolved["peak_rps_after"],
         )
+        self.assertTrue(completed[0]["reforecast_applied"])
 
     def test_static_bottleneck_path_is_unchanged(self) -> None:
         bottleneck = load_agent_logic("bottleneck-capacity")
