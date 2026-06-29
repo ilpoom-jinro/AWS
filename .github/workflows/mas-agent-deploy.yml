@@ -422,8 +422,8 @@ jobs:
           echo "base_uri=${base_image_uri}" >> "${GITHUB_OUTPUT}"
 
           echo "::notice title=MAS image tag::${ECR_REPOSITORY}:${image_tag}"
-          mkdir -p .mas-image-tags
-          printf '%s\t%s\t%s\t%s\n' "${{ matrix.agent }}" "${ECR_REPOSITORY}" "${image_tag}" "${image_uri}" > ".mas-image-tags/${{ strategy.job-index }}.tsv"
+          mkdir -p mas-image-tags
+          printf '%s\t%s\t%s\t%s\n' "${{ matrix.agent }}" "${ECR_REPOSITORY}" "${image_tag}" "${image_uri}" > "mas-image-tags/${{ strategy.job-index }}.tsv"
 
       - name: Ensure ECR repository
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
@@ -493,8 +493,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mas-image-tag-${{ strategy.job-index }}
-          path: .mas-image-tags/*.tsv
-          if-no-files-found: error
+          path: mas-image-tags/*.tsv
+          if-no-files-found: warn
 
       - name: Start manifest update CodeBuild
         id: codebuild
@@ -601,7 +601,7 @@ jobs:
         with:
           pattern: mas-image-tag-*
           merge-multiple: true
-          path: .mas-image-tags
+          path: mas-image-tags
 
       - name: Print image tags
         shell: bash
@@ -612,8 +612,8 @@ jobs:
           echo "| Agent | Repository | Tag | Image URI |" >> "${GITHUB_STEP_SUMMARY}"
           echo "| --- | --- | --- | --- |" >> "${GITHUB_STEP_SUMMARY}"
 
-          if compgen -G ".mas-image-tags/*.tsv" > /dev/null; then
-            sort .mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri; do
+          if compgen -G "mas-image-tags/*.tsv" > /dev/null; then
+            sort mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri; do
               echo "| \`${agent}\` | \`${repository}\` | \`${tag}\` | \`${uri}\` |" >> "${GITHUB_STEP_SUMMARY}"
               echo "${agent} ${tag} ${uri}"
             done
