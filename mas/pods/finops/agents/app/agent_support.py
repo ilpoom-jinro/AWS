@@ -12,6 +12,7 @@ from contracts.models import AgentResponse, AgentStatus, DataRequest
 logger = logging.getLogger(__name__)
 LLM_TIMEOUT_SECONDS = 5
 LLM_JUDGE_TIMEOUT_SECONDS = 10
+BROKER_REQUEST_TIMEOUT_SECONDS = 15
 
 AGENT_TASK_QUEUES = {
     "business_control": "finops-business-control-agent-task-queue",
@@ -191,6 +192,94 @@ AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
     except Exception as exc:
         logger.warning("finops_llm_judge_data_request_invalid: %s", exc)
         return None
+
+
+async def handle_broker_request(
+    agent_key: str,
+    agent_name: str,
+    operation: str,
+    parameters: dict,
+    required_fields: list[str],
+    context: dict,
+) -> dict | None:
+    prompt = f"""
+당신은 {agent_name}입니다.
+다른 Agent로부터 다음 작업 요청이 왔습니다.
+
+operation: {operation}
+parameters: {json.dumps(parameters, ensure_ascii=False, default=str)}
+required_fields: {json.dumps(required_fields, ensure_ascii=False, default=str)}
+
+현재 당신의 역할과 보유 데이터로
+이 요청을 처리할 수 있는지 판단하세요.
+
+처리 가능하면:
+required_fields에 명시된 필드를 모두 채운
+JSON 객체만 반환하세요.
+
+처리 불가능하면:
+null 을 반환하세요.
+
+처리 불가능한 경우:
+- 요청이 당신의 역할 범위를 벗어남
+- 필요한 데이터가 없음
+- 실행 단계 요청인데 지금은 계획 단계임
+  (예: execute, dry_run, scale 등 실행성 operation)
+
+반드시 JSON 또는 null만 반환하세요.
+다른 텍스트는 절대 포함하지 마세요.
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent key: {agent_key}\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=BROKER_REQUEST_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_broker_request_handler_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+    missing = [field for field in required_fields if field not in parsed]
+    if missing:
+        logger.warning(
+            "finops_broker_request_handler_missing_fields: agent=%s operation=%s missing=%s",
+            agent_key,
+            operation,
+            missing,
+        )
+        return None
+    return parsed
 
 
 def standard_response(

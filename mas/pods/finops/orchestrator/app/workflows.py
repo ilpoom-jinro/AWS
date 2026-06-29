@@ -24,6 +24,23 @@ AGENT_NAMES = dict(AGENT_SEQUENCE)
 AGENT_ORDER = {agent_key: index for index, (agent_key, _) in enumerate(AGENT_SEQUENCE)}
 
 
+def build_broker_agent_context(
+    broker_context: dict[str, Any],
+    request: DataRequest,
+) -> dict[str, Any]:
+    return {
+        **broker_context,
+        "parameters": {
+            **request.parameters,
+            "operation": request.operation,
+            "_broker_request": True,
+        },
+        "_broker_operation": request.operation,
+        "_broker_required_fields": list(request.required_fields),
+        "broker_results": dict(broker_context["broker_results"]),
+    }
+
+
 @workflow.defn
 class FinOpsEventWorkflow:
     @workflow.run
@@ -158,11 +175,7 @@ class FinOpsEventWorkflow:
                 start_to_close_timeout=timedelta(seconds=10),
             )
 
-            target_context = {
-                **broker_context,
-                "parameters": dict(request.parameters),
-                "broker_results": dict(broker_context["broker_results"]),
-            }
+            target_context = build_broker_agent_context(broker_context, request)
             response = await run_agent_activity(target_agent, target_context)
 
             if response.status == AgentStatus.NEEDS_DATA:
@@ -178,11 +191,7 @@ class FinOpsEventWorkflow:
                         nested_request.target_agent
                     ] = nested_result
 
-                target_context = {
-                    **broker_context,
-                    "parameters": dict(request.parameters),
-                    "broker_results": dict(broker_context["broker_results"]),
-                }
+                target_context = build_broker_agent_context(broker_context, request)
                 response = await run_agent_activity(target_agent, target_context)
                 if response.status == AgentStatus.NEEDS_DATA:
                     response = response.model_copy(
@@ -198,6 +207,14 @@ class FinOpsEventWorkflow:
             if response.status != AgentStatus.COMPLETED:
                 result = broker_failure(
                     f"target_agent_{response.status.value}",
+                    response.message,
+                )
+                call_entry.update(result)
+                return result
+
+            if response.result.get("_broker_handled") is False:
+                result = broker_failure(
+                    response.result.get("_broker_reason", "not_applicable"),
                     response.message,
                 )
                 call_entry.update(result)
