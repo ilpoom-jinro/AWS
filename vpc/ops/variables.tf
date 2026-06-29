@@ -78,7 +78,7 @@ variable "eks_node_disk_size" {
 variable "eks_node_desired_size" {
   description = "Desired number of internal ops EKS nodes"
   type        = number
-  default     = 2
+  default     = 3
 }
 
 variable "eks_node_min_size" {
