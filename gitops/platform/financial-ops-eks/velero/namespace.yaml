@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+  labels:
+    # node-agent DaemonSet은 hostPath 마운트로 root 실행 — privileged PSS 필요
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged

@@ -1,4 +1,4 @@
-aws_region: ap-northeast-2
+﻿aws_region: ap-northeast-2
 
 ops_eks_cluster_name: financial-ops-eks
 ops_kube_context: financial-ops-eks
@@ -30,6 +30,16 @@ service_ambient_namespaces:
 ops_ambient_namespaces:
   - agents
 
+cilium_namespace: kube-system
+cilium_chart_ref: /opt/helm-charts/cilium
+cilium_image_repository: "{{ lookup('env', 'CILIUM_IMAGE_REPOSITORY') }}"
+cilium_image_tag: "{{ lookup('env', 'CILIUM_IMAGE_TAG') | default('v1.16.5', true) }}"
+cilium_envoy_image_tag: "{{ lookup('env', 'CILIUM_ENVOY_IMAGE_TAG') | default('v1.30.8-1733837904-eaae5aca0fb988583e5617170a65ac5aa51c0aa8', true) }}"
+cilium_operator_image_repository: "{{ lookup('env', 'CILIUM_OPERATOR_IMAGE_REPOSITORY') }}"
+cilium_envoy_image_repository: "{{ lookup('env', 'CILIUM_ENVOY_IMAGE_REPOSITORY') }}"
+cilium_hubble_relay_image_repository: "{{ lookup('env', 'CILIUM_HUBBLE_RELAY_IMAGE_REPOSITORY') }}"
+cilium_helm_timeout: 15m
+cilium_rollout_timeout: 300s
 internal_git_namespace: git
 internal_git_release_name: internal-git
 internal_git_service_name: internal-git-http

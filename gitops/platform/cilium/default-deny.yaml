@@ -1,0 +1,10 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  description: "전체 endpoint default-deny (policyAuditMode 동안 AUDIT만)"
+  endpointSelector: {}
+  enableDefaultDeny:
+    ingress: true
+    egress: true

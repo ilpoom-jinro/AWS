@@ -138,3 +138,8 @@ output "acm_certificate_arn" {
   description = "ilpumjinro.store ACM 인증서 ARN — ingress.yaml certificate-arn에 입력"
   value       = aws_acm_certificate.main.arn
 }
+
+output "api_anomaly_alert_sns_topic_arn" {
+  description = "api-anomaly-alert SNS 토픽 ARN (Slack 구독 추가용)"
+  value       = module.security.api_anomaly_alert_sns_topic_arn
+}

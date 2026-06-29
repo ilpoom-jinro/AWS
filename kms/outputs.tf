@@ -27,3 +27,13 @@ output "kms_key_eks_arn" {
   description = "EKS CMK ARN (etcd Secrets + EBS node volumes)"
   value       = aws_kms_key.key_eks.arn
 }
+
+output "kms_key_cosign_arn" {
+  description = "Cosign CMK ARN (ECR 이미지 서명용 비대칭 키)"
+  value       = aws_kms_key.key_cosign.arn
+}
+
+output "kms_key_cosign_alias" {
+  description = "Cosign CMK alias name"
+  value       = aws_kms_alias.key_cosign.name
+}

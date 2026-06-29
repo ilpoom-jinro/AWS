@@ -1,0 +1,21 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver-albc-webhook
+spec:
+  # kube-apiserver → ALBC MutatingAdmissionWebhook 호출 허용
+  # ALBC deployment.yaml: containerPort: {{ .Values.webhookBindPort | default 9443 }}
+  # Service port 443 → container port 9443 (targetPort); Cilium은 파드 레벨(9443) 적용
+  # ops + service 양쪽 클러스터 동일 적용
+  description: "kube-apiserver → aws-load-balancer-controller:9443 ingress 허용 (admission webhook)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: aws-load-balancer-controller
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "9443"
+              protocol: TCP
