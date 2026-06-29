@@ -288,7 +288,7 @@ jobs:
           PUSH_OUT=$(docker push "${IMAGE_URI}")
           docker push "${LATEST_IMAGE_URI}"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI%:*}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI%:*}@${DIGEST}"
 
   deploy:
     name: Build and Deploy ${{ matrix.agent }}
@@ -500,7 +500,7 @@ jobs:
           PUSH_OUT=$(docker push "${IMAGE_URI}")
           docker push "${LATEST_IMAGE_URI}"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI%:*}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI%:*}@${DIGEST}"
 
       - name: Upload image tag metadata
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
