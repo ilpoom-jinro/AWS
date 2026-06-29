@@ -191,7 +191,7 @@ jobs:
           changed_files="$(git diff --name-only "${before}" "${{ github.sha }}")"
           printf '%s\n' "${changed_files}"
 
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|gitops/|buildspec-ansible.yml|tools/ansible-codebuild/)'; then
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|gitops/|buildspec-ansible.yml|tools/ansible-codebuild/|kyverno/)'; then
             echo "ansible=true" >> "${GITHUB_OUTPUT}"
           else
             echo "ansible=false" >> "${GITHUB_OUTPUT}"
