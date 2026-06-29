@@ -530,6 +530,7 @@ jobs:
           (github.event_name == 'workflow_dispatch' && inputs.mirror_trivy == true)
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
+          CRANE_VERSION: "v0.20.2"
         run: |
           # trivy-operator
           docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-operator:${TRIVY_OPERATOR_VERSION}"
@@ -545,22 +546,32 @@ jobs:
           docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:${TRIVY_VERSION}"
           docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:latest"
 
-          # trivy-db: 취약점 DB OCI 아티팩트 — trivy-operator가 런타임에 주기적으로 pull
-          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}"
-          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
-          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
-
-          # trivy-java-db: Java 취약점 DB OCI 아티팩트
-          docker pull "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
-          docker tag "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}" "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
-          docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
-
           # node-collector: infra-assessment/CIS 컴플라이언스 스캔용 Job 이미지
           docker pull "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}"
           docker tag "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}" "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:${NODE_COLLECTOR_VERSION}"
           docker tag "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}" "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:latest"
           docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:${NODE_COLLECTOR_VERSION}"
           docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:latest"
+
+          # ── trivy-db / trivy-java-db 는 일반 컨테이너 이미지가 아니라 OCI 아티팩트 ──
+          # config.mediaType=application/vnd.oci.empty.v1+json, layer=vnd.aquasec.trivy.db.*
+          # docker pull→push 라운드트립은 이 빈 config 미디어타입을 처리하지 못해
+          # "unsupported media type application/vnd.oci.empty.v1+json" 으로 실패한다.
+          # crane 으로 레지스트리→레지스트리 직접 복사하여 미디어타입을 보존한다.
+          # (crane 은 amazon-ecr-login 이 기록한 ~/.docker/config.json 자격증명을 그대로 사용)
+          curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xzf - -C /usr/local/bin crane
+          crane version
+
+          # trivy-db: 취약점 DB OCI 아티팩트 — trivy-operator가 런타임에 주기적으로 pull
+          crane copy \
+            "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}" \
+            "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
+
+          # trivy-java-db: Java 취약점 DB OCI 아티팩트
+          crane copy \
+            "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}" \
+            "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
 
       - name: Mirror Cilium images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_cilium == true
