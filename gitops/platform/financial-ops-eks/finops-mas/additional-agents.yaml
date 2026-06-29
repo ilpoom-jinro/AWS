@@ -18,8 +18,6 @@ spec:
         app.kubernetes.io/part-of: finops-mas
     spec:
       serviceAccountName: finops-agent
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
@@ -89,8 +87,6 @@ spec:
         app.kubernetes.io/part-of: finops-mas
     spec:
       serviceAccountName: finops-agent
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
@@ -156,8 +152,6 @@ spec:
         app.kubernetes.io/part-of: finops-mas
     spec:
       serviceAccountName: finops-agent
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
@@ -223,8 +217,6 @@ spec:
         app.kubernetes.io/part-of: finops-mas
     spec:
       serviceAccountName: finops-agent
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
@@ -290,8 +282,6 @@ spec:
         app.kubernetes.io/part-of: finops-mas
     spec:
       serviceAccountName: finops-agent
-      nodeSelector:
-        role: monitoring
       tolerations:
         - key: dedicated
           operator: Equal
