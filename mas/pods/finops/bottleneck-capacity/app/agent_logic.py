@@ -23,20 +23,6 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
     cache_hit = infra.get("redis_cache_hit_ratio_percent", signals.get("cache_hit_ratio_percent", 91))
     broker_data = context.get("broker_results", {}).get("traffic_forecast", {})
 
-    if broker_data.get("_broker_status") == "failed":
-        return AgentResponse(
-            status=AgentStatus.REQUIRES_REVIEW,
-            agent_key=AGENT_KEY,
-            agent_name=AGENT_NAME,
-            result={"status": "warning", "broker_result": broker_data},
-            message="DB 병목 재예측 요청을 해결하지 못해 운영자 검토가 필요합니다.",
-            evidence=[f"DB CPU: {db_cpu}%", f"Forecast RPS: {forecast['peak_rps_after']}"],
-            data_requests=[],
-            confidence=0.5,
-            warnings=[broker_data.get("_broker_message", "Broker request failed")],
-            reasoning_source="rule",
-        )
-
     if (
         float(db_cpu) > 80
         and forecast["peak_rps_after"] > 1000
@@ -83,23 +69,30 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
         "required_app_pods": required_pods,
     }
     message = f"Validated {effective_rps} RPS against DB, cache, ALB, and pod capacity."
-    if broker_data.get("_broker_status") == "completed":
-        return AgentResponse(
-            status=AgentStatus.COMPLETED,
-            agent_key=AGENT_KEY,
-            agent_name=AGENT_NAME,
-            result=result,
-            message=message,
-            evidence=[
-                "Used Temporal Data Broker traffic reforecast",
-                f"Reforecast RPS: {effective_rps}",
-                f"Required app pods: {required_pods}",
-            ],
-            data_requests=[],
-            confidence=0.8,
-            warnings=[],
-            reasoning_source="rule",
+
+    if broker_data.get("_broker_status") == "failed":
+        result.update(
+            {
+                "reforecast_applied": False,
+                "broker_result": broker_data,
+                "warnings": ["broker reforecast failed, using original forecast"],
+            }
         )
+        return result, "Using original forecast: broker reforecast failed"
+
+    if broker_data:
+        risk_assessment = broker_data.get("risk_assessment", {})
+        result.update(
+            {
+                "reforecast_applied": True,
+                "adjusted_capacity_rps": broker_data.get("adjusted_capacity_rps"),
+                "pod_scaling_timeline": broker_data.get("pod_scaling_timeline"),
+                "risk_level": risk_assessment.get("level", "medium"),
+                "warnings": ["Pod readiness constraint applied to forecast"],
+            }
+        )
+        return result, "Reforecast applied with pod readiness constraints"
+
     return result, message
 
 

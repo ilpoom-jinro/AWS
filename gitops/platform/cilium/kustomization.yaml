@@ -39,6 +39,7 @@ resources:
   - allow-fqdn-albc.yaml
   - allow-fqdn-eso.yaml
   - allow-fqdn-stock-api-rds.yaml
+  - allow-fqdn-trivy.yaml
 
   # default-deny는 반드시 마지막 (policyAuditMode=true 동안 AUDIT만, enforce 전환 시 여기서 통제)
   - default-deny.yaml

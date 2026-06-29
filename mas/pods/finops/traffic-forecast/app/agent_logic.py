@@ -23,6 +23,95 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     parameters = context.get("parameters", {})
     broker_data = context.get("broker_results", {}).get("traffic_forecast", {})
     before = traffic.get("prometheus_rps", signals.get("baseline_peak_rps", 1420))
+
+    constraint_keys = {
+        "peak_rps_after",
+        "ready_pods",
+        "desired_pods",
+        "queue_depth",
+        "p95_latency_ms",
+        "pod_memory_percent",
+    }
+    operation = parameters.get("operation")
+    has_readiness_constraints = bool(constraint_keys.intersection(parameters))
+    if operation == "reforecast_with_updated_constraints" or has_readiness_constraints:
+        peak_rps_after = int(parameters.get("peak_rps_after", before))
+        ready_pods = int(parameters.get("ready_pods", traffic.get("hpa_current_replicas") or 0))
+        desired_pods = max(
+            1,
+            int(
+                parameters.get(
+                    "desired_pods",
+                    traffic.get("hpa_desired_replicas", signals.get("required_app_pods", 29)),
+                )
+            ),
+        )
+        queue_depth = int(parameters.get("queue_depth", traffic.get("queue_depth") or 0))
+        p95_latency_ms = float(parameters.get("p95_latency_ms", traffic.get("p95_latency_ms") or 0.0))
+        pod_memory_percent = float(
+            parameters.get(
+                "pod_memory_percent",
+                traffic.get("pod_memory_percent") or signals.get("pod_memory_percent") or 0.0,
+            )
+        )
+
+        ready_ratio = ready_pods / desired_pods
+        adjusted_capacity_rps = peak_rps_after * ready_ratio
+        rps_per_pod = peak_rps_after / desired_pods
+        required_app_pods = math.ceil(peak_rps_after / rps_per_pod)
+
+        if queue_depth > 5000:
+            risk_level = "high"
+        elif queue_depth > 2000:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        if ready_ratio < 0.7:
+            pod_scaling_timeline = "T-25m (추가 준비 시간 필요)"
+        else:
+            pod_scaling_timeline = "T-20m"
+
+        live = context.get("live", {}).get("commands", {})
+        live_enabled = any(command.get("status") == "ok" for command in live.values())
+        result = {
+            "peak_rps_before": before,
+            "peak_rps_after": peak_rps_after,
+            "required_app_pods": required_app_pods,
+            "based_on": "pod_readiness_constraints",
+            "send_window_minutes": shaping.get("send_window_minutes") or policy["max_general_delay_minutes"],
+            "peak_reduction_percent": shaping.get("peak_reduction_percent"),
+            "vip_send_mode": shaping.get("vip_send_mode"),
+            "general_send_mode": shaping.get("general_send_mode"),
+            "reforecast": True,
+            "reforecast_reason": "pod_readiness_constraint",
+            "adjusted_capacity_rps": adjusted_capacity_rps,
+            "ready_ratio": ready_ratio,
+            "pod_scaling_timeline": pod_scaling_timeline,
+            "risk_assessment": {
+                "level": risk_level,
+                "ready_pods": ready_pods,
+                "desired_pods": desired_pods,
+                "queue_depth": queue_depth,
+                "p95_latency_ms": p95_latency_ms,
+            },
+            "candidate_forecasts": [],
+            "alb_request_count_5m": traffic.get("alb_request_count_5m"),
+            "p95_latency_ms": p95_latency_ms,
+            "queue_depth": queue_depth,
+            "pod_memory_percent": pod_memory_percent,
+            "hpa_current_replicas": traffic.get("hpa_current_replicas"),
+            "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
+            "source": "kubectl" if live_enabled else "traffic_observability_signal",
+        }
+        return (
+            result,
+            (
+                "Reforecast applied with pod readiness constraints; "
+                f"ready ratio {ready_ratio:.3f}, adjusted capacity {adjusted_capacity_rps:.2f} RPS."
+            ),
+        )
+
     parameter_window = parameters.get("push_window_minutes")
     broker_window = broker_data.get("push_window_minutes")
     window = (
