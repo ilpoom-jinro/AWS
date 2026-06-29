@@ -62,8 +62,8 @@ resource "aws_iam_policy" "github_actions_iam" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "arn:aws:s3:::ilpumjinro-terraform-state-v2",
-          "arn:aws:s3:::ilpumjinro-terraform-state-v2/*"
+          "arn:aws:s3:::ilpumjinro-terraform-state-v4",
+          "arn:aws:s3:::ilpumjinro-terraform-state-v4/*"
         ]
       },
       {
