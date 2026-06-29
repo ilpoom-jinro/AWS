@@ -5,6 +5,9 @@ ARG HELM_VERSION=v3.17.3
 ARG ARGOCD_CHART_VERSION=""
 ARG ISTIO_CHART_VERSION="1.30.0"
 ARG KYVERNO_CHART_VERSION="3.3.4"
+ARG TETRAGON_CHART_VERSION="1.7.0"
+ARG CILIUM_CHART_VERSION="1.16.5"
+ARG TRIVY_OPERATOR_CHART_VERSION="0.33.2"
 
 RUN dnf install -y \
       ca-certificates \
@@ -49,6 +52,8 @@ RUN mkdir -p /opt/helm-charts \
     && helm repo add argo https://argoproj.github.io/argo-helm \
     && helm repo add istio https://istio-release.storage.googleapis.com/charts \
     && helm repo add kyverno https://kyverno.github.io/kyverno/ \
+    && helm repo add cilium https://helm.cilium.io/ \
+    && helm repo add aqua https://aquasecurity.github.io/helm-charts/ \
     && helm repo update \
     && if [ -n "${ARGOCD_CHART_VERSION}" ]; then \
          helm pull argo/argo-cd --version "${ARGOCD_CHART_VERSION}" --untar --untardir /opt/helm-charts; \
@@ -64,12 +69,18 @@ RUN mkdir -p /opt/helm-charts \
        else \
          helm pull kyverno/kyverno --untar --untardir /opt/helm-charts; \
        fi \
+    && helm pull cilium/tetragon --version "${TETRAGON_CHART_VERSION}" --untar --untardir /opt/helm-charts \
+    && helm pull cilium/cilium --version "${CILIUM_CHART_VERSION}" --untar --untardir /opt/helm-charts \
+    && helm pull aqua/trivy-operator --version "${TRIVY_OPERATOR_CHART_VERSION}" --untar --untardir /opt/helm-charts \
     && test -f /opt/helm-charts/argo-cd/Chart.yaml \
     && test -f /opt/helm-charts/base/Chart.yaml \
     && test -f /opt/helm-charts/istiod/Chart.yaml \
     && test -f /opt/helm-charts/cni/Chart.yaml \
     && test -f /opt/helm-charts/ztunnel/Chart.yaml \
-    && test -f /opt/helm-charts/kyverno/Chart.yaml
+    && test -f /opt/helm-charts/kyverno/Chart.yaml \
+    && test -f /opt/helm-charts/tetragon/Chart.yaml \
+    && test -f /opt/helm-charts/cilium/Chart.yaml \
+    && test -f /opt/helm-charts/trivy-operator/Chart.yaml
 
 COPY ansible/requirements.yml /tmp/ansible-requirements.yml
 RUN ansible-galaxy collection install -r /tmp/ansible-requirements.yml
@@ -84,5 +95,7 @@ COPY ansible /workspace/ansible
 COPY gitops /workspace/gitops
 COPY buildspec-ansible.yml /workspace/buildspec-ansible.yml
 COPY kyverno /workspace/kyverno
+COPY tetragon /workspace/tetragon
+COPY trivy /workspace/trivy
 
 WORKDIR /workspace

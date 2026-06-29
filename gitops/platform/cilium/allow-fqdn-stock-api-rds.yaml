@@ -1,0 +1,35 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-stock-api-rds
+spec:
+  # stock-api → RDS(financial-service-db) :5432 egress 허용 (service 클러스터)
+  # RDS identifier: financial-service-db (vpc/globalservice/rds.tf identifier)
+  # port: 5432 (secrets.tf service_rds_password secret_string)
+  # host: module.vpc1.rds_address → financial-service-db.<cluster-id>.ap-northeast-2.rds.amazonaws.com
+  # matchPattern으로 cluster-id suffix 대응. endpointSelector로 stock-api만 제한.
+  description: "stock-api → RDS(financial-service-db):5432 egress 허용 (service 클러스터)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+      app: stock-api
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.rds.amazonaws.com"
+    - toFQDNs:
+        - matchPattern: "financial-service-db.*.ap-northeast-2.rds.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

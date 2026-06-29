@@ -1,0 +1,41 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-service-ztunnel
+spec:
+  description: "alloy-service → ztunnel 15020 egress 허용 (service 클러스터)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: istio-system
+            app: ztunnel
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ztunnel-alloy-service-ingress
+spec:
+  description: "ztunnel 15020 ingress 허용 (alloy-service에서 수신, service 클러스터)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: ztunnel
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-service
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP

@@ -1093,3 +1093,147 @@ resource "aws_kms_alias" "key_sns" {
     create_before_destroy = false
   }
 }
+
+# =============================================
+# key-cosign (ECR 이미지 서명 — Cosign)
+# 비대칭 서명 키 (ECC_NIST_P256, SIGN_VERIFY)
+# 주의: 비대칭 키는 KMS 자동 rotation 미지원(AWS 제약) — enable_key_rotation 설정 불가
+# CI가 kms:Sign으로 이미지 다이제스트 서명, 공개키는 Kyverno 정책에 embed(오프라인 검증)
+# =============================================
+resource "aws_kms_key" "key_cosign" {
+  description              = "Asymmetric CMK for Cosign image signing (ilpumjinro)"
+  customer_master_key_spec = "ECC_NIST_P256" # 비대칭 서명 스펙
+  key_usage                = "SIGN_VERIFY"   # 서명/검증 전용
+  deletion_window_in_days  = 30
+  # enable_key_rotation 없음 — 비대칭 키 자동 rotation 미지원(AWS 제약)
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSAdminRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-admin-role"
+        }
+        Action = [
+          "kms:CreateKey",
+          "kms:DescribeKey",
+          "kms:EnableKeyRotation",
+          "kms:DisableKeyRotation",
+          "kms:GetKeyRotationStatus",
+          "kms:ListKeys",
+          "kms:ListAliases",
+          "kms:PutKeyPolicy",
+          "kms:GetKeyPolicy",
+          "kms:UpdateKeyDescription",
+          "kms:CreateAlias",
+          "kms:UpdateAlias",
+          "kms:DeleteAlias",
+          "kms:EnableKey",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ListResourceTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowKMSBreakGlassRole"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/financial-kms-breakglass-role"
+        }
+        Action = [
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion",
+          "kms:DisableKey",
+          "kms:DescribeKey",
+          "kms:ListKeys",
+          "kms:ListAliases"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowCosignSign"
+        Effect = "Allow"
+        Principal = {
+          # dev role(AWS_ROLE_ARN_DEV) 우선, 없으면 prod role fallback — 양쪽 다 허용
+          AWS = [
+            "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/ilpumjinro-github-actions-dev-role",
+            "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/ilpumjinro-github-actions-role",
+          ]
+        }
+        Action = [
+          "kms:Sign",         # 이미지 다이제스트 서명
+          "kms:GetPublicKey", # 공개키 추출(1회) 및 검증
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DenyCrossAccount"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+        Condition = {
+          StringNotEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          Bool = {
+            "aws:PrincipalIsAWSService" = "false"
+          }
+        }
+      },
+      {
+        Sid    = "DenyWithoutMFA"
+        Effect = "Deny"
+        Principal = {
+          AWS = "*"
+        }
+        Action = [
+          "kms:DisableKey",
+          "kms:ScheduleKeyDeletion"
+        ]
+        Resource = "*"
+        Condition = {
+          BoolIfExists = {
+            "aws:MultiFactorAuthPresent" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "Cosign"
+    Environment = "all"
+  }
+}
+
+resource "aws_kms_alias" "key_cosign" {
+  name          = "alias/key-cosign"
+  target_key_id = aws_kms_key.key_cosign.key_id
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}

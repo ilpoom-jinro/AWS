@@ -1,0 +1,24 @@
+# TracingPolicy: monitor-suspicious-exec
+# 목적: 컨테이너에서 발생하는 모든 execve 관찰 — baseline 수집용
+# enableProcessCred/Ns=true로 uid/gid·namespace 컨텍스트 이벤트에 자동 첨부
+# selectors 미정의 → baseline 관찰 후 허용 목록 정교화 예정
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: monitor-suspicious-exec
+spec:
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"    # 실행 파일 경로
+      # ── MAS 단계 전환 시 아래 주석 해제 (selector 허용 목록 채운 후) ────────
+      # selectors:
+      #   - matchArgs:
+      #       - index: 0
+      #         operator: "NotIn"
+      #         values: []         # baseline 관찰 후 허용 바이너리 경로 채울 것
+      #     matchActions:          # MAS 단계에서 주석 해제 시 차단(Sigkill) 발효
+      #       - action: Sigkill
+      # ──────────────────────────────────────────────────────────────────────

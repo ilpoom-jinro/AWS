@@ -1,0 +1,26 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-to-service-api
+spec:
+  # ops ArgoCD → service 클러스터 EKS API endpoint 443 egress 허용
+  # EKS API ENI는 destroy/apply 시 IP 변동 → /32 대신 service VPC CIDR(10.10.0.0/16)로 제한
+  description: "ArgoCD → service 클러스터 EKS API 443 egress 허용 (cross-cluster, 10.10.0.0/16)"
+  endpointSelector:
+    matchExpressions:
+      - key: io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - argocd
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - argocd-application-controller
+          - argocd-server
+  egress:
+    - toCIDR:
+        - 10.10.0.0/16
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
