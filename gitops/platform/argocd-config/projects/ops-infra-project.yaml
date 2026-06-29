@@ -21,6 +21,9 @@ spec:
       namespace: teleport-apps
     - server: https://kubernetes.default.svc
       namespace: kyverno
+    # Temporal (financial-ops-eks in-cluster)
+    - server: https://kubernetes.default.svc
+      namespace: temporal
     # Service 클러스터 (서버 URL이 동적이므로 등록 이름으로 참조)
     - name: financial-service-eks
       namespace: observability
