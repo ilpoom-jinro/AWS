@@ -187,6 +187,7 @@ jobs:
     if: ${{ needs.detect.outputs.build_base == 'true' }}
     runs-on: ubuntu-latest
     environment: development
+    timeout-minutes: 20
     concurrency:
       group: mas-base-image-${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
       cancel-in-progress: false
@@ -200,6 +201,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          retry-max-attempts: 3
+          action-timeout-s: 120
 
       - name: Login to Amazon ECR
         id: ecr
@@ -295,6 +298,7 @@ jobs:
     if: ${{ always() && needs.detect.outputs.should_deploy == 'true' && (needs.build_base.result == 'success' || needs.build_base.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: development
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -313,6 +317,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          retry-max-attempts: 3
+          action-timeout-s: 120
 
       - name: Login to Amazon ECR
         id: ecr
@@ -428,18 +434,8 @@ jobs:
           echo "base_uri=${base_image_uri}" >> "${GITHUB_OUTPUT}"
 
           echo "::notice title=MAS image tag::${ECR_REPOSITORY}:${image_tag}"
-          {
-            echo "### MAS image metadata"
-            echo ""
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| Agent | \`${{ matrix.agent }}\` |"
-            echo "| Repository | \`${ECR_REPOSITORY}\` |"
-            echo "| Immutable tag | \`${image_tag}\` |"
-            echo "| Image URI | \`${image_uri}\` |"
-            echo "| Latest URI | \`${latest_uri}\` |"
-            echo "| Base image | \`${base_image_uri}\` |"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          mkdir -p .mas-image-tags
+          printf '%s\t%s\t%s\t%s\n' "${{ matrix.agent }}" "${ECR_REPOSITORY}" "${image_tag}" "${image_uri}" > ".mas-image-tags/${{ strategy.job-index }}.tsv"
 
       - name: Ensure ECR repository
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
@@ -506,6 +502,14 @@ jobs:
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
           cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI%:*}@${DIGEST}"
 
+      - name: Upload image tag metadata
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mas-image-tag-${{ strategy.job-index }}
+          path: .mas-image-tags/*.tsv
+          if-no-files-found: error
+
       - name: Start manifest update CodeBuild
         id: codebuild
         shell: bash
@@ -559,28 +563,6 @@ jobs:
           echo "Started CodeBuild: ${build_id}"
           echo "::notice title=Manifest updater started::${APP_NAME} -> ${IMAGE_URI} (${build_id})"
 
-          deep_link="$(
-            aws codebuild batch-get-builds \
-              --ids "${build_id}" \
-              --query 'builds[0].logs.deepLink' \
-              --output text 2>/dev/null || true
-          )"
-          echo "deep_link=${deep_link}" >> "${GITHUB_OUTPUT}"
-          {
-            echo ""
-            echo "### Manifest update"
-            echo ""
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| App | \`${APP_NAME}\` |"
-            echo "| Manifest path | \`${MANIFEST_PATH}\` |"
-            echo "| Target container | \`${TARGET_CONTAINER}\` |"
-            echo "| Image tag | \`${IMAGE_TAG}\` |"
-            echo "| Image URI | \`${IMAGE_URI}\` |"
-            echo "| CodeBuild ID | \`${build_id}\` |"
-            echo "| CodeBuild logs | ${deep_link} |"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
       - name: Wait for CodeBuild
         shell: bash
         env:
@@ -597,31 +579,59 @@ jobs:
             case "${status}" in
               SUCCEEDED)
                 echo "::notice title=MAS deploy succeeded::${AGENT} -> ${IMAGE_URI}"
-                {
-                  echo ""
-                  echo "✅ Manifest update succeeded for \`${AGENT}\`"
-                  echo ""
-                  echo "- Image tag: \`${IMAGE_TAG}\`"
-                  echo "- Image URI: \`${IMAGE_URI}\`"
-                } >> "${GITHUB_STEP_SUMMARY}"
                 exit 0
                 ;;
               FAILED|FAULT|STOPPED|TIMED_OUT)
                 deep_link="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
                 echo "::error title=Manifest updater failed::${AGENT} CodeBuild finished with status ${status}. Image tag was ${IMAGE_TAG}. Logs: ${deep_link}"
-                {
-                  echo ""
-                  echo "❌ Manifest update failed for \`${AGENT}\`"
-                  echo ""
-                  echo "- Status: \`${status}\`"
-                  echo "- Image tag: \`${IMAGE_TAG}\`"
-                  echo "- Image URI: \`${IMAGE_URI}\`"
-                  echo "- CodeBuild ID: \`${BUILD_ID}\`"
-                  echo "- CodeBuild logs: ${deep_link}"
-                } >> "${GITHUB_STEP_SUMMARY}"
                 exit 1
                 ;;
             esac
 
             sleep 30
           done
+
+      - name: Stop manifest update CodeBuild on cancellation
+        if: ${{ cancelled() && steps.codebuild.outputs.id != '' }}
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.codebuild.outputs.id }}
+        run: |
+          set -euo pipefail
+          echo "Stopping CodeBuild because the GitHub Actions job was cancelled: ${BUILD_ID}"
+          aws codebuild stop-build --id "${BUILD_ID}" || true
+
+  summarize_image_tags:
+    name: Summarize MAS image tags
+    needs:
+      - detect
+      - deploy
+    if: ${{ always() && needs.detect.outputs.should_deploy == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image tag metadata
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: mas-image-tag-*
+          merge-multiple: true
+          path: .mas-image-tags
+
+      - name: Print image tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### MAS image tags" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Agent | Repository | Tag | Image URI |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| --- | --- | --- | --- |" >> "${GITHUB_STEP_SUMMARY}"
+
+          if compgen -G ".mas-image-tags/*.tsv" > /dev/null; then
+            sort .mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri; do
+              echo "| \`${agent}\` | \`${repository}\` | \`${tag}\` | \`${uri}\` |" >> "${GITHUB_STEP_SUMMARY}"
+              echo "${agent} ${tag} ${uri}"
+            done
+          else
+            echo "| _none_ | _none_ | _none_ | _none_ |" >> "${GITHUB_STEP_SUMMARY}"
+            echo "::warning::No MAS image tag artifacts were found."
+          fi
