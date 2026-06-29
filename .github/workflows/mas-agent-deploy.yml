@@ -290,6 +290,7 @@ jobs:
     environment: development
     strategy:
       fail-fast: false
+      max-parallel: 5
       matrix:
         agent: ${{ fromJSON(needs.detect.outputs.agents) }}
     concurrency:
@@ -414,6 +415,20 @@ jobs:
           echo "latest_uri=${latest_uri}" >> "${GITHUB_OUTPUT}"
           echo "base_uri=${base_image_uri}" >> "${GITHUB_OUTPUT}"
 
+          echo "::notice title=MAS image tag::${ECR_REPOSITORY}:${image_tag}"
+          {
+            echo "### MAS image metadata"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Agent | \`${{ matrix.agent }}\` |"
+            echo "| Repository | \`${ECR_REPOSITORY}\` |"
+            echo "| Immutable tag | \`${image_tag}\` |"
+            echo "| Image URI | \`${image_uri}\` |"
+            echo "| Latest URI | \`${latest_uri}\` |"
+            echo "| Base image | \`${base_image_uri}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Ensure ECR repository
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
         shell: bash
@@ -528,11 +543,37 @@ jobs:
 
           echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
           echo "Started CodeBuild: ${build_id}"
+          echo "::notice title=Manifest updater started::${APP_NAME} -> ${IMAGE_URI} (${build_id})"
+
+          deep_link="$(
+            aws codebuild batch-get-builds \
+              --ids "${build_id}" \
+              --query 'builds[0].logs.deepLink' \
+              --output text 2>/dev/null || true
+          )"
+          echo "deep_link=${deep_link}" >> "${GITHUB_OUTPUT}"
+          {
+            echo ""
+            echo "### Manifest update"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| App | \`${APP_NAME}\` |"
+            echo "| Manifest path | \`${MANIFEST_PATH}\` |"
+            echo "| Target container | \`${TARGET_CONTAINER}\` |"
+            echo "| Image tag | \`${IMAGE_TAG}\` |"
+            echo "| Image URI | \`${IMAGE_URI}\` |"
+            echo "| CodeBuild ID | \`${build_id}\` |"
+            echo "| CodeBuild logs | ${deep_link} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Wait for CodeBuild
         shell: bash
         env:
           BUILD_ID: ${{ steps.codebuild.outputs.id }}
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          AGENT: ${{ matrix.agent }}
         run: |
           set -euo pipefail
           while true; do
@@ -541,10 +582,29 @@ jobs:
 
             case "${status}" in
               SUCCEEDED)
+                echo "::notice title=MAS deploy succeeded::${AGENT} -> ${IMAGE_URI}"
+                {
+                  echo ""
+                  echo "✅ Manifest update succeeded for \`${AGENT}\`"
+                  echo ""
+                  echo "- Image tag: \`${IMAGE_TAG}\`"
+                  echo "- Image URI: \`${IMAGE_URI}\`"
+                } >> "${GITHUB_STEP_SUMMARY}"
                 exit 0
                 ;;
               FAILED|FAULT|STOPPED|TIMED_OUT)
-                echo "::error::CodeBuild finished with status ${status}."
+                deep_link="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
+                echo "::error title=Manifest updater failed::${AGENT} CodeBuild finished with status ${status}. Image tag was ${IMAGE_TAG}. Logs: ${deep_link}"
+                {
+                  echo ""
+                  echo "❌ Manifest update failed for \`${AGENT}\`"
+                  echo ""
+                  echo "- Status: \`${status}\`"
+                  echo "- Image tag: \`${IMAGE_TAG}\`"
+                  echo "- Image URI: \`${IMAGE_URI}\`"
+                  echo "- CodeBuild ID: \`${BUILD_ID}\`"
+                  echo "- CodeBuild logs: ${deep_link}"
+                } >> "${GITHUB_STEP_SUMMARY}"
                 exit 1
                 ;;
             esac
