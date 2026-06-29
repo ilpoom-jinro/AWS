@@ -170,7 +170,7 @@ resource "aws_eks_node_group" "ops" {
   capacity_type   = var.eks_node_capacity_type
   # AL2023 명시 고정 — EKS 1.35는 ami_type 미지정 시 이미 AL2023가 기본값이나,
   # AWS 기본값 변경에 의존하지 않도록 명시. (SELinux permissive / IMDSv2-only / 최소 패키지 보안 기본값)
-  ami_type        = "AL2023_x86_64_STANDARD"
+  ami_type = "AL2023_x86_64_STANDARD"
 
   scaling_config {
     # ops general 노드는 운영 워크로드(ArgoCD, kyverno, istio, finops-mas, teleport
@@ -362,7 +362,7 @@ resource "aws_eks_node_group" "monitoring" {
   instance_types  = var.eks_monitor_node_instance_types
   # AL2023 명시 고정 — EKS 1.35는 ami_type 미지정 시 이미 AL2023가 기본값이나,
   # AWS 기본값 변경에 의존하지 않도록 명시. (SELinux permissive / IMDSv2-only / 최소 패키지 보안 기본값)
-  ami_type        = "AL2023_x86_64_STANDARD"
+  ami_type = "AL2023_x86_64_STANDARD"
 
   launch_template {
     id      = aws_launch_template.eks_node_monitor.id
