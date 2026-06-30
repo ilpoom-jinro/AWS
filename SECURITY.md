@@ -38,3 +38,5 @@ This repository contains AWS infrastructure-as-code (Terraform), GitOps manifest
 ## Supported Versions
 
 Only the latest commit on the `main` branch is actively maintained.
+
+내부 운영 취약점 관리(탐지 소스, 패치 SLA)는 [VULNERABILITY-MANAGEMENT.md](VULNERABILITY-MANAGEMENT.md) 참조.
