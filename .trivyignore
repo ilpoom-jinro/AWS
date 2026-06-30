@@ -12,3 +12,31 @@
 #       # 승인자: dhyeon / 승인일: 2026-07-01
 #       AVD-AWS-0123
 # ================================================================
+
+# ── 영구 억제 (보상통제 있음 / 의도된 설정) ──
+
+# AWS-0031: ECR image_tag_mutability=MUTABLE — Cosign digest 서명 + Kyverno ImageVerify로
+# 태그 변조 차단(보상통제). useDigest:false 미러링 구조상 IMMUTABLE 불가.
+# 승인자: dhyeon / 승인일: 2026-07-01
+AVD-AWS-0031
+
+# AWS-0104: SG egress 0.0.0.0/0 — Cilium egress FQDN/DROP 정책으로 망분리 강제(보상통제).
+# 승인자: dhyeon / 승인일: 2026-07-01
+AVD-AWS-0104
+
+# AWS-0132: ALB 액세스 로그 버킷 SSE-S3(AES256) — S3 액세스 로그 대상 버킷은
+# SSE-KMS 미지원(trivy 룰 설명에 명시). AES256이 올바른 설정.
+# 승인자: dhyeon / 승인일: 2026-07-01
+AVD-AWS-0132
+
+# AWS-0164: 퍼블릭 서브넷 map_public_ip_on_launch=true — vpc1(globalservice)은
+# IGW 보유 퍼블릭 VPC, ALB/NAT용 퍼블릭 서브넷이라 공인 IP 필요(의도된 설정).
+# 승인자: dhyeon / 승인일: 2026-07-01
+AVD-AWS-0164
+
+# ── 임시 억제 (MAS 단계에서 해소 예정, 만료일 경과 시 재검출) ──
+
+# AWS-0095: SNS Topic 암호화 없음(api/network/root 알림 3건) — MAS 단계에서
+# key-sns CMK + Slack 연동과 함께 적용 예정. 만료일 이후 재검출됨.
+# 승인자: dhyeon / 승인일: 2026-07-01 / 만료: 2026-07-06
+AVD-AWS-0095 exp:2026-07-06
