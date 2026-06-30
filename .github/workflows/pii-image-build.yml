@@ -63,20 +63,54 @@ jobs:
         with:
           cosign-release: 'v3.1.1'
 
-      - name: Build and push PII scan image
+      - name: Build PII scan image
         env:
+          # ECR 레지스트리 호스트 (amazon-ecr-login step 출력)
           REGISTRY: ${{ steps.ecr.outputs.registry }}
+          # 커밋 SHA를 이미지 태그로 사용하여 추적 가능성 확보
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE_URI="${REGISTRY}/${PII_SCAN_REPOSITORY}"
 
+          # 로컬 daemon에만 이미지를 빌드 (push 는 Trivy 스캔 통과 후 별도 step에서 수행)
           docker build \
             -f tools/pii-scan/Dockerfile \
             -t "${IMAGE_URI}:${IMAGE_TAG}" \
             -t "${IMAGE_URI}:latest" \
             tools/pii-scan
 
+      - name: Trivy scan (CRITICAL gate)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          # 직전 "Build PII scan image" step에서 로컬 daemon에 남긴 태그를 스캔 대상으로 지정
+          image-ref: ${{ steps.ecr.outputs.registry }}/${{ env.PII_SCAN_REPOSITORY }}:${{ github.sha }}
+          # 이미지 레이어를 직접 스캔 (registry push 전 로컬 이미지 대상)
+          scan-type: image
+          # 텍스트 테이블 형식 출력 (sarif+exit-code 조합은 severity 필터 무시 버그 존재)
+          format: table
+          # CRITICAL 취약점만 job 실패로 처리
+          severity: CRITICAL
+          # CRITICAL 발견 시 exit 1 → push step 차단
+          exit-code: 1
+          # 아직 패치가 없는 취약점은 제외 (영구 차단 방지)
+          ignore-unfixed: true
+          # OS 패키지 및 라이브러리 취약점 모두 스캔
+          vuln-type: os,library
+          # 진행 바 숨김 (CI 로그 가독성)
+          hide-progress: true
+
+      - name: Push PII scan image
+        env:
+          # ECR 레지스트리 호스트 (amazon-ecr-login step 출력)
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          # 커밋 SHA를 이미지 태그로 사용하여 추적 가능성 확보
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${PII_SCAN_REPOSITORY}"
+
+          # Trivy 스캔 통과 후 ECR에 push
           PUSH_OUT=$(docker push "${IMAGE_URI}:${IMAGE_TAG}")
           docker push "${IMAGE_URI}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+          # KMS key-cosign(ECC_NIST_P256)으로 서명하여 Kyverno verifyImages 정책 통과 보장
           cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
