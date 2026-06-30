@@ -110,6 +110,8 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
           trivy --version
+          # vuln DB 1회 사전 다운로드 → 이후 루프 호출은 --skip-db-update로 remote check 제거
+          trivy image --download-db-only --no-progress
 
       - name: Mirror selected monitoring images
         shell: bash
@@ -176,6 +178,7 @@ jobs:
             # exit-code 0: CRITICAL 있어도 빌드 실패 안 시킴 / EOL OS면 trivy가 경고 로그 자동 출력
             echo "::group::Trivy scan (mirror, warn-only) ${target_image}"
             trivy image \
+              --skip-db-update \
               --severity CRITICAL \
               --ignore-unfixed \
               --pkg-types os,library \
@@ -227,6 +230,7 @@ jobs:
             # exit-code 1: CRITICAL 발견 시 push 전에 빌드 실패 / EOL OS면 trivy가 경고 로그 자동 출력
             echo "::group::Trivy scan (custom, CRITICAL gate) ${target_image}"
             trivy image \
+              --skip-db-update \
               --severity CRITICAL \
               --ignore-unfixed \
               --pkg-types os,library \
