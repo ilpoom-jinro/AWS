@@ -231,6 +231,5 @@ jobs:
             --tf-exclude-downloaded-modules \
             --skip-dirs ".terraform,**/.terraform" \
             --ignorefile .trivyignore \
-            --no-progress \
             --skip-check-update \
             .
