@@ -453,6 +453,15 @@ resource "aws_eks_pod_identity_association" "kyverno_background" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
+resource "aws_eks_pod_identity_association" "kyverno_reports" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "kyverno"
+  service_account = "kyverno-reports-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
 # ── Velero ────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "velero" {
