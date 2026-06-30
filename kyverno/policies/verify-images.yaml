@@ -17,6 +17,7 @@
 #   kubectl patch clusterpolicy verify-images \
 #     --type=merge \
 #     -p '{"spec":{"validationFailureAction":"Enforce"}}'
+#   전환 완료(2026-06-30)
 #
 # 예외 네임스페이스:
 #   kube-system — coredns / kube-proxy / vpc-cni 등 EKS 관리 이미지.
@@ -37,8 +38,8 @@ metadata:
       공개키 PEM 임베드 방식으로 오프라인 검증합니다. kube-system 의 EKS 관리 이미지는
       AWS 에서 직접 제공하므로 검증에서 제외합니다.
 spec:
-  # Audit: 위반을 허용하되 PolicyReport 에 기록 (Enforce 전환 명령어는 상단 주석 참고)
-  validationFailureAction: Audit
+  # Enforce: 미서명 이미지 Pod 생성 차단 (2026-06-30 ops 검증 완료 후 전환)
+  validationFailureAction: Enforce
 
   # background: true → 이미 실행 중인 Pod 도 정책 평가 대상 (PolicyReport 생성)
   background: true
