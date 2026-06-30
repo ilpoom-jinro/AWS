@@ -11,6 +11,7 @@ on:
       - "variables.tf"
       - "buildspec-ansible.yml"
       - "tools/ansible-codebuild/**"
+      - "kyverno/**"
       - ".github/workflows/ecr-images.yml"
   workflow_dispatch:
     inputs:
@@ -190,7 +191,7 @@ jobs:
           changed_files="$(git diff --name-only "${before}" "${{ github.sha }}")"
           printf '%s\n' "${changed_files}"
 
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|gitops/|buildspec-ansible.yml|tools/ansible-codebuild/)'; then
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(ansible/|gitops/|buildspec-ansible.yml|tools/ansible-codebuild/|kyverno/)'; then
             echo "ansible=true" >> "${GITHUB_OUTPUT}"
           else
             echo "ansible=false" >> "${GITHUB_OUTPUT}"
@@ -427,7 +428,7 @@ jobs:
           PUSH_OUT=$(docker push "${IMAGE_URI}:${IMAGE_TAG}")
           docker push "${IMAGE_URI}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
 
       - name: Mirror Argo CD image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_argocd == true
@@ -440,7 +441,7 @@ jobs:
           docker tag "${ARGOCD_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
           PUSH_OUT=$(docker push "${IMAGE_URI}:latest")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
 
       - name: Mirror Argo CD Redis image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_argocd_redis == true
@@ -453,7 +454,7 @@ jobs:
           docker tag "${ARGOCD_REDIS_SOURCE_IMAGE}" "${IMAGE_URI}:latest"
           PUSH_OUT=$(docker push "${IMAGE_URI}:latest")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
 
       - name: Mirror Istio ambient images to ECR
         if: >
@@ -471,7 +472,7 @@ jobs:
               docker tag "${source_image}" "${target_image}"
               PUSH_OUT=$(docker push "${target_image}")
               DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-              cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+              cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
             done
 
             docker tag "docker.io/istio/${image}:${ISTIO_VERSION}" "${REGISTRY}/${ISTIO_REPOSITORY_PREFIX}/${image}:latest"
@@ -495,7 +496,7 @@ jobs:
             PUSH_OUT=$(docker push "${target_image}")
             docker push "${REGISTRY}/${KYVERNO_REPOSITORY_PREFIX}/${component}:latest"
             DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-            cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+            cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done
 
       - name: Mirror Kyverno kubectl image to ECR
@@ -512,7 +513,7 @@ jobs:
           docker tag "${source_image}" "${target_image}"
           PUSH_OUT=$(docker push "${target_image}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
 
       - name: Mirror Tetragon images to ECR
         if: >
@@ -528,7 +529,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:${TETRAGON_VERSION}")
           docker push "${REGISTRY}/${TETRAGON_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TETRAGON_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TETRAGON_REPOSITORY}@${DIGEST}"
 
           docker pull "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}"
           docker tag "${TETRAGON_SOURCE_REGISTRY}/tetragon-operator:${TETRAGON_VERSION}" "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}"
@@ -536,7 +537,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:${TETRAGON_VERSION}")
           docker push "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TETRAGON_OPERATOR_REPOSITORY}@${DIGEST}"
 
           # hubble-export-stdout: 별도 태그 HUBBLE_EXPORT_STDOUT_VERSION
           docker pull "${TETRAGON_SOURCE_REGISTRY}/hubble-export-stdout:${HUBBLE_EXPORT_STDOUT_VERSION}"
@@ -545,7 +546,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:${HUBBLE_EXPORT_STDOUT_VERSION}")
           docker push "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${HUBBLE_EXPORT_STDOUT_REPOSITORY}@${DIGEST}"
 
       - name: Mirror Trivy images to ECR
         if: >
@@ -562,7 +563,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:${TRIVY_OPERATOR_VERSION}")
           docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-operator@${DIGEST}"
 
           # trivy (스캐너 바이너리)
           docker pull "${TRIVY_SOURCE_REGISTRY}/trivy:${TRIVY_VERSION}"
@@ -571,7 +572,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:${TRIVY_VERSION}")
           docker push "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy@${DIGEST}"
 
           # node-collector: infra-assessment/CIS 컴플라이언스 스캔용 Job 이미지
           docker pull "${NODE_COLLECTOR_SOURCE_IMAGE}:${NODE_COLLECTOR_VERSION}"
@@ -580,7 +581,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:${NODE_COLLECTOR_VERSION}")
           docker push "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${NODE_COLLECTOR_REPOSITORY}@${DIGEST}"
 
           # ── trivy-db / trivy-java-db 는 일반 컨테이너 이미지가 아니라 OCI 아티팩트 ──
           # config.mediaType=application/vnd.oci.empty.v1+json, layer=vnd.aquasec.trivy.db.*
@@ -598,14 +599,14 @@ jobs:
             "${TRIVY_SOURCE_REGISTRY}/trivy-db:${TRIVY_DB_VERSION}" \
             "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}"
           DIGEST=$(crane digest "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db:${TRIVY_DB_VERSION}")
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-db@${DIGEST}"
 
           # trivy-java-db: Java 취약점 DB OCI 아티팩트
           crane copy \
             "${TRIVY_SOURCE_REGISTRY}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}" \
             "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}"
           DIGEST=$(crane digest "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db:${TRIVY_JAVA_DB_VERSION}")
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TRIVY_REPOSITORY_PREFIX}/trivy-java-db@${DIGEST}"
 
       - name: Mirror Cilium images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_cilium == true
@@ -619,7 +620,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${CILIUM_REPOSITORY}:v${CILIUM_VERSION}")
           docker push "${REGISTRY}/${CILIUM_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_REPOSITORY}@${DIGEST}"
 
           # operator-generic (CILIUM_VERSION)
           docker pull "${CILIUM_SOURCE_REGISTRY}/operator-generic:v${CILIUM_VERSION}"
@@ -628,7 +629,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:v${CILIUM_VERSION}")
           docker push "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_OPERATOR_REPOSITORY}@${DIGEST}"
 
           # envoy (별도 태그 CILIUM_ENVOY_TAG — chart 1.16.5 번들)
           docker pull "${CILIUM_SOURCE_REGISTRY}/cilium-envoy:${CILIUM_ENVOY_TAG}"
@@ -637,7 +638,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:${CILIUM_ENVOY_TAG}")
           docker push "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_ENVOY_REPOSITORY}@${DIGEST}"
 
           # hubble-relay (CILIUM_VERSION)
           docker pull "${CILIUM_SOURCE_REGISTRY}/hubble-relay:v${CILIUM_VERSION}"
@@ -646,7 +647,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:v${CILIUM_VERSION}")
           docker push "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${CILIUM_HUBBLE_RELAY_REPOSITORY}@${DIGEST}"
 
       - name: Mirror FinOps runtime images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_finops_runtime == true
@@ -660,7 +661,7 @@ jobs:
           docker tag "${FINOPS_TEMPORAL_SOURCE_IMAGE}" "${temporal_target}"
           PUSH_OUT=$(docker push "${temporal_target}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}@${DIGEST}"
 
           docker pull "${FINOPS_POSTGRES_SOURCE_IMAGE}"
           docker tag "${FINOPS_POSTGRES_SOURCE_IMAGE}" "${postgres_target}"
@@ -668,7 +669,7 @@ jobs:
           PUSH_OUT=$(docker push "${postgres_target}")
           docker push "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_POSTGRES_REPOSITORY}@${DIGEST}"
 
       - name: Mirror Temporal Server and UI images to ECR
         if: >
@@ -684,7 +685,7 @@ jobs:
           docker tag "${server_source}" "${server_target}"
           PUSH_OUT=$(docker push "${server_target}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TEMPORAL_SERVER_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TEMPORAL_SERVER_REPOSITORY}@${DIGEST}"
 
           # UI
           ui_source="docker.io/temporalio/ui:${TEMPORAL_UI_VERSION}"
@@ -693,7 +694,7 @@ jobs:
           docker tag "${ui_source}" "${ui_target}"
           PUSH_OUT=$(docker push "${ui_target}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${TEMPORAL_UI_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${TEMPORAL_UI_REPOSITORY}@${DIGEST}"
 
           # Admin-tools
           admin_source="docker.io/temporalio/admin-tools:${TEMPORAL_VERSION}"
@@ -702,7 +703,7 @@ jobs:
           docker tag "${admin_source}" "${admin_target}"
           PUSH_OUT=$(docker push "${admin_target}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${FINOPS_TEMPORAL_REPOSITORY}@${DIGEST}"
 
       - name: Mirror External Secrets Operator image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_external_secrets == true
@@ -716,7 +717,7 @@ jobs:
           docker tag "${source_image}" "${target_image}"
           PUSH_OUT=$(docker push "${target_image}")
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
 
       - name: Mirror Velero and snapshot-controller images to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_velero == true
@@ -729,7 +730,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${VELERO_REPOSITORY}:${VELERO_VERSION}")
           docker push "${REGISTRY}/${VELERO_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${VELERO_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${VELERO_REPOSITORY}@${DIGEST}"
 
           docker pull "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}"
           docker tag "${VELERO_PLUGIN_AWS_SOURCE_IMAGE}:${VELERO_PLUGIN_AWS_VERSION}" "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}"
@@ -737,7 +738,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:${VELERO_PLUGIN_AWS_VERSION}")
           docker push "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${VELERO_PLUGIN_AWS_REPOSITORY}@${DIGEST}"
 
           docker pull "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}"
           docker tag "${SNAPSHOT_CONTROLLER_SOURCE_IMAGE}:${SNAPSHOT_CONTROLLER_VERSION}" "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}"
@@ -745,7 +746,7 @@ jobs:
           PUSH_OUT=$(docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:${SNAPSHOT_CONTROLLER_VERSION}")
           docker push "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${REGISTRY}/${SNAPSHOT_CONTROLLER_REPOSITORY}@${DIGEST}"
 
       - name: Mirror internal Git image to ECR
         if: github.event_name == 'workflow_dispatch' && inputs.mirror_internal_git == true
@@ -762,4 +763,4 @@ jobs:
           PUSH_OUT=$(docker push "${IMAGE_URI}:${IMAGE_TAG}")
           docker push "${IMAGE_URI}:latest"
           DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-          cosign sign --yes --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"

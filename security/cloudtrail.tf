@@ -82,7 +82,7 @@ resource "aws_cloudtrail" "main" {
   # count = 0
 
   name                          = "ilpumjinro-trail"
-  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v3"
+  s3_bucket_name                = "ilpumjinro-cloudtrail-logs-locked-v4"
   kms_key_id                    = var.kms_key_cloudtrail_arn
   include_global_service_events = true
   is_multi_region_trail         = true

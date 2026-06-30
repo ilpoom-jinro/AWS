@@ -212,6 +212,7 @@
 
         replacements = {
             "REPLACE_WITH_ECR_REGISTRY": f"{os.environ['AWS_ACCOUNT_ID']}.dkr.ecr.{os.environ['AWS_REGION']}.amazonaws.com",
+            "REPLACE_WITH_ACCOUNT_ID": os.environ["AWS_ACCOUNT_ID"],
             "REPLACE_WITH_OPS_VPC_ID": os.environ["OPS_VPC_ID"],
             "REPLACE_WITH_SERVICE_VPC_ID": os.environ["SERVICE_VPC_ID"],
             "REPLACE_WITH_TELEPORT_PROXY_SERVER": os.environ["TELEPORT_PROXY_SERVER"],

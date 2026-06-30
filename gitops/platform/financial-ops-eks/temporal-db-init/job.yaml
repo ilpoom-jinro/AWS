@@ -25,7 +25,7 @@ spec:
       containers:
         - name: init
           # finops와 동일 postgres 이미지 미러 (psql 포함). REPLACE_WITH_ECR_REGISTRY는 배포 시 주입
-          image: 797715838244.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/postgres:16-alpine
+          image: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/postgres:16-alpine
           env:
             - name: PGHOST
               valueFrom: { secretKeyRef: { name: temporal-rds-credentials, key: host } }

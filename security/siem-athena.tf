@@ -2,7 +2,7 @@
 # SIEM — Athena 저장·검색 레이어
 #
 # 대상 소스:
-#   · CloudTrail  — ilpumjinro-cloudtrail-logs-locked-v3  (JSON.gz, 멀티리전)
+#   · CloudTrail  — ilpumjinro-cloudtrail-logs-locked-v4  (JSON.gz, 멀티리전)
 #   · ALB Logs    — financial-alb-access-logs-{acct}       (공백 구분 텍스트 .log.gz)
 #   · Prowler     — financial-prowler-findings-{acct}       (.ocsf.json, JSON 배열)
 #
@@ -140,7 +140,7 @@ resource "aws_glue_catalog_database" "siem" {
 # ─────────────────────────────────────────────
 # Glue 외부 테이블 (1/3) — cloudtrail
 #
-# 소스: s3://ilpumjinro-cloudtrail-logs-locked-v3/
+# 소스: s3://ilpumjinro-cloudtrail-logs-locked-v4/
 #         AWSLogs/{acct}/CloudTrail/{region}/{yyyy}/{mm}/{dd}/
 # SerDe: CloudTrailSerde
 #   · JSON.gz 파일 내 Records[] 배열 래퍼를 자동 언래핑 → 각 이벤트가 1행
@@ -170,7 +170,7 @@ resource "aws_glue_catalog_table" "cloudtrail" {
     "projection.day.range"     = "1,31"
     "projection.day.digits"    = "2"
     # $${...}: Terraform 이스케이프 → AWS에는 ${...} 전달 → Athena가 파티션 값으로 치환
-    "storage.location.template" = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/$${region}/$${year}/$${month}/$${day}/"
+    "storage.location.template" = "s3://ilpumjinro-cloudtrail-logs-locked-v4/AWSLogs/${var.account_id}/CloudTrail/$${region}/$${year}/$${month}/$${day}/"
     "classification"            = "cloudtrail"
   }
 
@@ -194,7 +194,7 @@ resource "aws_glue_catalog_table" "cloudtrail" {
 
   storage_descriptor {
     # 루트 경로 — Athena는 storage.location.template로 실제 파티션 경로 결정
-    location = "s3://ilpumjinro-cloudtrail-logs-locked-v3/AWSLogs/${var.account_id}/CloudTrail/"
+    location = "s3://ilpumjinro-cloudtrail-logs-locked-v4/AWSLogs/${var.account_id}/CloudTrail/"
     # gzip JSON 해제 + CloudTrail Records[] 구조 처리 전용 InputFormat
     input_format  = "com.amazon.emr.cloudtrail.CloudTrailInputFormat"
     output_format = "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
@@ -753,7 +753,7 @@ resource "aws_iam_role_policy" "siem_athena_query" {
       },
       {
         # S3 원본 로그 버킷 3개 읽기
-        # · CloudTrail: ilpumjinro-cloudtrail-logs-locked-v3 (Object Lock + key-cloudtrail 암호화)
+        # · CloudTrail: ilpumjinro-cloudtrail-logs-locked-v4 (Object Lock + key-cloudtrail 암호화)
         # · ALB:        financial-alb-access-logs-{acct} (AES256, KMS 불필요)
         # · Prowler:    financial-prowler-findings-{acct} (key-s3 암호화)
         Sid    = "S3ReadSourceBuckets"
@@ -763,8 +763,8 @@ resource "aws_iam_role_policy" "siem_athena_query" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v3",
-          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v3/*",
+          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v4",
+          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v4/*",
           "arn:aws:s3:::financial-alb-access-logs-${var.account_id}",
           "arn:aws:s3:::financial-alb-access-logs-${var.account_id}/*",
           "arn:aws:s3:::financial-prowler-findings-${var.account_id}",

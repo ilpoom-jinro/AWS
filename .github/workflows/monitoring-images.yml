@@ -163,7 +163,7 @@ jobs:
             docker tag "${source_image}" "${target_image}"
             PUSH_OUT=$(docker push "${target_image}")
             DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-            cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+            cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/images.tsv; echo)
 
       - name: Build selected custom monitoring images
@@ -202,5 +202,5 @@ jobs:
 
             PUSH_OUT=$(docker push "${target_image}")
             DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
-            cosign sign --yes --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
+            cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/custom-images.tsv; echo)

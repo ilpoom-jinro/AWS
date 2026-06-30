@@ -31,6 +31,6 @@ ingressClassParams:
       - key: access_logs.s3.enabled
         value: "true"
       - key: access_logs.s3.bucket
-        value: financial-alb-access-logs-797715838244
+        value: financial-alb-access-logs-REPLACE_WITH_ACCOUNT_ID
       - key: access_logs.s3.prefix
         value: alb
