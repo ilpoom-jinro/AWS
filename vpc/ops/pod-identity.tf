@@ -43,6 +43,7 @@ resource "aws_iam_role_policy" "eso" {
         Resource = [
           "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*",
           "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:velero/*",
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:temporal/*",
         ]
       },
       {
