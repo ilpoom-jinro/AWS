@@ -211,9 +211,11 @@ jobs:
           }
           echo "${expected_line}" | sha256sum -c -
 
-          # 검증 완료된 바이너리만 설치
-          tar -xzf "${TARBALL}" trivy
-          sudo mv trivy /usr/local/bin/trivy
+          # repo 루트에 trivy/ 디렉토리가 있으므로 임시 디렉토리에 추출 후 이동
+          tmpdir="$(mktemp -d)"
+          tar -xzf "${TARBALL}" -C "${tmpdir}" trivy
+          sudo mv "${tmpdir}/trivy" /usr/local/bin/trivy
+          rm -rf "${tmpdir}"
           trivy --version
 
       - name: Trivy IaC 보안 스캔 (HIGH/CRITICAL 차단)
