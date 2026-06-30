@@ -21,7 +21,7 @@ server:
           sql:
             pluginName: postgres12_pgx
             driverName: postgres12_pgx
-            connectAddr: REPLACE_WITH_SERVICE_RDS_ENDPOINT:5432
+            connectAddr: REPLACE_WITH_OPS_RDS_ENDPOINT:5432
             connectProtocol: tcp
             databaseName: temporal
             user: temporal_user
@@ -37,7 +37,7 @@ server:
           sql:
             pluginName: postgres12_pgx
             driverName: postgres12_pgx
-            connectAddr: REPLACE_WITH_SERVICE_RDS_ENDPOINT:5432
+            connectAddr: REPLACE_WITH_OPS_RDS_ENDPOINT:5432
             connectProtocol: tcp
             databaseName: temporal_visibility
             user: temporal_user
