@@ -10,8 +10,8 @@ phases:
       # OCSF 포함 3종을 로컬에 출력. -z: FAIL 있어도 exit 3 무시(빌드 성공 처리)
       # --compliance 에 3종 프레임워크 지정: ISMS-P(기존 유지) + FSBP + CIS 3.0
       # 프레임워크별 compliance CSV가 /tmp/prowler-out/compliance/ 하위에 각각 생성됨
-      # CIS 3.0 은 Prowler 5.32.0 에서 MANUAL 컨트롤 처리 중 KeyError 크래시 → 안정 버전 2.0 으로 교체
-      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws aws_foundational_security_best_practices_aws cis_2.0_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
+      # CIS 는 Prowler 점(.) 포함 버전명 + CSV 출력 조합에서 KeyError 크래시 (이슈 #8753) → 버전 핀 트랙으로 분리, 현재는 ISMS-P + FSBP 2종 운영
+      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws aws_foundational_security_best_practices_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
       # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
       # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
       # python3로 NDJSON 변환 결과를 파일로 저장 → 변수 경유 시 ARG_MAX 초과 방지
