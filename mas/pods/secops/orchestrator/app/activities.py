@@ -34,6 +34,7 @@ from contracts.models import (
 )
 
 from .retrieval import RetrievedChunk, get_retriever
+from .audit import get_audit_sink
 
 USE_REAL_BEDROCK = os.getenv("USE_REAL_BEDROCK", "false").lower() == "true"
 
@@ -248,5 +249,6 @@ async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
 
 @activity.defn(name="record_audit_log")
 async def record_audit_log(log: AuditLog) -> None:
-    """RDS(JSONB) 감사 로그 저장. 여기선 출력만."""
+    """감사 로그 저장. 로컬 SQLite/JSONL(기본) 또는 shared SDK→RDS (AUDIT_SINK=shared)."""
+    await get_audit_sink().save(log)
     activity.logger.info("[audit] %s | %s | %s", log.event_type, log.actor, log.summary)
