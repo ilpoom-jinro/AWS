@@ -162,3 +162,73 @@ jobs:
                 body,
               });
             }
+
+  iac-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+    # AWS 접근 없음 — id-token 불필요. 공급망 표면·토큰 노출 최소화
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Terraform IaC 파일 변경 감지
+        id: changes
+        shell: bash
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          changed="$(git diff --name-only FETCH_HEAD HEAD)"
+          echo "${changed}"
+          if echo "${changed}" | grep -qE '\.tf$|\.tpl$|\.terraform\.lock\.hcl$|^\.github/workflows/PR-terraform-plan\.yml$'; then
+            echo "tf=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tf=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Terraform 파일 변경 없음 — 스캔 건너뜀
+        if: steps.changes.outputs.tf == 'false'
+        run: echo "Terraform 관련 파일 변경 없음. IaC 스캔 건너뜀."
+
+      # CVE-2026-33634 공급망 공격 대응 — mutable 경로 install.sh 대신 GitHub release tarball 핀+검증
+      - name: Trivy 설치 (v0.71.1, SHA256 검증)
+        if: steps.changes.outputs.tf == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TRIVY_VERSION="0.71.1"
+          TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+
+          curl -sSfL "${BASE_URL}/${TARBALL}" -o "${TARBALL}"
+          curl -sSfL "${BASE_URL}/trivy_${TRIVY_VERSION}_checksums.txt" -o checksums.txt
+
+          # checksums.txt에서 해당 tarball 라인 추출 — 못 찾으면 명시적으로 중단
+          expected_line="$(grep "  ${TARBALL}\$" checksums.txt)" || {
+            echo "::error::checksums.txt에서 ${TARBALL} 항목을 찾지 못함 — 무결성 검증 불가, 설치 중단"
+            exit 1
+          }
+          echo "${expected_line}" | sha256sum -c -
+
+          # 검증 완료된 바이너리만 설치
+          tar -xzf "${TARBALL}" trivy
+          sudo mv trivy /usr/local/bin/trivy
+          trivy --version
+
+      - name: Trivy IaC 보안 스캔 (HIGH/CRITICAL 차단)
+        if: steps.changes.outputs.tf == 'true'
+        shell: bash
+        run: |
+          # rego check 번들 원격 다운로드 생략 — trivy 바이너리 내장 번들 사용
+          # (trivy 버전 핀과 룰셋 버전 일치 + 외부 레지스트리 호출 제거, CVE-2026-33634 취지)
+          trivy config \
+            --misconfig-scanners terraform \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --tf-exclude-downloaded-modules \
+            --skip-dirs ".terraform,**/.terraform" \
+            --ignorefile .trivyignore \
+            --no-progress \
+            --skip-check-update \
+            .
