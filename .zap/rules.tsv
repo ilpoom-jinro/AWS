@@ -8,3 +8,6 @@
 #
 # rule-id 목록: https://www.zaproxy.org/docs/alerts/
 # 규칙을 추가할 때는 오탐 근거(티켓 번호 등)를 주석으로 함께 남겨주세요.
+100000	IGNORE	(server-error 데모 엔드포인트의 의도된 500 응답)
+90022	IGNORE	(server-error 데모 — Application Error Disclosure, 의도된 동작)
+10023	IGNORE	(server-error 데모 — Debug Error Messages, 의도된 동작)
