@@ -12,8 +12,8 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
-FROM nginx:1.27.5-alpine
+# pinned 2026-06-30, nginx stable track (mainline 1.27 EOL); controlled bump via #25 EOL workflow
+FROM nginx:1.30.3-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
