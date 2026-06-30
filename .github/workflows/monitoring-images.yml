@@ -101,6 +101,16 @@ jobs:
         with:
           cosign-release: 'v3.1.1'
 
+      - name: Install Trivy
+        shell: bash
+        env:
+          TRIVY_VERSION: "0.71.1"   # ecr-images.yml과 버전 일치
+        run: |
+          set -euo pipefail
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+          trivy --version
+
       - name: Mirror selected monitoring images
         shell: bash
         env:
@@ -161,6 +171,19 @@ jobs:
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
+
+            # 미러 이미지 스캔 (경고만 — upstream 취약점은 우리가 수정 불가하므로 차단하지 않음)
+            # exit-code 0: CRITICAL 있어도 빌드 실패 안 시킴 / EOL OS면 trivy가 경고 로그 자동 출력
+            echo "::group::Trivy scan (mirror, warn-only) ${target_image}"
+            trivy image \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --pkg-types os,library \
+              --no-progress \
+              --exit-code 0 \
+              "${target_image}" || true
+            echo "::endgroup::"
+
             PUSH_OUT=$(docker push "${target_image}")
             DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
             cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
@@ -199,6 +222,18 @@ jobs:
               -f "${dockerfile}" \
               -t "${target_image}" \
               "${build_context}"
+
+            # 커스텀 빌드 이미지 스캔 (CRITICAL 차단 — app-deploy.yml과 동일 정책)
+            # exit-code 1: CRITICAL 발견 시 push 전에 빌드 실패 / EOL OS면 trivy가 경고 로그 자동 출력
+            echo "::group::Trivy scan (custom, CRITICAL gate) ${target_image}"
+            trivy image \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --pkg-types os,library \
+              --no-progress \
+              --exit-code 1 \
+              "${target_image}"
+            echo "::endgroup::"
 
             PUSH_OUT=$(docker push "${target_image}")
             DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
