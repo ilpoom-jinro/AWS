@@ -8,7 +8,9 @@ phases:
     commands:
       # prowler는 이미지의 venv 안에 있고 PATH에 없음 → 절대경로 호출
       # OCSF 포함 3종을 로컬에 출력. -z: FAIL 있어도 exit 3 무시(빌드 성공 처리)
-      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
+      # --compliance 에 3종 프레임워크 지정: ISMS-P(기존 유지) + FSBP + CIS 3.0
+      # 프레임워크별 compliance CSV가 /tmp/prowler-out/compliance/ 하위에 각각 생성됨
+      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws aws_foundational_security_best_practices_aws cis_3.0_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
       # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
       # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
       # python3로 NDJSON 변환 결과를 파일로 저장 → 변수 경유 시 ARG_MAX 초과 방지
