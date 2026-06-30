@@ -1,2 +1,2 @@
 psycopg2-binary==2.9.10
-requests==2.32.3
+requests==2.33.0  # CVE-2024-47081(.netrc 유출) + CVE-2026-25645(temp file 재사용) 해소. 2.33.0이 두 CVE 모두 커버
