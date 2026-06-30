@@ -410,8 +410,33 @@ jobs:
           delete_pvcs financial-ops-eks
           delete_pvcs financial-service-eks
 
-          echo "EBS 볼륨 해제 대기 (60s)..."
-          sleep 60
+          # StatefulSet PVC 삭제 지연 대응: 고정 sleep → available EBS 0 폴링
+          # git 2개 + observability 4개 = 6개 PVC의 EBS가 해제될 때까지 대기.
+          # 폴링만 수행(삭제 없음) — 다른 available 볼륨 오삭제 방지.
+          echo "=== available EBS 폴링 시작 (financial-*-eks-dynamic-pvc-*, 최대 180s) ==="
+          MAX_POLLS=18
+          for i in $(seq 1 ${MAX_POLLS}); do
+            COUNT=$(aws ec2 describe-volumes \
+              --filters "Name=status,Values=available" \
+                        "Name=tag:Name,Values=financial-*-eks-dynamic-pvc-*" \
+              --region ap-northeast-2 \
+              --query "length(Volumes)" \
+              --output text 2>/dev/null) || COUNT="-1"
+
+            echo "[${i}/${MAX_POLLS}] available EBS count: ${COUNT}"
+
+            if [ "${COUNT}" = "0" ]; then
+              echo "=== available EBS 0 확인 — 폴링 완료 ==="
+              break
+            fi
+
+            if [ "${i}" -eq "${MAX_POLLS}" ]; then
+              echo "::warning::180s 내 available EBS가 0이 되지 않음 (마지막 count: ${COUNT}). destroy 계속 진행."
+              break
+            fi
+
+            sleep 10
+          done
 
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
