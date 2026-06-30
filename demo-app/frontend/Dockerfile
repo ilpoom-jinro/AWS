@@ -1,4 +1,5 @@
-FROM node:22-alpine AS build
+ pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+FROM node:22.23.1-alpine AS build
 
 WORKDIR /app
 
@@ -11,7 +12,8 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+FROM nginx:1.27.5-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
