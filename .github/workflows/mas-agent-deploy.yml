@@ -507,7 +507,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mas-image-tag-${{ strategy.job-index }}
-          path: .mas-image-tags/*.tsv
+          path: mas-image-tags/*.tsv
           if-no-files-found: error
 
       - name: Upload image tag metadata
