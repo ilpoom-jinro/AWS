@@ -119,6 +119,17 @@
       register: service_rds_endpoint
       changed_when: false
 
+    - name: Read the Ops RDS endpoint
+      ansible.builtin.command:
+        cmd: >
+          aws rds describe-db-instances
+          --region {{ aws_region }}
+          --db-instance-identifier financial-ops-db
+          --query DBInstances[0].Endpoint.Address
+          --output text
+      register: ops_rds_endpoint
+      changed_when: false
+
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
         msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, or Service RDS endpoint."
@@ -129,7 +140,8 @@
         loki_nlb_sg_id.stdout in ["", "None"] or
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
-        service_rds_endpoint.stdout in ["", "None"]
+        service_rds_endpoint.stdout in ["", "None"] or
+        ops_rds_endpoint.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -221,6 +233,7 @@
             "REPLACE_WITH_OPS_THANOS_RECEIVE_NLB_SG_ID": os.environ["THANOS_RECEIVE_NLB_SG_ID"],
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
             "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
+            "REPLACE_WITH_OPS_RDS_ENDPOINT": os.environ["OPS_RDS_ENDPOINT"],
         }
 
         for path in Path(".").rglob("*"):
@@ -253,6 +266,7 @@
         THANOS_RECEIVE_NLB_SG_ID: "{{ thanos_receive_nlb_sg_id.stdout }}"
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
+        OPS_RDS_ENDPOINT: "{{ ops_rds_endpoint.stdout }}"
 
     - name: Install ESO CRDs on Ops EKS
       ansible.builtin.shell: >
