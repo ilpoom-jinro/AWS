@@ -1,0 +1,242 @@
+name: Runtime EOL Check
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'   # 매주 월요일 00:00 UTC = KST 09:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write            # GitHub Issue 생성/코멘트용 (기존 워크플로우에 없던 신규 권한)
+
+jobs:
+  eol-check:
+    name: Check runtime EOL status
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Query endoflife.date and compute EOL status
+        id: eol
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ── 체크 대상 ────────────────────────────────────────────────────────────
+          # product|cycle|source
+          # cycle = endoflife.date v1 API 응답의 .result.releases[].name 값과 정확히 일치
+          RUNTIMES=(
+            "python|3.12|mas/base + demo-app/backend + pii-scan + observability-indexer"
+            "nodejs|22|demo-app/frontend (stage1)"
+            "nginx|1.30|demo-app/frontend (stage2)"
+          )
+
+          TODAY=$(date -u +%Y-%m-%d)
+          TODAY_EPOCH=$(date -u -d "${TODAY}" +%s)
+          RESULTS_JSON="[]"
+
+          {
+            echo "## Runtime EOL Check — ${TODAY}"
+            echo ""
+            echo "| Runtime | Version | EOL Date | Days Left | Status |"
+            echo "|---------|---------|----------|-----------|--------|"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          for entry in "${RUNTIMES[@]}"; do
+            IFS='|' read -r product cycle source <<< "${entry}"
+
+            # API 실패 시 RESPONSE="" 처리 — 워크플로우 자체는 fail시키지 않음
+            RESPONSE=$(curl -sf --max-time 15 \
+              "https://endoflife.date/api/v1/products/${product}/" 2>/dev/null) || RESPONSE=""
+
+            if [ -z "${RESPONSE}" ]; then
+              EOL_DATE="N/A"
+              DAYS_LEFT="N/A"
+              STATUS="UNKNOWN"
+              EMOJI="⚪"
+            else
+              # v1: .result.releases[] 에서 .name == cycle 인 객체 추출
+              RELEASE_JSON=$(echo "${RESPONSE}" | jq -c --arg c "${cycle}" \
+                '.result.releases[] | select(.name == $c)' 2>/dev/null) || RELEASE_JSON=""
+
+              if [ -z "${RELEASE_JSON}" ]; then
+                # API에 해당 cycle 없음
+                EOL_DATE="N/A (cycle not found)"
+                DAYS_LEFT="N/A"
+                STATUS="UNKNOWN"
+                EMOJI="⚪"
+              else
+                IS_EOL=$(echo "${RELEASE_JSON}" | jq -r '.isEol' 2>/dev/null) || IS_EOL=""
+                EOL_FROM=$(echo "${RELEASE_JSON}" | jq -r '.eolFrom // ""' 2>/dev/null) || EOL_FROM=""
+
+                if [ -z "${IS_EOL}" ]; then
+                  # 응답에 isEol 필드 없음 (스키마 변경 감지)
+                  EOL_DATE="N/A"
+                  DAYS_LEFT="N/A"
+                  STATUS="UNKNOWN"
+                  EMOJI="⚪"
+                elif [ "${IS_EOL}" = "true" ]; then
+                  # 이미 EOL (isEol == true)
+                  EOL_DATE="${EOL_FROM:-EOL (no date)}"
+                  DAYS_LEFT="-"
+                  STATUS="RED"
+                  EMOJI="🔴"
+                elif [ -z "${EOL_FROM}" ]; then
+                  # isEol == false, eolFrom 미지정 (지원 중, 날짜 미정)
+                  EOL_DATE="TBD (not yet published)"
+                  DAYS_LEFT="-"
+                  STATUS="GREEN"
+                  EMOJI="🟢"
+                else
+                  # isEol == false, eolFrom = "YYYY-MM-DD"
+                  EOL_DATE="${EOL_FROM}"
+                  EOL_EPOCH=$(date -u -d "${EOL_DATE}" +%s 2>/dev/null) || EOL_EPOCH=""
+                  if [ -z "${EOL_EPOCH}" ]; then
+                    DAYS_LEFT="N/A"
+                    STATUS="UNKNOWN"
+                    EMOJI="⚪"
+                  else
+                    DAYS_LEFT=$(( (EOL_EPOCH - TODAY_EPOCH) / 86400 ))
+                    if [ "${DAYS_LEFT}" -le 0 ]; then
+                      STATUS="RED"; EMOJI="🔴"
+                    elif [ "${DAYS_LEFT}" -le 90 ]; then
+                      STATUS="YELLOW"; EMOJI="🟡"
+                    else
+                      STATUS="GREEN"; EMOJI="🟢"
+                    fi
+                  fi
+                fi
+              fi
+            fi
+
+            echo "| ${product} | ${cycle} | ${EOL_DATE} | ${DAYS_LEFT} | ${EMOJI} ${STATUS} |" \
+              >> "${GITHUB_STEP_SUMMARY}"
+
+            # jq 실패 시 기존 JSON 유지
+            NEW_JSON=$(echo "${RESULTS_JSON}" | jq -c \
+              --arg product  "${product}" \
+              --arg cycle    "${cycle}" \
+              --arg source   "${source}" \
+              --arg eol_date "${EOL_DATE}" \
+              --arg days_left "${DAYS_LEFT}" \
+              --arg status   "${STATUS}" \
+              '. += [{product:$product,cycle:$cycle,source:$source,eol_date:$eol_date,days_left:$days_left,status:$status}]' \
+              2>/dev/null) || NEW_JSON="${RESULTS_JSON}"
+            RESULTS_JSON="${NEW_JSON}"
+          done
+
+          {
+            echo ""
+            echo "> 출처: [endoflife.date](https://endoflife.date) · 🟡 ≤ 90일 · 🔴 EOL 도달"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # multiline output 전달 (heredoc delimiter 방식)
+          {
+            echo "results<<__EOF__"
+            echo "${RESULTS_JSON}"
+            echo "__EOF__"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update GitHub issues for RED / YELLOW runtimes
+        uses: actions/github-script@v7
+        env:
+          EOL_JSON: ${{ steps.eol.outputs.results }}
+        with:
+          script: |
+            const results = JSON.parse(process.env.EOL_JSON);
+            const ALERT = new Set(['RED', 'YELLOW']);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const today = new Date().toISOString().split('T')[0];
+
+            // eol-alert 라벨 없으면 생성 (첫 실행 자동 세팅)
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'eol-alert',
+                color: 'b91c1c',
+                description: 'Runtime EOL alert — requires version upgrade',
+              });
+            } catch (err) {
+              if (err.status !== 422) throw err; // 422 = already exists
+            }
+
+            for (const rt of results) {
+              if (!ALERT.has(rt.status)) {
+                console.log(`${rt.product} ${rt.cycle}: ${rt.status} — skip`);
+                continue;
+              }
+
+              const title = `[EOL] ${rt.product} ${rt.cycle}`;
+
+              // 중복 방지: 동일 제목의 open 이슈 검색
+              const { data: openIssues } = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'eol-alert',
+                per_page: 100,
+              });
+              const existing = openIssues.find(i => i.title === title);
+
+              const daysNum = parseInt(rt.days_left, 10);
+              const daysText = isNaN(daysNum)
+                ? '날짜 정보 없음'
+                : daysNum <= 0
+                ? `${Math.abs(daysNum)}일 경과 (EOL 초과)`
+                : `${daysNum}일 남음`;
+
+              if (existing) {
+                // 이미 open 이슈 있음 → 주간 상태 코멘트만 추가
+                console.log(`#${existing.number} already open — adding weekly comment`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body: [
+                    `**주간 상태 업데이트 (${today}):**`,
+                    `${rt.status === 'RED' ? '🔴 여전히 EOL' : '🟡 여전히 임박'} · EOL \`${rt.eol_date}\` · ${daysText}`,
+                    ``,
+                    `_[워크플로우 실행 로그](${runUrl})_`,
+                  ].join('\n'),
+                });
+                continue;
+              }
+
+              // 신규 이슈 생성
+              const headline = rt.status === 'RED'
+                ? '🔴 이미 EOL — 즉시 업그레이드 필요'
+                : '🟡 EOL 90일 이내 — 업그레이드 계획 수립';
+              const refUrl = `https://endoflife.date/${rt.product}`;
+
+              const body = [
+                `## ${headline}`,
+                ``,
+                `| 항목 | 값 |`,
+                `|------|-----|`,
+                `| 런타임 | \`${rt.product} ${rt.cycle}\` |`,
+                `| EOL 날짜 | \`${rt.eol_date}\` |`,
+                `| 남은 기간 | ${daysText} |`,
+                `| 영향 Dockerfile | ${rt.source} |`,
+                ``,
+                `### 조치 방법`,
+                `1. [endoflife.date/${rt.product}](${refUrl}) 에서 후속 지원 버전 확인`,
+                `2. 해당 Dockerfile \`FROM\` 라인을 새 버전으로 업데이트 (패치 태그 고정 유지)`,
+                `3. CI 빌드·스캔 통과 후 PR 머지`,
+                `4. 이 이슈 Close`,
+                ``,
+                `### 참고`,
+                `- 출처: [endoflife.date/${rt.product}](${refUrl})`,
+                `- 탐지: [Runtime EOL Check](${runUrl})`,
+                ``,
+                `_자동 생성 · Runtime EOL Check · ${today}_`,
+              ].join('\n');
+
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['eol-alert'],
+              });
+              console.log(`Created #${created.number}: ${title}`);
+            }
