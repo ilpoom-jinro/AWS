@@ -1,4 +1,4 @@
- pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
 FROM node:22.23.1-alpine AS build
 
 WORKDIR /app
