@@ -7,7 +7,7 @@
 """
 
 from .activities_aiops import analyze_root_cause, detect_incident, verify_recovery
-from .activities_platform import execute_remediation, execute_rollback, record_audit_log
+from activities.platform import execute_remediation, execute_rollback, record_audit_log
 
 __all__ = [
     "detect_incident",

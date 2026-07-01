@@ -1,0 +1,57 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "hcl_content": {
+      "title": "Hcl Content",
+      "type": "string"
+    },
+    "validation_passed": {
+      "default": false,
+      "title": "Validation Passed",
+      "type": "boolean"
+    },
+    "validation_attempts": {
+      "default": 0,
+      "maximum": 3,
+      "minimum": 0,
+      "title": "Validation Attempts",
+      "type": "integer"
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    },
+    "estimated_cost_delta_usd": {
+      "default": 0.0,
+      "title": "Estimated Cost Delta Usd",
+      "type": "number"
+    },
+    "rollback_plan": {
+      "default": "",
+      "title": "Rollback Plan",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "hcl_content"
+  ],
+  "title": "TerraformPlan",
+  "type": "object"
+}

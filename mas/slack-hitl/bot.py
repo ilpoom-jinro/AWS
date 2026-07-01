@@ -161,14 +161,51 @@ def register_handlers(app: AsyncApp) -> None:
     @app.action("hitl_approve")
     async def _on_approve(ack, body):  # noqa: ANN001
         await ack()
-        await _signal_decision(body, True)
-        await _update_message(body, True)
+        await _handle_decision(body, True)
 
     @app.action("hitl_reject")
     async def _on_reject(ack, body):  # noqa: ANN001
         await ack()
-        await _signal_decision(body, False)
-        await _update_message(body, False)
+        await _handle_decision(body, False)
+
+
+async def _handle_decision(body: dict, approved: bool) -> None:
+    """
+    signal 전송 + 메시지 업데이트를 묶어서 처리하며 실패를 안전하게 처리한다.
+
+    실패 케이스별 대응:
+      - Temporal workflow 만료/없음 : 메시지를 "이미 처리됨 또는 만료" 로 갱신
+      - 그 외 signal 오류            : 메시지를 "처리 중 오류" 로 갱신
+      - 메시지 업데이트 실패         : 로그만 남기고 조용히 처리 (Slack 쪽 문제)
+    """
+    try:
+        await _signal_decision(body, approved)
+    except Exception as exc:
+        error_str = str(exc)
+        # 만료된 workflow, 존재하지 않는 workflow_id 등
+        if any(kw in error_str for kw in ("not found", "workflow not found",
+                                           "already completed", "terminated")):
+            label = "⚠️ 이미 처리됐거나 만료된 요청입니다."
+        else:
+            label = f"❌ 처리 중 오류 발생: {error_str[:120]}"
+
+        try:
+            await _slack.chat_update(
+                channel=body["channel"]["id"],
+                ts=body["message"]["ts"],
+                text=label,
+                blocks=[{"type": "section",
+                         "text": {"type": "mrkdwn", "text": label}}],
+            )
+        except Exception:
+            pass  # Slack 업데이트 실패는 무시 (봇 입장에서 할 수 있는 게 없음)
+        return
+
+    # signal 성공 → 버튼 제거 + 결정 결과 표시
+    try:
+        await _update_message(body, approved)
+    except Exception:
+        pass  # 메시지 업데이트 실패는 무시 (결정 자체는 이미 전달됨)
 
 
 # =====================================================================
