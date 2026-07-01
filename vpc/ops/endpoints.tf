@@ -295,3 +295,17 @@ resource "aws_vpc_endpoint" "bedrock_runtime" {
     Name = "financial-vpc2-endpoint-bedrock-runtime"
   }
 }
+
+# Bedrock API endpoint for model metadata and non-runtime Bedrock calls.
+resource "aws_vpc_endpoint" "bedrock" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.bedrock"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-bedrock"
+  }
+}

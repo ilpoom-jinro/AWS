@@ -355,6 +355,66 @@ def index() -> str:
       .candidate-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
       .candidate-table th, .candidate-table td { padding: 9px; border-bottom: 1px solid var(--line); text-align: left; }
       .candidate-table tr.recommended { background: #ecfdf5; font-weight: 700; }
+      .hero-card {
+        border: 1px solid #bfdbfe;
+        background: linear-gradient(135deg, #eff6ff 0%, #ffffff 68%);
+        border-radius: 18px;
+        padding: 22px;
+        display: grid;
+        gap: 16px;
+        box-shadow: 0 12px 30px rgba(37, 99, 235, .08);
+      }
+      .hero-title { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+      .hero-subtitle { color: #475569; margin-top: 6px; }
+      .hero-recommendation {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+      }
+      .hero-metric {
+        background: rgba(255,255,255,.8);
+        border: 1px solid #dbeafe;
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .hero-metric .label { color: #64748b; font-size: 12px; font-weight: 700; }
+      .hero-metric .big { font-size: 22px; font-weight: 900; margin-top: 4px; }
+      .candidate-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-top: 14px; }
+      .candidate-card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: #fff;
+        display: grid;
+        gap: 10px;
+      }
+      .candidate-card.recommended {
+        border: 2px solid #22c55e;
+        background: #f0fdf4;
+        box-shadow: 0 10px 24px rgba(34, 197, 94, .12);
+      }
+      .candidate-card h3 { font-size: 18px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+      .candidate-stat { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+      .candidate-stat strong { font-size: 15px; }
+      .pill-green { background: #dcfce7; color: #166534; }
+      .pill-yellow { background: #fef3c7; color: #92400e; }
+      .pill-red { background: #fee2e2; color: #991b1b; }
+      .pill-blue { background: #dbeafe; color: #1d4ed8; }
+      .report-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+      .report-group {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: #fff;
+      }
+      .report-group h3 { font-size: 16px; margin-bottom: 10px; }
+      .timeline { display: grid; gap: 10px; margin-top: 8px; }
+      .timeline-item { display: grid; grid-template-columns: 58px 16px 1fr; gap: 8px; align-items: start; }
+      .timeline-dot { width: 12px; height: 12px; border-radius: 999px; background: var(--accent); margin-top: 3px; box-shadow: 0 0 0 4px #dbeafe; }
+      .bullet-list { margin: 8px 0 0; padding-left: 20px; line-height: 1.65; }
+      .quality-banner { border-radius: 16px; padding: 16px; border: 1px solid var(--line); }
+      .quality-banner.pass { background: #f0fdf4; border-color: #86efac; color: #166534; }
+      .quality-banner.fail { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
       .issue { color: #b91c1c; }
       .warning { color: #b45309; }
       .broker-flow { padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -1445,6 +1505,197 @@ def index() -> str:
           const fields = (item.result_fields || []).join(", ") || "none";
           return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation || "-")}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status || "-")} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
         }).join("") : '<span class="muted">Agent 간 추가 데이터 요청이 없습니다.</span>';
+      }
+
+      function numberOrDash(value, digits = 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toLocaleString(undefined, {maximumFractionDigits: digits}) : "-";
+      }
+
+      function money(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? `$${n.toFixed(2)}` : "-";
+      }
+
+      function statusPill(text, tone = "blue") {
+        return `<span class="badge pill-${tone}">${escapeHtml(text)}</span>`;
+      }
+
+      function metricStatus(value, warn, danger) {
+        const n = parseFloat(String(value || "").replace(/[^0-9.]/g, ""));
+        if (!Number.isFinite(n)) return "blue";
+        if (n >= danger) return "red";
+        if (n >= warn) return "yellow";
+        return "green";
+      }
+
+      function renderBulletList(items) {
+        const filtered = (items || []).filter(Boolean);
+        if (!filtered.length) return `<p class="muted">표시할 항목이 없습니다.</p>`;
+        return `<ul class="bullet-list">${filtered.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+      }
+
+      function readableFallback(fallback) {
+        if (!fallback || typeof fallback !== "object") return ["Fallback 계획이 없습니다."];
+        const items = [];
+        if (fallback.vip_only) items.push("VIP 사용자는 즉시 발송을 유지합니다.");
+        if (fallback.general_hold) items.push("일반 사용자 발송은 필요 시 일시 보류합니다.");
+        if (fallback.static_report) items.push("동적 처리가 불안정하면 정적 콘텐츠/리포트를 제공합니다.");
+        if ((fallback.allowed_actions || []).length) items.push(`허용 액션: ${fallback.allowed_actions.join(", ")}`);
+        if ((fallback.excluded_actions || []).length) items.push(`제외 액션: ${fallback.excluded_actions.join(", ")}`);
+        return items;
+      }
+
+      function readablePostmortem(postmortem) {
+        if (!postmortem || typeof postmortem !== "object") return ["사후 학습 계획이 없습니다."];
+        const items = [];
+        if (postmortem.profile_update) items.push(`프로파일 업데이트: ${postmortem.profile_update}`);
+        if ((postmortem.compare || []).length) items.push(`비교 대상: ${postmortem.compare.join(", ")}`);
+        if (postmortem.forecast_peak_rps !== undefined) items.push(`예측 기준 RPS: ${postmortem.forecast_peak_rps}`);
+        if (postmortem.forecast_cost_usd !== undefined) items.push(`예측 비용: ${money(postmortem.forecast_cost_usd)}`);
+        return items;
+      }
+
+      function renderCandidates(candidates, recommended) {
+        const section = document.getElementById("candidate-section");
+        if (!candidates || !candidates.length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        const recommendedLabel = recommended && recommended.label;
+        document.getElementById("candidate-table").innerHTML = `
+          <div class="candidate-cards">
+            ${candidates.map(item => {
+              const isRecommended = item.label === recommendedLabel;
+              return `
+                <article class="candidate-card ${isRecommended ? "recommended" : ""}">
+                  <h3>
+                    <span>${escapeHtml(item.label || "후보")}</span>
+                    ${isRecommended ? '<span class="badge pill-green">★ 추천</span>' : ""}
+                  </h3>
+                  <div class="candidate-stat"><span>Push 분산</span><strong>${escapeHtml(item.push_window_minutes ?? "-")}분</strong></div>
+                  <div class="candidate-stat"><span>Pod</span><strong>${escapeHtml(item.required_pods ?? "-")}개</strong></div>
+                  <div class="candidate-stat"><span>예상 비용</span><strong>${money(item.estimated_cost_usd)}</strong></div>
+                  <div class="candidate-stat"><span>예상 p95</span><strong>${escapeHtml(item.estimated_p95_ms ?? "-")}ms</strong></div>
+                  <div class="candidate-stat"><span>위험도</span><strong>${escapeHtml(item.risk_level || "-")}</strong></div>
+                  <div class="candidate-stat"><span>점수</span><strong>${Number(item.score || 0).toFixed(2)}</strong></div>
+                </article>`;
+            }).join("")}
+          </div>`;
+      }
+
+      function renderQualityGate(gate) {
+        const section = document.getElementById("quality-section");
+        if (!gate || !Object.keys(gate).length) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        document.getElementById("quality-gate").innerHTML = `
+          <div class="quality-banner ${gate.passed ? "pass" : "fail"}">
+            <h3>${gate.passed ? "✓ 품질 검증 통과" : "✗ 품질 검증 실패"}</h3>
+            <p>${gate.passed ? "승인 가능 상태입니다." : "검토가 필요합니다. 아래 이슈를 확인하세요."}</p>
+            ${(gate.issues || []).length ? `<ul class="issue">${gate.issues.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+            ${(gate.warnings || []).length ? `<ul class="warning">${gate.warnings.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+          </div>`;
+      }
+
+      function renderReport(report) {
+        const section = document.getElementById("finops-report");
+        if (!report) {
+          section.hidden = true;
+          return;
+        }
+        section.hidden = false;
+        const plan = currentPlanSnapshot || {};
+        const event = report.event || {};
+        const traffic = report.traffic || {};
+        const capacity = report.capacity || {};
+        const cost = report.cost || {};
+        const policy = report.policy || {};
+        const operations = report.operations || {};
+        const recommended = plan.recommended_candidate || {};
+        const gate = plan.quality_gate_result || {};
+        const title = event.title || report.title || "FinOps Event Readiness Report";
+        const targetUsers = Number(event.target_users || 0).toLocaleString();
+        const recommendedLabel = recommended.label || "추천안";
+        const recommendedPods = recommended.required_pods || traffic.required_app_pods || capacity.target_app_pods;
+        const recommendedCost = recommended.estimated_cost_usd || cost.estimated_event_cost_usd;
+        const recommendedP95 = recommended.estimated_p95_ms || traffic.p95_latency_ms;
+        const budget = cost.event_budget_usd || plan.event_budget_usd;
+        const rdsTone = metricStatus(capacity.rds_cpu, 65, 80);
+        const costTone = Number(recommendedCost) > Number(budget || Infinity) ? "red" : "green";
+
+        document.getElementById("report-title").textContent = title;
+        document.getElementById("report-summary").textContent = report.executive_summary || "";
+
+        const hero = `
+          <div class="hero-card" style="grid-column: 1 / -1;">
+            <div>
+              <div class="hero-title">${escapeHtml(title)}</div>
+              <div class="hero-subtitle">Grade ${escapeHtml(event.grade || "-")} · 대상자 ${escapeHtml(targetUsers)}명</div>
+            </div>
+            <div class="hero-recommendation">
+              <div class="hero-metric"><div class="label">추천</div><div class="big">${escapeHtml(recommendedLabel)}</div></div>
+              <div class="hero-metric"><div class="label">Pod</div><div class="big">${escapeHtml(recommendedPods ?? "-")}개</div></div>
+              <div class="hero-metric"><div class="label">예상 비용</div><div class="big">${money(recommendedCost)}</div></div>
+              <div class="hero-metric"><div class="label">예상 p95</div><div class="big">${escapeHtml(recommendedP95 ?? "-")}ms</div></div>
+            </div>
+            <div>
+              ${gate.passed === false ? statusPill("검토 필요", "red") : statusPill("승인 가능", "green")}
+              ${statusPill(`비용 ${money(recommendedCost)} / 예산 ${money(budget)}`, costTone)}
+            </div>
+          </div>`;
+
+        const trafficGroup = reportGroup("📊 트래픽 예측", `
+          <div class="report-kv">
+            <dt>RPS 변화</dt><dd>${escapeHtml(traffic.peak_rps_before ?? "-")} → ${escapeHtml(traffic.peak_rps_after ?? "-")} ${statusPill("감소", "green")}</dd>
+            <dt>필요 Pod</dt><dd>${escapeHtml(traffic.required_app_pods ?? "-")}개</dd>
+            <dt>Queue depth</dt><dd>${escapeHtml(traffic.queue_depth ?? "-")}</dd>
+            <dt>p95 지연</dt><dd>${escapeHtml(traffic.p95_latency_ms ?? "-")}ms</dd>
+          </div>`);
+
+        const capacityGroup = reportGroup("⚡ 실행 계획", `
+          <div class="timeline">
+            <div class="timeline-item"><strong>${escapeHtml(operations.scale_out_at || "T-20m")}</strong><span class="timeline-dot"></span><span>Pod 스케일 아웃 (${escapeHtml(capacity.current_app_pods ?? "-")} → ${escapeHtml(capacity.target_app_pods ?? recommendedPods ?? "-")})</span></div>
+            <div class="timeline-item"><strong>${escapeHtml(operations.prewarm_at || "T-15m")}</strong><span class="timeline-dot"></span><span>Cache Prewarm</span></div>
+            <div class="timeline-item"><strong>T-0</strong><span class="timeline-dot"></span><span>이벤트 시작</span></div>
+            <div class="timeline-item"><strong>이후</strong><span class="timeline-dot"></span><span>${escapeHtml(operations.observer_recommendation || operations.scale_down || "관측 RPS 기준 Scale-down")}</span></div>
+          </div>
+          <div class="source-list" style="margin-top: 12px;">
+            ${statusPill(`RDS CPU ${capacity.rds_cpu || "-"}`, rdsTone)}
+            ${statusPill(`Cache hit ${capacity.cache_hit_ratio || "-"}`, "blue")}
+          </div>`);
+
+        const costGroup = reportGroup("💰 비용 분석", `
+          <div class="report-kv">
+            <dt>이벤트 비용</dt><dd>${money(cost.estimated_event_cost_usd)}</dd>
+            <dt>예산</dt><dd>${money(cost.event_budget_usd)} ${statusPill(Number(cost.estimated_event_cost_usd) > Number(cost.event_budget_usd || Infinity) ? "예산 초과" : "예산 내", costTone)}</dd>
+            <dt>월 누적</dt><dd>${money(cost.month_to_date_usd)}</dd>
+            <dt>월 예상</dt><dd>${money(cost.projected_monthly_usd)}</dd>
+          </div>`);
+
+        const policyGroup = reportGroup("🔒 정책 검증", `
+          <div class="report-kv">
+            <dt>승인 필요</dt><dd>${policy.approval_required ? statusPill("필요", "yellow") : statusPill("불필요", "green")}</dd>
+            <dt>허용 액션</dt><dd>${reportValue(policy.allowed_actions)}</dd>
+            <dt>금지 액션</dt><dd>${reportValue(policy.forbidden_actions)}</dd>
+            <dt>정책 버전</dt><dd>${reportValue(policy.policy_version)}</dd>
+          </div>`);
+
+        const fallbackGroup = reportGroup("🚨 Fallback 계획", renderBulletList(readableFallback(operations.fallback)));
+        const postmortemGroup = reportGroup("🧠 사후 학습", renderBulletList(readablePostmortem(operations.postmortem)));
+
+        document.getElementById("report-body").innerHTML = [
+          hero,
+          trafficGroup,
+          costGroup,
+          policyGroup,
+          capacityGroup,
+          fallbackGroup,
+          postmortemGroup
+        ].join("");
       }
 
       loadDashboard();
