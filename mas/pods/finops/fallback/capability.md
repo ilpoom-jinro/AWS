@@ -4,13 +4,15 @@
 Prepare fallback actions when the primary FinOps plan is risky or blocked.
 
 ## Supported broker requests
-- Build fallback plan from policy and capacity context
-- Describe safe rollback or degrade-mode options
+- `generate_fallback_plan`
+- Describe safe fallback flags from policy context
 
 ## Returnable fields
-- `fallback_plan`
-- `rollback_steps`
-- `degrade_mode`
+- `vip_only`
+- `general_hold`
+- `static_report`
+- `allowed_actions`
+- `excluded_actions`
 
 ## Unsupported requests
 - Real rollback execution

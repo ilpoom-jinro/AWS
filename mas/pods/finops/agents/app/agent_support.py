@@ -80,6 +80,36 @@ AGENT_DEPENDENCIES = {
 }
 
 AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "business_control": {
+        "operations": [
+            "classify_event",
+            "validate_event",
+        ],
+        "fields": {
+            "event_id": ["result.event_id"],
+            "grade": ["result.grade"],
+            "target_users": ["result.target_users"],
+            "vip_audience_count": ["result.vip_audience_count"],
+            "general_audience_count": ["result.general_audience_count"],
+            "push_channel": ["result.push_channel"],
+            "campaign_importance": ["result.campaign_importance"],
+            "approval_required": ["result.approval_required"],
+            "max_delay_minutes": ["result.max_delay_minutes"],
+        },
+    },
+    "demand_shaping": {
+        "operations": [
+            "reshape",
+            "recalculate_window",
+        ],
+        "fields": {
+            "send_window_minutes": ["result.send_window_minutes"],
+            "peak_reduction_percent": ["result.peak_reduction_percent"],
+            "vip_send_mode": ["result.vip_send_mode"],
+            "general_send_mode": ["result.general_send_mode"],
+            "candidates": ["result.candidates"],
+        },
+    },
     "traffic_forecast": {
         "operations": [
             "reforecast",
@@ -103,6 +133,36 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "adjusted_capacity_rps": [
                 "result.adjusted_capacity_rps",
             ],
+            "p95_latency_ms": [
+                "result.p95_latency_ms",
+                "candidate_forecasts[0].estimated_p95_ms",
+            ],
+            "peak_rps_before": ["result.peak_rps_before"],
+            "send_window_minutes": ["result.send_window_minutes"],
+            "peak_reduction_percent": ["result.peak_reduction_percent"],
+            "candidate_forecasts": ["result.candidate_forecasts"],
+            "pod_scaling_timeline": ["result.pod_scaling_timeline"],
+            "risk_assessment": ["result.risk_assessment"],
+            "reforecast": ["result.reforecast"],
+        },
+    },
+    "bottleneck_capacity": {
+        "operations": [
+            "validate_capacity",
+            "check_bottleneck",
+        ],
+        "fields": {
+            "db_cpu": ["result.db_cpu"],
+            "rds_connections": ["result.rds_connections"],
+            "rds_read_iops": ["result.rds_read_iops"],
+            "cache_hit_ratio": ["result.cache_hit_ratio"],
+            "validated_rps": ["result.validated_rps"],
+            "required_app_pods": ["result.required_app_pods"],
+            "bottleneck_risk": ["result.bottleneck_risk"],
+            "status": ["result.status"],
+            "reforecast_applied": ["result.reforecast_applied"],
+            "adjusted_capacity_rps": ["result.adjusted_capacity_rps"],
+            "pod_scaling_timeline": ["result.pod_scaling_timeline"],
         },
     },
     "infra_execution": {
@@ -113,6 +173,12 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
         "fields": {
             "target_app_pods": ["result.target_app_pods"],
             "scale_out_at": ["result.scale_out_at"],
+            "prewarm_at": ["result.prewarm_at"],
+            "scale_down": ["result.scale_down"],
+            "current_app_pods": ["result.current_app_pods"],
+            "ready_app_pods": ["result.ready_app_pods"],
+            "nodegroup_desired": ["result.nodegroup_desired"],
+            "nodegroup_max": ["result.nodegroup_max"],
         },
     },
     "unit_economics": {
@@ -122,9 +188,25 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
         ],
         "fields": {
             "cost_ratio": ["result.cost_ratio"],
-            "value_score": ["result.value_score"],
             "estimated_cost_usd": ["result.estimated_cost_usd"],
             "expected_value_usd": ["result.expected_value_usd"],
+            "override": ["result.override"],
+        },
+    },
+    "policy_guardrail": {
+        "operations": [
+            "validate_policy",
+            "validate_cost_value_alignment",
+        ],
+        "fields": {
+            "allowed": ["result.allowed"],
+            "forbidden": ["result.forbidden"],
+            "approval_required": ["result.approval_required"],
+            "cost_ratio": ["result.cost_ratio"],
+            "monthly_budget_limit_usd": ["result.monthly_budget_limit_usd"],
+            "approval_required_over_usd": ["result.approval_required_over_usd"],
+            "policy_version": ["result.policy_version"],
+            "proceed": ["result.proceed"],
         },
     },
     "cost": {
@@ -136,6 +218,49 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "total": ["result.total"],
             "estimated_cost_usd": ["result.estimated_cost_usd"],
             "budget_exceeded": ["result.budget_exceeded"],
+            "pod_count": ["result.pod_count"],
+            "event_incremental_budget_usd": ["result.event_incremental_budget_usd"],
+            "candidate_costs": ["result.candidate_costs"],
+        },
+    },
+    "observer": {
+        "operations": [
+            "generate_monitoring_plan",
+        ],
+        "fields": {
+            "mode": ["result.mode"],
+            "watch": ["result.watch"],
+            "recommendation": ["result.recommendation"],
+            "forecast_peak_rps": ["result.forecast_peak_rps"],
+            "forecast_required_pods": ["result.forecast_required_pods"],
+            "forecast_p95_ms": ["result.forecast_p95_ms"],
+            "approval_required": ["result.approval_required"],
+            "scale_down_rps_threshold": ["result.scale_down_rps_threshold"],
+            "alert_rps_threshold": ["result.alert_rps_threshold"],
+            "monitoring_interval_seconds": ["result.monitoring_interval_seconds"],
+        },
+    },
+    "fallback": {
+        "operations": [
+            "generate_fallback_plan",
+        ],
+        "fields": {
+            "vip_only": ["result.vip_only"],
+            "general_hold": ["result.general_hold"],
+            "static_report": ["result.static_report"],
+            "allowed_actions": ["result.allowed_actions"],
+            "excluded_actions": ["result.excluded_actions"],
+        },
+    },
+    "postmortem_learning": {
+        "operations": [
+            "prepare_learning",
+        ],
+        "fields": {
+            "profile_update": ["result.profile_update"],
+            "compare": ["result.compare"],
+            "forecast_peak_rps": ["result.forecast_peak_rps"],
+            "forecast_cost_usd": ["result.forecast_cost_usd"],
         },
     },
 }
@@ -199,40 +324,11 @@ def _resolve_field_path(agent_result: dict, field_path: str) -> Any:
 
 
 def call_llm(prompt: str, context_data: dict[str, Any]) -> dict[str, Any] | None:
-    def invoke() -> dict[str, Any] | None:
-        from shared.bedrock import ClaudeModel, get_bedrock_client
-
-        client = get_bedrock_client()
-        response = client.converse(
-            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "text": (
-                                f"{prompt}\n\nReturn only one valid JSON object.\n\n"
-                                f"Context:\n{json.dumps(context_data, ensure_ascii=False, default=str)}"
-                            )
-                        }
-                    ],
-                }
-            ],
-        )
-        content = response.get("output", {}).get("message", {}).get("content", [])
-        text = "\n".join(item.get("text", "") for item in content if item.get("text"))
-        return _parse_json(text)
-
-    try:
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(invoke)
-        try:
-            return future.result(timeout=LLM_TIMEOUT_SECONDS)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
-    except Exception as exc:
-        logger.warning("finops_llm_call_failed: %s", exc)
-        return None
+    # DEPRECATED:
+    # Agent-internal rule-result correction by LLM is intentionally disabled.
+    # Keep this symbol for import compatibility; llm_judge_data_request() and
+    # handle_broker_request() remain the only Agent-side LLM paths.
+    return None
 
 
 async def llm_judge_data_request(
