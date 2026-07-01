@@ -40,6 +40,8 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_EKS_CLUSTER_NAME
               value: financial-ops-eks
             - name: FINOPS_SPOT_INSTANCE_TYPES
@@ -109,6 +111,8 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
@@ -174,6 +178,8 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
@@ -239,6 +245,8 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
@@ -304,6 +312,8 @@ spec:
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_COMMAND_COLLECTORS_ENABLED
               value: "true"
             - name: BEDROCK_MODEL
