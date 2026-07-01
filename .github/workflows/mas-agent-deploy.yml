@@ -510,22 +510,6 @@ jobs:
           path: mas-image-tags/*.tsv
           if-no-files-found: error
 
-      - name: Upload image tag metadata
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: mas-image-tag-${{ strategy.job-index }}
-          path: mas-image-tags/*.tsv
-          if-no-files-found: warn
-
-      - name: Upload image tag metadata
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: mas-image-tag-${{ strategy.job-index }}
-          path: mas-image-tags/*.tsv
-          if-no-files-found: warn
-
       - name: Start manifest update CodeBuild
         id: codebuild
         shell: bash
