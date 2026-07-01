@@ -1,4 +1,4 @@
- pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
 FROM python:3.12.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
