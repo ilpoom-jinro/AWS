@@ -4,14 +4,14 @@
 Prepare learning items for forecast-vs-actual and cost-vs-actual review.
 
 ## Supported broker requests
-- Summarize forecast baseline
-- Summarize cost baseline
-- Prepare post-event learning checklist
+- `prepare_learning`
+- Return forecast and cost baselines for post-event comparison
 
 ## Returnable fields
-- `forecast_baseline`
-- `cost_baseline`
-- `learning_items`
+- `profile_update`
+- `compare`
+- `forecast_peak_rps`
+- `forecast_cost_usd`
 
 ## Unsupported requests
 - Real postmortem execution

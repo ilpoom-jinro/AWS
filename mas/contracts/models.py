@@ -681,10 +681,11 @@ AGENT_ALLOWED_REQUESTS: dict[str, list[str]] = {
 
 
 class ReplanIntent(FinOpsAgentContract):
-    intent: Literal["replan", "query"]
+    intent: Literal["replan", "query", "partial_replan", "explain"]
     constraints: dict[str, Any]
     forbidden_actions: list[str]
     replan_from: str
+    target_agent: str | None = None
     requires_confirmation: bool
     reason: str
 
@@ -692,6 +693,8 @@ class ReplanIntent(FinOpsAgentContract):
     def validate_replan_from(self) -> "ReplanIntent":
         if self.replan_from not in VALID_FINOPS_AGENT_KEYS:
             raise ValueError(f"unknown replan_from agent_key: {self.replan_from}")
+        if self.target_agent is not None and self.target_agent not in VALID_FINOPS_AGENT_KEYS:
+            raise ValueError(f"unknown target_agent agent_key: {self.target_agent}")
         return self
 
 
