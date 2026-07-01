@@ -2,7 +2,7 @@
 Platform Core 소유 Activities — execute_remediation, execute_rollback, record_audit_log
 
 AIOps Workflow에서 호출하지만 실행 권한은 Platform Core만 보유한다.
-이 파일은 Platform Core(김민수)가 관리한다. AIOps 팀이 건드리면 안 된다.
+단, 빠른 개발을 위해 수정이 필요하다면 모든 Agent팀에서 수정해도 됩니다.
 
 strategy_detail 인코딩 규칙 (AIOps가 생성, Platform Core가 파싱):
     scale_out : "[SCALE_OUT via HPA] action=patch_hpa target_hpa=<name>
