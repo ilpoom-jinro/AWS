@@ -6,6 +6,7 @@ resources:
   - serviceaccount.yaml
   - configmap.yaml
   - deployment.yaml
+  - service.yaml
 
 images:
   - name: aiops-orchestrator-image

@@ -22,6 +22,10 @@ spec:
           # kustomization images에서 실제 ECR 경로로 치환됨
           image: aiops-orchestrator-image
           imagePullPolicy: Always
+          ports:
+            # Alertmanager webhook 수신 포트 (trigger.py)
+            - name: webhook
+              containerPort: 8080
           envFrom:
             - configMapRef:
                 name: aiops-orchestrator-config
@@ -32,24 +36,21 @@ spec:
                 secretKeyRef:
                   name: aiops-orchestrator-secrets
                   key: database-url
-          # worker는 HTTP 서버가 아니므로(python -m app.worker),
-          # Temporal 폴링 프로세스 생존을 exec probe로 확인한다.
-          livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - "pgrep -f 'app.worker' > /dev/null"
-            initialDelaySeconds: 20
-            periodSeconds: 30
+          # trigger(FastAPI)가 /health를 제공하므로 HTTP probe 사용.
+          # 이 컨테이너는 worker와 trigger를 함께 띄우며, trigger의 응답은
+          # 프로세스(및 이벤트 루프)가 살아있음을 의미한다.
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - "pgrep -f 'app.worker' > /dev/null"
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
           resources:
             requests:
               cpu: "100m"

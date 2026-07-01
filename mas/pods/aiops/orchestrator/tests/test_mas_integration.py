@@ -216,4 +216,17 @@ with _patch.object(_az, "_invoke_bedrock", return_value=_fake):
 assert _rep.remediation_plan.pod_name == "stock-api-7f9d4c8b-xk2p9"
 passed += 1; print(f"{passed}. RemediationPlan.pod_name 전달 OK")
 
-print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/15 통과 ===")
+# 16. Alertmanager webhook 파싱 — (cluster,namespace) 추출 + 중복/필터
+from pods.aiops.orchestrator.app.trigger import _extract_targets
+_payload = {"alerts":[
+    {"status":"firing","labels":{"cluster":"financial-service-eks","namespace":"stock-demo","alertname":"HighLatency"}},
+    {"status":"firing","labels":{"cluster":"financial-service-eks","namespace":"stock-demo","alertname":"OOM"}},
+    {"status":"resolved","labels":{"cluster":"financial-service-eks","namespace":"stock-demo"}},
+    {"status":"firing","labels":{"alertname":"NoLabels"}},
+    {"status":"firing","labels":{"cluster":"financial-ops-eks","namespace":"aiops-mas","alertname":"CrashLoop"}},
+]}
+_targets = _extract_targets(_payload)
+assert _targets == {("financial-service-eks","stock-demo"),("financial-ops-eks","aiops-mas")}, _targets
+passed += 1; print(f"{passed}. Alertmanager webhook 파싱(중복제거+firing필터) OK")
+
+print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/16 통과 ===")
