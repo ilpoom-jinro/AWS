@@ -40,3 +40,17 @@ output "siem_athena_query_role_arn" {
   description = "SIEM Athena 쿼리 전용 IAM 역할 ARN — 보안 담당자 AssumeRole 대상"
   value       = aws_iam_role.siem_athena_query.arn
 }
+
+# ─────────────────────────────────────────────
+# #69 Break Glass 탐지 SNS ARN
+# MAS 단계에서 Slack 구독 붙일 때 양 리전 토픽 모두 구독 필요
+# ─────────────────────────────────────────────
+output "breakglass_activity_alert_sns_topic_arn" {
+  description = "Break Glass 탐지 SNS 토픽 ARN (ap-northeast-2) — MAS Slack 구독 참조용"
+  value       = aws_sns_topic.breakglass_activity_alert.arn
+}
+
+output "breakglass_activity_alert_use1_sns_topic_arn" {
+  description = "Break Glass 탐지 SNS 토픽 ARN (us-east-1) — MAS Slack 구독 참조용"
+  value       = aws_sns_topic.breakglass_activity_alert_use1.arn
+}
