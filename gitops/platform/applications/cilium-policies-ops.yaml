@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-policies-ops
+  namespace: argocd
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: cilium
+    kustomize: {}
+  destination:
+    # Ops EKS: ArgoCD가 실행 중인 클러스터 (in-cluster)
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # kube-system은 Cilium 설치 시 이미 존재 → 자동 생성 불필요
+      - CreateNamespace=false

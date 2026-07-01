@@ -4,13 +4,13 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "aws_s3_bucket" "teleport_sessions" {
-  bucket = "ilpumjinro-teleport-v3"
+  bucket = "ilpumjinro-teleport-v4"
   lifecycle {
     # #12 로그 장기보존 — 버킷 실수 삭제 방지 (versioning은 이미 활성화)
     prevent_destroy = true
   }
   tags = {
-    Name               = "ilpumjinro-teleport-v3"
+    Name               = "ilpumjinro-teleport-v4"
     Project            = "ilpumjinro"
     ManagedBy          = "terraform"
     Purpose            = "teleport-session-logs"

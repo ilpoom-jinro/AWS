@@ -1,0 +1,14 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ambient-hostprobes
+spec:
+  description: "Istio ambient ztunnel SNAT 헬스체크 허용 — default-deny보다 먼저 적용"
+  # 이 정책 자체가 default-deny를 유발하지 않도록
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  endpointSelector: {}
+  ingress:
+    - fromCIDR:
+        - "169.254.7.127/32"

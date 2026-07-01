@@ -96,6 +96,36 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
+      - name: Install Trivy
+        shell: bash
+        env:
+          TRIVY_VERSION: "0.71.1"   # ecr-images.yml과 버전 일치
+        run: |
+          set -euo pipefail
+          TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          BASE_URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          curl -sSfL "${BASE_URL}/${TARBALL}" -o "${TARBALL}"
+          curl -sSfL "${BASE_URL}/trivy_${TRIVY_VERSION}_checksums.txt" -o checksums.txt
+          # checksums.txt에서 해당 tarball 라인 추출 — 못 찾으면 명시적 중단
+          expected_line="$(grep "  ${TARBALL}\$" checksums.txt)" || {
+            echo "::error::checksums.txt에서 ${TARBALL} 항목을 찾지 못함 — 무결성 검증 불가, 설치 중단"
+            exit 1
+          }
+          echo "${expected_line}" | sha256sum -c -
+          # repo 루트에 trivy/ 디렉토리가 있으므로 임시 디렉토리에 추출 후 이동
+          tmpdir="$(mktemp -d)"
+          tar -xzf "${TARBALL}" -C "${tmpdir}" trivy
+          sudo mv "${tmpdir}/trivy" /usr/local/bin/trivy
+          rm -rf "${tmpdir}"
+          trivy --version
+          # vuln DB 1회 사전 다운로드 → 이후 루프 호출은 --skip-db-update로 remote check 제거
+          trivy image --download-db-only --no-progress
+
       - name: Mirror selected monitoring images
         shell: bash
         env:
@@ -156,7 +186,23 @@ jobs:
 
             docker pull "${source_image}"
             docker tag "${source_image}" "${target_image}"
-            docker push "${target_image}"
+
+            # 미러 이미지 스캔 (경고만 — upstream 취약점은 우리가 수정 불가하므로 차단하지 않음)
+            # exit-code 0: CRITICAL 있어도 빌드 실패 안 시킴 / EOL OS면 trivy가 경고 로그 자동 출력
+            echo "::group::Trivy scan (mirror, warn-only) ${target_image}"
+            trivy image \
+              --skip-db-update \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --pkg-types os,library \
+              --no-progress \
+              --exit-code 0 \
+              "${target_image}" || true
+            echo "::endgroup::"
+
+            PUSH_OUT=$(docker push "${target_image}")
+            DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+            cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/images.tsv; echo)
 
       - name: Build selected custom monitoring images
@@ -193,5 +239,20 @@ jobs:
               -t "${target_image}" \
               "${build_context}"
 
-            docker push "${target_image}"
+            # 커스텀 빌드 이미지 스캔 (CRITICAL 차단 — app-deploy.yml과 동일 정책)
+            # exit-code 1: CRITICAL 발견 시 push 전에 빌드 실패 / EOL OS면 trivy가 경고 로그 자동 출력
+            echo "::group::Trivy scan (custom, CRITICAL gate) ${target_image}"
+            trivy image \
+              --skip-db-update \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --pkg-types os,library \
+              --no-progress \
+              --exit-code 1 \
+              "${target_image}"
+            echo "::endgroup::"
+
+            PUSH_OUT=$(docker push "${target_image}")
+            DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+            cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${target_image%:*}@${DIGEST}"
           done < <(cat monitoring/custom-images.tsv; echo)

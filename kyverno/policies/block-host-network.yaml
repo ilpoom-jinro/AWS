@@ -22,7 +22,7 @@
 #   kube-system — kube-proxy, aws-node 등 EKS 시스템 DaemonSet 이 hostNetwork 를 사용
 #   kyverno     — Kyverno 웹훅 컴포넌트 자체
 #   observability — Prometheus node-exporter 등 노드 수준 메트릭 수집기
-#   falco       — Falco 런타임 보안 DaemonSet (syscall 감지를 위해 hostNetwork 필요)
+#   tetragon    — Tetragon eBPF 런타임 보안 DaemonSet (커널 수준 이벤트 수집을 위해 hostNetwork 필요)
 # =============================================================================
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
@@ -38,7 +38,7 @@ metadata:
       hostNetwork: true 를 사용하는 Pod 는 호스트 네트워크 네임스페이스를 공유하여
       노드 수준 네트워크 트래픽 도청 및 포트 점유가 가능합니다.
       이 정책은 hostNetwork: true 인 Pod 생성·업데이트를 차단합니다.
-      kube-system, kyverno, observability, falco 는 예외 처리됩니다.
+      kube-system, kyverno, observability, tetragon 은 예외 처리됩니다.
 spec:
   # Audit: 위반을 허용하되 PolicyReport 에 기록 (영향 파악 후 Enforce 로 전환)
   # Enforce 전환 명령어는 상단 주석 참고
@@ -63,7 +63,7 @@ spec:
                 - kube-system  # kube-proxy, aws-node 등 AWS EKS 시스템 DaemonSet
                 - kyverno      # Kyverno 자체 컴포넌트
                 - observability # Prometheus node-exporter 등 노드 메트릭 수집기
-                - falco        # Falco 런타임 보안 DaemonSet
+                - tetragon     # Tetragon eBPF 런타임 보안 DaemonSet (hostNetwork 필요)
       validate:
         message: >-
           hostNetwork: true 는 허용되지 않습니다.

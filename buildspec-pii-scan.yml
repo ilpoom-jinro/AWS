@@ -1,0 +1,7 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      # 이미지에 베이크인된 스캐너 실행. 대상/결과 버킷은 CodeBuild 환경변수로 주입.
+      - python /app/scan.py

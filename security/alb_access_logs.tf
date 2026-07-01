@@ -60,7 +60,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
 }
 
 # Principal = ELB 서비스 계정(600734575887, 고정)
-# Resource 경로의 account_id = var.account_id(본인 계정, 797715838244)
+# Resource 경로의 account_id = var.account_id(배포 계정, data.aws_caller_identity로 동적 주입)
 resource "aws_s3_bucket_policy" "alb_logs" {
   bucket = aws_s3_bucket.alb_logs.id
 

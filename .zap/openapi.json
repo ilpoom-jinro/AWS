@@ -1,0 +1,27 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Stock Recommendation Demo API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "https://ilpumjinro.store" }
+  ],
+  "paths": {
+    "/health": {
+      "get": { "responses": { "200": { "description": "health check" } } }
+    },
+    "/api/recommendations": {
+      "get": { "responses": { "200": { "description": "recommendation list from RDS" } } }
+    },
+    "/api/demo/bad-request": {
+      "get": { "responses": { "400": { "description": "bad request demo" } } }
+    },
+    "/api/demo/server-error": {
+      "get": { "responses": { "500": { "description": "server error demo" } } }
+    },
+    "/api/demo/slow": {
+      "get": { "responses": { "200": { "description": "slow response demo" } } }
+    }
+  }
+}

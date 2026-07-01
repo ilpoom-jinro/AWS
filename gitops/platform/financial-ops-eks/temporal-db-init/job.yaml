@@ -1,6 +1,9 @@
 # Temporal DB init Job (옵션 B) — RDS에 temporal/temporal_visibility DB + temporal_user 생성
 #
-# ArgoCD PreSync 훅: Temporal 본체 배포 전에 1회 실행. 멱등 SQL이라 재실행 안전.
+# 일반 Sync 리소스 + sync-wave -1: ConfigMap(-3)·ExternalSecret(-2) 이후 실행.
+# 멱등 SQL이라 재실행 안전. Job spec.template은 불변이므로 변경 시 갱신 불가 →
+# Replace=true로 삭제·재생성 허용. (hook을 쓰면 prereqs가 전부 hook이 되어
+# "wipe out all resources" 가드 + 시크릿 깜빡임 발생하므로 일반 리소스로 둔다.)
 # 의존: (1) terraform secrets.tf temporal/rds-credentials 생성 + SG 갭수정 apply
 #       (2) external-secret-{master,temporal}.yaml 가 k8s Secret 동기화 완료
 # 상세: docs/temporal-rds-db (런북)
@@ -10,9 +13,8 @@ metadata:
   name: temporal-db-init
   namespace: temporal
   annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-options: Replace=true
 spec:
   backoffLimit: 3
   ttlSecondsAfterFinished: 600

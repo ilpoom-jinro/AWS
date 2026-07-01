@@ -1,0 +1,116 @@
+name: Build PII Scan Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/pii-scan/**"
+      - ".github/workflows/pii-image-build.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.11.0"
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: ${{ secrets.AWS_REGION_DEV || secrets.AWS_REGION || 'ap-northeast-2' }}
+  # Terraform required vars — 실제 값은 시크릿에서, 없으면 더미로 plan/apply 통과
+  TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
+  TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
+  TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
+  TF_VAR_dev_mode: "true"
+  PII_SCAN_REPOSITORY: financial/security/pii-scan
+
+jobs:
+  build-and-push:
+    name: Build and Push PII Scan Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Apply ECR repository
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_ecr_repository.pii_scan
+          -target=aws_ecr_lifecycle_policy.pii_scan
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.1'
+
+      - name: Build PII scan image
+        env:
+          # ECR 레지스트리 호스트 (amazon-ecr-login step 출력)
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          # 커밋 SHA를 이미지 태그로 사용하여 추적 가능성 확보
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${PII_SCAN_REPOSITORY}"
+
+          # 로컬 daemon에만 이미지를 빌드 (push 는 Trivy 스캔 통과 후 별도 step에서 수행)
+          docker build \
+            -f tools/pii-scan/Dockerfile \
+            -t "${IMAGE_URI}:${IMAGE_TAG}" \
+            -t "${IMAGE_URI}:latest" \
+            tools/pii-scan
+
+      - name: Trivy scan (CRITICAL gate)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (CVE-2026-33634 안전 버전, v0.36.0은 권고 목록 외)
+        with:
+          # 직전 "Build PII scan image" step에서 로컬 daemon에 남긴 태그를 스캔 대상으로 지정
+          image-ref: ${{ steps.ecr.outputs.registry }}/${{ env.PII_SCAN_REPOSITORY }}:${{ github.sha }}
+          # 이미지 레이어를 직접 스캔 (registry push 전 로컬 이미지 대상)
+          scan-type: image
+          # 텍스트 테이블 형식 출력 (sarif+exit-code 조합은 severity 필터 무시 버그 존재)
+          format: table
+          # CRITICAL 취약점만 job 실패로 처리
+          severity: CRITICAL
+          # CRITICAL 발견 시 exit 1 → push step 차단
+          exit-code: 1
+          # 아직 패치가 없는 취약점은 제외 (영구 차단 방지)
+          ignore-unfixed: true
+          # OS 패키지 및 라이브러리 취약점 모두 스캔
+          vuln-type: os,library
+          # 진행 바 숨김 (CI 로그 가독성)
+          hide-progress: true
+
+      - name: Push PII scan image
+        env:
+          # ECR 레지스트리 호스트 (amazon-ecr-login step 출력)
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          # 커밋 SHA를 이미지 태그로 사용하여 추적 가능성 확보
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${PII_SCAN_REPOSITORY}"
+
+          # Trivy 스캔 통과 후 ECR에 push
+          PUSH_OUT=$(docker push "${IMAGE_URI}:${IMAGE_TAG}")
+          docker push "${IMAGE_URI}:latest"
+          DIGEST=$(echo "${PUSH_OUT}" | grep "digest:" | awk '{print $3}')
+          # KMS key-cosign(ECC_NIST_P256)으로 서명하여 Kyverno verifyImages 정책 통과 보장
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key awskms:///alias/key-cosign "${IMAGE_URI}@${DIGEST}"

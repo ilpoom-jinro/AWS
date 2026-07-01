@@ -168,13 +168,18 @@ resource "aws_eks_node_group" "ops" {
   subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   instance_types  = var.eks_node_instance_types
   capacity_type   = var.eks_node_capacity_type
+  # AL2023 명시 고정 — EKS 1.35는 ami_type 미지정 시 이미 AL2023가 기본값이나,
+  # AWS 기본값 변경에 의존하지 않도록 명시. (SELinux permissive / IMDSv2-only / 최소 패키지 보안 기본값)
+  ami_type = "AL2023_x86_64_STANDARD"
 
   scaling_config {
     # ops general 노드는 운영 워크로드(ArgoCD, kyverno, istio, finops-mas, teleport
     # 등)가 집중되어 single_az_mode에서도 CPU requests가 포화됨. CPU 확보와 노드
     # 이중화(HA)를 위해 general 노드 수는 single_az_mode와 무관하게
-    # eks_node_desired/min_size(기본 2)를 따른다. RDS Multi-AZ·VPC Endpoint·service
-    # 노드 등 그 외 single_az_mode 비용 절감은 그대로 유지.
+    # eks_node_desired_size(기본 3, min 2 / max 3)를 따른다. Cluster Autoscaler가
+    # 없어 Pending Pod이 생겨도 자동 스케일 아웃되지 않으므로, max-pods(29/노드)
+    # 한도에 여유를 두기 위해 desired를 max와 같은 3으로 고정. RDS Multi-AZ·
+    # VPC Endpoint·service 노드 등 그 외 single_az_mode 비용 절감은 그대로 유지.
     desired_size = var.eks_node_desired_size
     min_size     = var.eks_node_min_size
     max_size     = var.eks_node_max_size
@@ -357,6 +362,9 @@ resource "aws_eks_node_group" "monitoring" {
   subnet_ids      = [aws_subnet.monitor_a.id]
   capacity_type   = var.eks_node_capacity_type
   instance_types  = var.eks_monitor_node_instance_types
+  # AL2023 명시 고정 — EKS 1.35는 ami_type 미지정 시 이미 AL2023가 기본값이나,
+  # AWS 기본값 변경에 의존하지 않도록 명시. (SELinux permissive / IMDSv2-only / 최소 패키지 보안 기본값)
+  ami_type = "AL2023_x86_64_STANDARD"
 
   launch_template {
     id      = aws_launch_template.eks_node_monitor.id

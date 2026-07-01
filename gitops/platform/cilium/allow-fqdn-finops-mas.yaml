@@ -1,0 +1,82 @@
+# finops-mas FQDN egress 정책
+#
+# toFQDNs 동작 조건 (Cilium 공식 문서 확인):
+#   1. Cilium DNS 프록시가 활성화되어야 함
+#   2. DNS egress 정책에 toPorts[].rules.dns 가 있어야 해당 endpoint의 DNS 응답을 인터셉트
+#   3. 인터셉트된 DNS 응답에서 IP↔FQDN 매핑을 학습 → toFQDNs 규칙에서 IPs로 치환
+#   4. allow-dns.yaml(전역 DNS allow)은 포트만 여는 것 — DNS 프록시 활성화는 여기 rules.dns로 함
+#
+# VPC 인터페이스 엔드포인트 FQDN 사용 가능 여부:
+#   VPC interface endpoint는 Route53 프라이빗 호스티드존에 A 레코드를 등록
+#   → DNS 쿼리가 프라이빗 IP로 응답 → Cilium DNS 프록시가 인터셉트 가능
+#   → toFQDNs WORKS. toCIDR 대신 toFQDNs 권장.
+#
+# VPC 게이트웨이 엔드포인트(S3, DynamoDB)는 라우팅 테이블 기반이라
+#   DNS 응답 자체는 퍼블릭 IP일 수 있음 → toFQDNs 불안정 → toCIDR 또는 toEntities:world 권장
+#   (현재 finops-mas에서 S3/DynamoDB 직접 접근 미발견, 필요시 별도 추가)
+---
+# finops-mas 전 에이전트 → AWS Bedrock Runtime (VPC interface endpoint)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-finops-bedrock
+spec:
+  description: "finops-mas → AWS Bedrock Runtime VPC endpoint egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: finops-mas
+      app.kubernetes.io/part-of: finops-mas
+  egress:
+    # DNS 프록시 활성화 — *.amazonaws.com 응답을 인터셉트해 FQDN→IP 매핑 학습
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    # Bedrock Runtime FQDN egress
+    - toFQDNs:
+        - matchName: "bedrock-runtime.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# finops-cost-agent → AWS Athena (VPC interface endpoint)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-finops-athena
+spec:
+  description: "finops-cost-agent → AWS Athena VPC endpoint egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: finops-mas
+      app.kubernetes.io/name: finops-cost-agent
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    - toFQDNs:
+        - matchName: "athena.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

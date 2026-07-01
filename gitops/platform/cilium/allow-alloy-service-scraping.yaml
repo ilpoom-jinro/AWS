@@ -1,0 +1,121 @@
+# alloy-service 크로스네임스페이스 scraping/수신 정책 (service 클러스터)
+#
+# 선언된 의존성 (alloy-service values.yaml 기반):
+#   1. stock-demo → alloy-service:4318  OTLP HTTP trace 수신 (otelcol.receiver.otlp)
+#   2. alloy-service → stock-demo waypoint:15020  Istio merged metrics scrape (discovery.kubernetes "istio_waypoint")
+#   3. alloy-service → kube-system/kube-state-metrics:8080  KSM scrape (discovery.kubernetes "kube_state_metrics")
+#
+# 미확인 (audit 후 별도 추가):
+#   - alloy-service → ops Loki NLB:3100 (loki.write)
+#   - alloy-service → ops Thanos NLB:19291 (prometheus.remote_write)
+#   - alloy-service → ops Tempo NLB:4317 (otelcol.exporter.otlp)
+#   NLB IP는 gitops-platform-sync가 주입 → 코드에서 미확인, enforce 전 Hubble 확인 필요
+---
+# 1. alloy-service INGRESS: stock-demo → alloy-service:4318 OTLP HTTP trace 수신
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-service-otlp-ingress
+spec:
+  description: "alloy-service:4318 ingress 허용 (stock-demo OTLP trace 수신, service 클러스터)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-service
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+      toPorts:
+        - ports:
+            - port: "4318"
+              protocol: TCP
+---
+# 2a. alloy-service EGRESS: → stock-demo Istio waypoint:15020 scrape
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-service-waypoint-scrape
+spec:
+  description: "alloy-service → stock-demo Istio waypoint:15020 scrape egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: stock-demo
+            gateway.networking.k8s.io/managed-by: istio.io-mesh-controller
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP
+---
+# 2b. waypoint INGRESS: alloy-service:15020 scrape 허용
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-waypoint-scrape-from-alloy-service
+spec:
+  description: "stock-demo Istio waypoint:15020 ingress 허용 (alloy-service scrape)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+      gateway.networking.k8s.io/managed-by: istio.io-mesh-controller
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-service
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP
+---
+# 3a. alloy-service EGRESS: → kube-system/kube-state-metrics:8080 scrape
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-service-ksm-scrape
+spec:
+  description: "alloy-service → kube-state-metrics:8080 scrape egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            app.kubernetes.io/name: kube-state-metrics
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+# 3b. kube-state-metrics INGRESS: alloy-service scrape 허용
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ksm-scrape-from-alloy-service
+spec:
+  description: "kube-state-metrics:8080 ingress 허용 (alloy-service scrape)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: kube-state-metrics
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-service
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

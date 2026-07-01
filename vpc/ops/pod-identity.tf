@@ -40,7 +40,11 @@ resource "aws_iam_role_policy" "eso" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret",
         ]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*"
+        Resource = [
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:financial-*",
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:velero/*",
+          "arn:aws:secretsmanager:${var.aws_region}:${var.account_id}:secret:temporal/*",
+        ]
       },
       {
         Sid      = "KMSDecrypt"
@@ -375,6 +379,255 @@ resource "aws_eks_pod_identity_association" "observability_indexer" {
   namespace       = "observability"
   service_account = "observability-indexer"
   role_arn        = aws_iam_role.observability_indexer.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+# ── Kyverno ───────────────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "kyverno" {
+  name        = "financial-ops-kyverno-role"
+  description = "Kyverno image verification - ECR read for signature verification"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowEKSPodIdentity"
+      Effect = "Allow"
+      Principal = {
+        Service = "pods.eks.amazonaws.com"
+      }
+      Action = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = {
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_iam_role_policy" "kyverno" {
+  name = "ecr-read"
+  role = aws_iam_role.kyverno.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ECRTokenAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRImageRead"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/*"
+      },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "kyverno_admission" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "kyverno"
+  service_account = "kyverno-admission-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_eks_pod_identity_association" "kyverno_background" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "kyverno"
+  service_account = "kyverno-background-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_eks_pod_identity_association" "kyverno_reports" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "kyverno"
+  service_account = "kyverno-reports-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+# ── Velero ────────────────────────────────────────────────────────────────────
+
+resource "aws_iam_role" "velero" {
+  name        = "financial-ops-velero-role"
+  description = "Velero backup/restore: S3 RW + EBS CSI snapshot management (node-agent included)"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowEKSPodIdentity"
+      Effect = "Allow"
+      Principal = {
+        Service = "pods.eks.amazonaws.com"
+      }
+      Action = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = {
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_iam_role_policy" "velero" {
+  name = "velero-backup-restore"
+  role = aws_iam_role.velero.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "S3BackupBucketObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts",
+        ]
+        Resource = "arn:aws:s3:::financial-velero-backup-${var.account_id}/*"
+      },
+      {
+        Sid    = "S3BackupBucketList"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:ListBucketMultipartUploads",
+          "s3:GetBucketVersioning",
+        ]
+        Resource = "arn:aws:s3:::financial-velero-backup-${var.account_id}"
+      },
+      {
+        # EBS CSI 드라이버가 생성한 스냅샷을 Velero가 직접 정리(DeleteSnapshot)하는 권한
+        Sid    = "EBSSnapshotManagement"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeVolumes",
+          "ec2:DescribeSnapshots",
+          "ec2:CreateSnapshot",
+          "ec2:CreateSnapshots",
+          "ec2:DeleteSnapshot",
+          "ec2:DescribeTags",
+          "ec2:CreateTags",
+          "ec2:DescribeAvailabilityZones",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "KMSForS3"
+        Effect = "Allow"
+        Action = [
+          "kms:GenerateDataKey",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+        ]
+        Resource = var.kms_key_s3_arn
+      },
+      {
+        # CMK-암호화된 EBS 볼륨 스냅샷 생성 시 CreateGrant 필요
+        Sid    = "KMSForEBS"
+        Effect = "Allow"
+        Action = [
+          "kms:GenerateDataKey",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:CreateGrant",
+          "kms:ListGrants",
+          "kms:RevokeGrant",
+        ]
+        Resource = var.kms_key_eks_arn
+      },
+    ]
+  })
+}
+
+# Velero 서버 SA와 node-agent SA 모두 동일 역할 사용
+# - velero: S3 backup location 접근 + EBS 스냅샷 관리
+# - node-agent: Kopia 데이터 이동(S3 RW) — uploaderType=kopia
+
+resource "aws_eks_pod_identity_association" "velero_server" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "velero"
+  service_account = "velero"
+  role_arn        = aws_iam_role.velero.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_eks_pod_identity_association" "velero_node_agent" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "velero"
+  service_account = "node-agent"
+  role_arn        = aws_iam_role.velero.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_iam_role" "trivy" {
+  name = "financial-ops-trivy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "trivy" {
+  name = "financial-ops-trivy-ecr-read"
+  role = aws_iam_role.trivy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ECRTokenAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRImageRead"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/financial/*"
+      },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "trivy_operator" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "trivy"
+  service_account = "trivy-operator"
+  role_arn        = aws_iam_role.trivy.arn
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
