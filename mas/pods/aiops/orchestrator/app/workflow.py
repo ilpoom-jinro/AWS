@@ -38,7 +38,7 @@ with workflow.unsafe.imports_passed_through():
         RecoveryVerification,
     )
     from workflows.activity_options import ActivityName, get_activity_options
-    from aiops.config import settings
+    from .config import settings
 
 
 @workflow.defn(name="AIOpsRemediationWorkflow")

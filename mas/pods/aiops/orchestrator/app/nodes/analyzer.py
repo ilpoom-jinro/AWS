@@ -203,6 +203,9 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
         strategy_detail=strategy_detail,
         estimated_recovery_minutes=int(rca.get("estimated_recovery_minutes", 5)),
         rollback_available=(strategy in ("restart", "rollback", "scale_out")),
+        # Platform Core가 restart/rollback 시 pod_name에서 Deployment를 추론한다
+        # (연동 요청서 §2, contracts RemediationPlan.pod_name 주석).
+        pod_name=incident.pod_name,
     )
 
     return AnomalyReport(

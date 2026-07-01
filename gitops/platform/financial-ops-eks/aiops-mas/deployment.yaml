@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-orchestrator
+  namespace: aiops-mas
+  labels:
+    app: aiops-orchestrator
+    mas.platform/agent: aiops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-orchestrator
+  template:
+    metadata:
+      labels:
+        app: aiops-orchestrator
+    spec:
+      serviceAccountName: aiops-orchestrator
+      containers:
+        - name: aiops-orchestrator
+          # kustomization images에서 실제 ECR 경로로 치환됨
+          image: aiops-orchestrator-image
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: aiops-orchestrator-config
+          env:
+            # 감사로그(record_audit_log) RDS 연결 — Secret 주입
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-orchestrator-secrets
+                  key: database-url
+          # worker는 HTTP 서버가 아니므로(python -m app.worker),
+          # Temporal 폴링 프로세스 생존을 exec probe로 확인한다.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'app.worker' > /dev/null"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pgrep -f 'app.worker' > /dev/null"
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

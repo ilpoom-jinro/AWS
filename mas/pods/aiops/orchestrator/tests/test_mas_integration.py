@@ -12,7 +12,7 @@ from contracts.models import (
     IncidentContext, AnomalyReport, RemediationPlan,
     DetectIncidentInput, RecoveryVerification,
 )
-from aiops.mappers import to_anomaly_type, to_strategy
+from pods.aiops.orchestrator.app.mappers import to_anomaly_type, to_strategy
 
 passed = 0
 
@@ -56,7 +56,7 @@ except Exception:
 passed += 1; print(f"{passed}. recent_logs 50줄 제한 검증 OK")
 
 # 5. detector의 _detect_reason 로직 (K8s dict → reason)
-from aiops.nodes.detector import _detect_reason
+from pods.aiops.orchestrator.app.nodes.detector import _detect_reason
 crashloop_pod = {
     "metadata": {"name": "backend-abc12-xyz", "namespace": "service-apps"},
     "status": {"phase": "Running", "container_statuses": [
@@ -93,7 +93,7 @@ assert report.terraform_plan is None
 passed += 1; print(f"{passed}. AnomalyReport(aiops) 시나리오-플랜 일관성 OK")
 
 # 7. verifier deploy_prefix
-from aiops.nodes.verifier import _deploy_prefix
+from pods.aiops.orchestrator.app.nodes.verifier import _deploy_prefix
 assert _deploy_prefix("backend-6d4f7c8b9-xk2p9") == "backend"
 passed += 1; print(f"{passed}. verifier deploy_prefix OK")
 
@@ -112,7 +112,7 @@ passed += 1; print(f"{passed}. ActivityName Enum get_activity_options + heartbea
 
 # 9. Workflow signal 핸들러 + ApprovalTicket 모델
 from contracts.models import ApprovalTicket, ApprovalResult
-from aiops.workflow import AIOpsRemediationWorkflow
+from pods.aiops.orchestrator.app.workflow import AIOpsRemediationWorkflow
 ticket = ApprovalTicket(workflow_id="mas:wf-20260619-tk1", slack_message_ts="123.45", channel_id="C0XXX")
 assert ticket.slack_message_ts == "123.45"
 assert hasattr(AIOpsRemediationWorkflow, "approval_result")  # signal 핸들러 존재
@@ -124,7 +124,7 @@ print(f"\n=== MAS v2 정합 테스트 {passed}/9 통과 ===")
 # 10. MetricsCollector clamp 로직 (0~1 비율 보장)
 import asyncio
 from unittest.mock import AsyncMock, patch
-from aiops.metrics_collector import MetricsCollector
+from pods.aiops.orchestrator.app.metrics_collector import MetricsCollector
 
 async def _test_metrics():
     mc = MetricsCollector("http://thanos:9090")
@@ -154,7 +154,7 @@ assert ic_with_metrics.memory_usage_current == 0.95
 passed += 1; print(f"{passed}. IncidentContext 메트릭 필드 채움 OK")
 
 # 12. analyzer 프롬프트가 메트릭을 실제로 포함하는지
-from aiops.nodes.analyzer import RCA_PROMPT, _fmt_pct
+from pods.aiops.orchestrator.app.nodes.analyzer import RCA_PROMPT, _fmt_pct
 _p = RCA_PROMPT.format(
     cluster="c", namespace="n", pod="p", anomaly="oom_killed", restarts=3,
     cpu=_fmt_pct(0.32), memory=_fmt_pct(0.97), error_rate=_fmt_pct(0.0),
@@ -187,7 +187,7 @@ assert asyncio.run(_test_high_latency())
 passed += 1; print(f"{passed}. find_high_latency_pod 최악 파드 선택 + NaN 제외 OK")
 
 # 14. scale_out → HPA patch directive 병합 검증 (kubectl scale 금지)
-from aiops.nodes.analyzer import _build_scale_out_directive, _deploy_name_from_pod
+from pods.aiops.orchestrator.app.nodes.analyzer import _build_scale_out_directive, _deploy_name_from_pod
 assert _deploy_name_from_pod("stock-api-7f9d4c8b-xk2p9") == "stock-api"
 _dir = _build_scale_out_directive(
     IncidentContext(
@@ -201,4 +201,19 @@ assert "patch_hpa" in _dir and "target_hpa=stock-api-hpa" in _dir
 assert "namespace=stock-demo" in _dir and "maxReplicas+=2" in _dir
 passed += 1; print(f"{passed}. scale_out HPA patch directive 병합 OK")
 
-print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/14 통과 ===")
+# 15. RemediationPlan.pod_name 전달 (Platform Core Deployment 추론용)
+import asyncio as _asyncio
+from unittest.mock import patch as _patch
+from pods.aiops.orchestrator.app.nodes import analyzer as _az
+_ic = IncidentContext(
+    cluster_name="financial-service-eks", namespace="stock-demo",
+    pod_name="stock-api-7f9d4c8b-xk2p9", anomaly_type="oom_killed",
+    restart_count=3, recent_logs=["OOM"],
+)
+_fake = {"root_cause":"OOM","detail":"d","confidence":0.9,"strategy":"restart","strategy_detail":"재시작","estimated_recovery_minutes":5}
+with _patch.object(_az, "_invoke_bedrock", return_value=_fake):
+    _rep = _asyncio.run(_az.analyze_root_cause(_ic))
+assert _rep.remediation_plan.pod_name == "stock-api-7f9d4c8b-xk2p9"
+passed += 1; print(f"{passed}. RemediationPlan.pod_name 전달 OK")
+
+print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/15 통과 ===")

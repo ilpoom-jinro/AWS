@@ -48,6 +48,8 @@ class AIOpsSettings(BaseSettings):
     HIGH_LATENCY_P95_MS: float = Field(default=1000.0)
 
     # Temporal
+    # 참고: 실제 Temporal 연결은 worker.py가 os.getenv("TEMPORAL_ADDRESS")로 수행한다
+    # (Platform Core 소유 worker). 아래 필드는 로컬 테스트/호환용으로만 유지.
     TEMPORAL_HOST: str = Field(default="temporal-frontend.temporal.svc.cluster.local:7233")
     TEMPORAL_NAMESPACE: str = Field(default="default")
     TEMPORAL_TASK_QUEUE: str = Field(default="aiops-task-queue")
