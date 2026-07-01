@@ -203,6 +203,11 @@
             - apiGroups: ["external-secrets.io"]
               resources: [clustersecretstores, clusterexternalsecrets]
               verbs: [get, list, watch, create, update, patch, delete]
+            # Trivy Operator cluster-scoped CRD (ClusterComplianceReport).
+            # VulnerabilityReport 등 namespace-scoped 리소스는 Operator 런타임 생성이므로 제외.
+            - apiGroups: ["aquasecurity.github.io"]
+              resources: ["clustercompliancereports"]
+              verbs: [get, list, watch, create, update, patch, delete]
 
     - name: ClusterRole 생성 — argocd-manager-kyverno-writer
       kubernetes.core.k8s:
@@ -216,6 +221,10 @@
           rules:
             # ClusterPolicy는 클러스터 스코프 리소스 → RoleBinding으로 부여 불가
             - apiGroups: [kyverno.io, wgpolicyk8s.io]
+              resources: ["*"]
+              verbs: [get, list, watch, create, update, patch, delete]
+            # TracingPolicy는 클러스터 스코프 리소스 → RoleBinding으로 부여 불가
+            - apiGroups: [cilium.io]
               resources: ["*"]
               verbs: [get, list, watch, create, update, patch, delete]
 
@@ -283,7 +292,9 @@
         - observability
         - stock-demo
         - kyverno
+        - tetragon          # tetragon RoleBinding 전 사전 생성
         - external-secrets
+        - trivy             # trivy Operator 배포 대상 (vulnerability/compliance 스캔)
         # istio-system은 Istio 설치 시 이미 존재하므로 별도 생성 불필요
       changed_when: false
 
@@ -310,8 +321,10 @@
         - istio-system     # istio-policies-service 배포 대상
         - stock-demo       # service-demo-app 배포 대상
         - kyverno          # kyverno ApplicationSet 배포 대상
+        - tetragon         # tetragon ApplicationSet 배포 대상
         - kube-system      # aws-load-balancer-controller-service 배포 대상
         - external-secrets # external-secrets-service ESO Helm 리소스 배포 대상
+        - trivy            # trivy Operator namespace-writer 바인딩 대상
 
     - name: Ensure long-lived token secret exists for Argo CD manager
       kubernetes.core.k8s:

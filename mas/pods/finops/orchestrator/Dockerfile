@@ -1,4 +1,5 @@
-ARG MAS_BASE_IMAGE=python:3.12-slim
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+ARG MAS_BASE_IMAGE=python:3.12.13-slim
 FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
@@ -13,6 +14,7 @@ RUN apt-get update \
 
 COPY pods/finops/orchestrator/app ./app
 COPY shared ./shared
+COPY contracts ./contracts
 
 EXPOSE 8000
 

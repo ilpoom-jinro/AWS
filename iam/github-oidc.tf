@@ -62,8 +62,8 @@ resource "aws_iam_policy" "github_actions_iam" {
           "s3:DeleteObject"
         ]
         Resource = [
-          "arn:aws:s3:::ilpumjinro-terraform-state-v2",
-          "arn:aws:s3:::ilpumjinro-terraform-state-v2/*"
+          "arn:aws:s3:::ilpumjinro-terraform-state-v4",
+          "arn:aws:s3:::ilpumjinro-terraform-state-v4/*"
         ]
       },
       {
@@ -276,7 +276,10 @@ resource "aws_iam_policy" "github_actions_infra" {
           "ec2:DeleteLaunchTemplateVersions",
           "ec2:DescribeLaunchTemplates",
           "ec2:DescribeLaunchTemplateVersions",
-          "ec2:ModifyLaunchTemplate"
+          "ec2:ModifyLaunchTemplate",
+          "ec2:CreateFlowLogs",
+          "ec2:DeleteFlowLogs",
+          "ec2:DescribeFlowLogs"
         ]
         Resource = "*"
       },
@@ -501,7 +504,16 @@ resource "aws_iam_policy" "github_actions_security" {
           "s3:GetAnalyticsConfiguration",
           "s3:GetMetricsConfiguration",
           "s3:GetInventoryConfiguration",
-          "s3:GetIntelligentTieringConfiguration"
+          "s3:GetIntelligentTieringConfiguration",
+          "s3:PutBucketVersioning",
+          "s3:PutBucketOwnershipControls",
+          "s3:PutEncryptionConfiguration",
+          "s3:PutBucketObjectLockConfiguration",
+          "s3:PutLifecycleConfiguration",
+          "s3:DeleteObject",
+          "s3:DeleteObjectVersion",
+          "s3:BypassGovernanceRetention",
+          "s3:ListBucketVersions"
         ]
         Resource = "*"
       },
@@ -534,7 +546,8 @@ resource "aws_iam_policy" "github_actions_security" {
           "kms:Decrypt",
           "kms:GenerateDataKey*",
           "kms:ReEncrypt*",
-          "kms:GenerateDataKeyWithoutPlaintext"
+          "kms:GenerateDataKeyWithoutPlaintext",
+          "kms:Sign" # Cosign 이미지 서명 (prod role fallback용 — dev role은 AdministratorAccess라 불필요)
         ]
         Resource = "*"
       },

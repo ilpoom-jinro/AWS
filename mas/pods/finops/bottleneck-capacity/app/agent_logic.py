@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+from contracts.models import AgentResponse, AgentStatus, DataRequest
+
 
 AGENT_KEY = "bottleneck_capacity"
 AGENT_NAME = "Bottleneck Capacity Agent"
@@ -12,12 +15,42 @@ LLM_PROMPT = (
 )
 
 
-def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentResponse:
     signals = context.get("signals", {})
     infra = context.get("infra", {})
-    forecast = context["agent_results"]["traffic_forecast"]
+    forecast = get_agent_result(context, "traffic_forecast")
     db_cpu = infra.get("rds_cpu_percent", signals.get("db_cpu_percent", 68))
     cache_hit = infra.get("redis_cache_hit_ratio_percent", signals.get("cache_hit_ratio_percent", 91))
+    broker_data = context.get("broker_results", {}).get("traffic_forecast", {})
+
+    if (
+        float(db_cpu) > 80
+        and forecast["peak_rps_after"] > 1000
+        and not broker_data
+    ):
+        return AgentResponse(
+            status=AgentStatus.NEEDS_DATA,
+            agent_key=AGENT_KEY,
+            agent_name=AGENT_NAME,
+            result={},
+            message="DB 병목 완화를 위해 20분 분산 조건으로 재예측 요청",
+            evidence=[],
+            data_requests=[
+                DataRequest(
+                    target_agent="traffic_forecast",
+                    operation="reforecast",
+                    parameters={"push_window_minutes": 20},
+                    required_fields=["peak_rps_after", "required_app_pods"],
+                    reason="DB CPU가 80%를 초과해 Push 분산을 늘린 조건으로 재예측 필요",
+                )
+            ],
+            confidence=0.7,
+            warnings=["DB CPU critical, requesting reforecast"],
+            reasoning_source="rule",
+        )
+
+    effective_rps = broker_data.get("peak_rps_after", forecast["peak_rps_after"])
+    required_pods = broker_data.get("required_app_pods", forecast.get("required_app_pods"))
     live = context.get("live", {}).get("commands", {})
     live_enabled = any(command.get("status") == "ok" for command in live.values())
     result = {
@@ -32,9 +65,35 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "running_pods": infra.get("running_pods"),
         "source": "kubectl+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
         "status": "warning" if db_cpu >= 65 or cache_hit < 93 else "ok",
-        "validated_rps": forecast["peak_rps_after"],
+        "validated_rps": effective_rps,
+        "required_app_pods": required_pods,
     }
-    return result, f"Validated {forecast['peak_rps_after']} RPS against DB, cache, ALB, and pod capacity."
+    message = f"Validated {effective_rps} RPS against DB, cache, ALB, and pod capacity."
+
+    if broker_data.get("_broker_status") == "failed":
+        result.update(
+            {
+                "reforecast_applied": False,
+                "broker_result": broker_data,
+                "warnings": ["broker reforecast failed, using original forecast"],
+            }
+        )
+        return result, "Using original forecast: broker reforecast failed"
+
+    if broker_data:
+        risk_assessment = broker_data.get("risk_assessment", {})
+        result.update(
+            {
+                "reforecast_applied": True,
+                "adjusted_capacity_rps": broker_data.get("adjusted_capacity_rps"),
+                "pod_scaling_timeline": broker_data.get("pod_scaling_timeline"),
+                "risk_level": risk_assessment.get("level", "medium"),
+                "warnings": ["Pod readiness constraint applied to forecast"],
+            }
+        )
+        return result, "Reforecast applied with pod readiness constraints"
+
+    return result, message
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:

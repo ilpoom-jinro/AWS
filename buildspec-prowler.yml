@@ -8,6 +8,21 @@ phases:
     commands:
       # prowler는 이미지의 venv 안에 있고 PATH에 없음 → 절대경로 호출
       # OCSF 포함 3종을 로컬에 출력. -z: FAIL 있어도 exit 3 무시(빌드 성공 처리)
-      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
-      # 결과 전체를 S3로 업로드 (날짜 prefix로 정리). -B 미사용 — KMS 멀티파트 위해 IAM에 kms:Decrypt 필요
-      - aws s3 cp /tmp/prowler-out/ "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/" --recursive
+      # --compliance 에 3종 프레임워크 지정: ISMS-P(기존 유지) + FSBP + CIS 3.0
+      # 프레임워크별 compliance CSV가 /tmp/prowler-out/compliance/ 하위에 각각 생성됨
+      # CIS 는 Prowler 점(.) 포함 버전명 + CSV 출력 조합에서 KeyError 크래시 (이슈 #8753) → 버전 핀 트랙으로 분리, 현재는 ISMS-P + FSBP 2종 운영
+      - /home/prowler/.venv/bin/prowler aws --compliance kisa_isms_p_2023_korean_aws aws_foundational_security_best_practices_aws -f ap-northeast-2 -M csv json-ocsf html --output-directory /tmp/prowler-out -z
+      # .ocsf.json → NDJSON 변환 후 ${date}/ocsf/ 업로드
+      # Prowler OCSF 출력은 pretty-print JSON 배열([{...},{...}]) → OpenX SerDe 파싱 실패
+      # python3로 NDJSON 변환 결과를 파일로 저장 → 변수 경유 시 ARG_MAX 초과 방지
+      # findings 0건([])이면 0바이트 파일 → [ -s ] false → 업로드 생략(Athena 0행, 정상)
+      - |
+        ocsf_file=$(find /tmp/prowler-out -name "*.ocsf.json" | head -1)
+        python3 -c "import json,sys; [print(json.dumps(o)) for o in json.load(open(sys.argv[1]))]" "${ocsf_file}" > /tmp/prowler.ndjson
+        if [ -s /tmp/prowler.ndjson ]; then
+          aws s3 cp /tmp/prowler.ndjson "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/ocsf/prowler.ocsf.json"
+        else
+          echo "Prowler findings 0건 — ocsf/ 업로드 생략"
+        fi
+      # 나머지(csv/html/compliance/*.csv) → ${date}/reports/ : 감사 증적 보존, Athena 스캔 범위 밖
+      - aws s3 cp /tmp/prowler-out/ "s3://financial-prowler-findings-${ACCOUNT_ID}/$(date +%Y-%m-%d)/reports/" --recursive --exclude "*.ocsf.json"

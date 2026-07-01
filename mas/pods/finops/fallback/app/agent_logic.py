@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+
 
 AGENT_KEY = "fallback"
 AGENT_NAME = "Fallback Planner"
@@ -9,7 +11,7 @@ LLM_PROMPT = None
 
 
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    policy = context["agent_results"]["policy_guardrail"]
+    policy = get_agent_result(context, "policy_guardrail")
     result = {
         "vip_only": True,
         "general_hold": True,

@@ -64,7 +64,9 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
   TF_VAR_dev_mode: "true"
   TF_VAR_ops_vpc_command: ${{ inputs.ops_vpc_command || 'kubectl --context ${OPS_CONTEXT} -n git get deploy,svc,pods -o wide' }}
-  
+  TF_VAR_enable_flowlog_s3_archive: "true"
+  TF_VAR_enable_pii_scan: "false"
+
 jobs:
   plan:
     name: Terraform Plan
@@ -378,6 +380,64 @@ jobs:
             done
           done
 
+      # PVC 선삭제: 고아 EBS 방지
+      # EKS destroy 전에 PVC를 지우지 않으면 EBS 볼륨이 available 상태로 잔존한다.
+      # 클러스터 접근 불가(이미 삭제됨 등) 시에도 destroy가 중단되지 않도록 continue-on-error.
+      - name: Delete PVCs before EKS destroy
+        if: inputs.action == 'destroy'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+
+          delete_pvcs() {
+            local cluster="$1"
+            echo "=== ${cluster}: PVC 정리 시작 ==="
+
+            if ! aws eks update-kubeconfig --name "${cluster}" --region "${AWS_REGION}"; then
+              echo "::warning::${cluster} kubeconfig 갱신 실패 — 이미 삭제됐거나 접근 불가. 스킵."
+              return
+            fi
+
+            namespaces=$(kubectl get ns -o jsonpath='{.items[*].metadata.name}' 2>/dev/null) || true
+            for ns in $namespaces; do
+              kubectl delete pvc --all -n "${ns}" --timeout=120s || true
+            done
+
+            echo "=== ${cluster}: PVC 정리 완료 ==="
+          }
+
+          delete_pvcs financial-ops-eks
+          delete_pvcs financial-service-eks
+
+          # StatefulSet PVC 삭제 지연 대응: 고정 sleep → available EBS 0 폴링
+          # git 2개 + observability 4개 = 6개 PVC의 EBS가 해제될 때까지 대기.
+          # 폴링만 수행(삭제 없음) — 다른 available 볼륨 오삭제 방지.
+          echo "=== available EBS 폴링 시작 (financial-*-eks-dynamic-pvc-*, 최대 180s) ==="
+          MAX_POLLS=18
+          for i in $(seq 1 ${MAX_POLLS}); do
+            COUNT=$(aws ec2 describe-volumes \
+              --filters "Name=status,Values=available" \
+                        "Name=tag:Name,Values=financial-*-eks-dynamic-pvc-*" \
+              --region ap-northeast-2 \
+              --query "length(Volumes)" \
+              --output text 2>/dev/null) || COUNT="-1"
+
+            echo "[${i}/${MAX_POLLS}] available EBS count: ${COUNT}"
+
+            if [ "${COUNT}" = "0" ]; then
+              echo "=== available EBS 0 확인 — 폴링 완료 ==="
+              break
+            fi
+
+            if [ "${i}" -eq "${MAX_POLLS}" ]; then
+              echo "::warning::180s 내 available EBS가 0이 되지 않음 (마지막 count: ${COUNT}). destroy 계속 진행."
+              break
+            fi
+
+            sleep 10
+          done
+
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >
@@ -410,6 +470,15 @@ jobs:
           -target=aws_sns_topic.security_alerts
           -target=aws_cloudwatch_metric_alarm.db_port_probe_vpc1
           -target=aws_cloudwatch_metric_alarm.reject_burst_vpc1
+          -target=aws_s3_bucket.flowlogs_archive
+          -target=aws_s3_bucket_versioning.flowlogs_archive
+          -target=aws_s3_bucket_ownership_controls.flowlogs_archive
+          -target=aws_s3_bucket_public_access_block.flowlogs_archive
+          -target=aws_s3_bucket_server_side_encryption_configuration.flowlogs_archive
+          -target=aws_s3_bucket_object_lock_configuration.flowlogs_archive
+          -target=aws_s3_bucket_lifecycle_configuration.flowlogs_archive
+          -target=aws_s3_bucket_policy.flowlogs_archive
+          -target=aws_flow_log.s3_archive
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply secrets

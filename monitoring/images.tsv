@@ -1,10 +1,16 @@
 # component	source_image	ecr_repository	target_tag
-grafana	docker.io/grafana/grafana:latest	financial/monitoring/grafana	latest
-loki	docker.io/grafana/loki:latest	financial/monitoring/loki	latest
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+grafana	docker.io/grafana/grafana:13.1.0	financial/monitoring/grafana	13.1.0
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+loki	docker.io/grafana/loki:3.7.3	financial/monitoring/loki	3.7.3
 thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	v0.41.0
 thanos	quay.io/thanos/thanos:v0.41.0	financial/monitoring/thanos	latest
-alloy	docker.io/grafana/alloy:latest	financial/monitoring/alloy	latest
-alertmanager	quay.io/prometheus/alertmanager:latest	financial/monitoring/alertmanager	latest
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+alloy	docker.io/grafana/alloy:v1.17.1	financial/monitoring/alloy	v1.17.1
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25)
+alertmanager	quay.io/prometheus/alertmanager:v0.33.0	financial/monitoring/alertmanager	v0.33.0
 aws-load-balancer-controller	public.ecr.aws/eks/aws-load-balancer-controller:v3.3.0	financial/monitoring/aws-load-balancer-controller	v3.3.0
-tempo	docker.io/grafana/tempo:latest	financial/monitoring/tempo	latest
+# pinned 2026-06-30, controlled bump via scheduled EOL workflow (#25); nightly->stable
+tempo	docker.io/grafana/tempo:3.0.0	financial/monitoring/tempo	3.0.0
 metrics-server	registry.k8s.io/metrics-server/metrics-server:v0.7.2	financial/monitoring/metrics-server	v0.7.2
+kube-state-metrics	registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0	financial/monitoring/kube-state-metrics	v2.13.0

@@ -102,6 +102,12 @@ variable "rds_multi_az" {
   default     = true
 }
 
+variable "rds_backup_retention" {
+  description = "RDS 자동 백업 보관일. Free Plan 계정은 0 필수(retention>0 시 FreeTierRestrictionError). Paid 계정에서만 tfvars로 7 오버라이드."
+  type        = number
+  default     = 0 # Free Plan 안전 기본값
+}
+
 variable "rds_password" {
   description = "RDS 마스터 비밀번호 — 루트 secrets.tf의 random_password.service_rds에서 주입"
   type        = string

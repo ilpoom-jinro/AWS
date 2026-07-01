@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_support import get_agent_result
+
 
 AGENT_KEY = "infra_execution"
 AGENT_NAME = "Infra Execution Planner"
@@ -10,7 +12,7 @@ LLM_PROMPT = None
 
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     infra = context.get("infra", {})
-    forecast = context["agent_results"]["traffic_forecast"]
+    forecast = get_agent_result(context, "traffic_forecast")
     live = context.get("live", {}).get("commands", {})
     live_enabled = any(command.get("status") == "ok" for command in live.values())
     target = forecast["required_app_pods"]
