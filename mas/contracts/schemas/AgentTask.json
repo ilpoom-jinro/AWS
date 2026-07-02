@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "agent_key": {
+      "title": "Agent Key",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "objective": {
+      "title": "Objective",
+      "type": "string"
+    },
+    "context": {
+      "additionalProperties": true,
+      "title": "Context",
+      "type": "object"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "requested_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requested Fields",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "agent_key",
+    "agent_name",
+    "objective",
+    "context",
+    "parameters",
+    "requested_fields"
+  ],
+  "title": "AgentTask",
+  "type": "object"
+}
