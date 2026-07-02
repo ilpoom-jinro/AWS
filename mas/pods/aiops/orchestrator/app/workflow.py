@@ -21,9 +21,13 @@ workflow.py — AIOps 장애 복구 Temporal Workflow
 """
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 
 from temporalio import workflow
+
+# 승인(공통 HITL) Activity가 도는 전용 task queue. slack-hitl 봇과 반드시 동일해야 함.
+HITL_TASK_QUEUE = os.getenv("HITL_TASK_QUEUE", "hitl-approval-queue")
 
 with workflow.unsafe.imports_passed_through():
     from contracts.models import (
@@ -89,6 +93,7 @@ class AIOpsRemediationWorkflow:
         ticket: ApprovalTicket = await workflow.execute_activity(
             ActivityName.SEND_APPROVAL_REQUEST,
             approval_req,
+            task_queue=HITL_TASK_QUEUE,
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
         )
         await self._audit(incident.workflow_id, "approval_requested", report.summary)
@@ -107,6 +112,7 @@ class AIOpsRemediationWorkflow:
             await workflow.execute_activity(
                 ActivityName.SEND_REMINDER,
                 ticket,
+                task_queue=HITL_TASK_QUEUE,
                 **get_activity_options(ActivityName.SEND_REMINDER),
             )
             await workflow.wait_condition(

@@ -42,6 +42,17 @@
     "isolation_applied": {
       "title": "Isolation Applied",
       "type": "boolean"
+    },
+    "confidence": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "evidence": {
+      "title": "Evidence",
+      "type": "object"
     }
   },
   "required": [

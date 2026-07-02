@@ -102,16 +102,37 @@ class SecOpsWorkflow:
             )
             return await self._finish(event, mapping, result)
 
-        # 위반 → Slack 승인 요청
+        # 위반 있음 — severity 기반 필터: Critical/High만 Slack push (Medium 이하는 View만)
+        if mapping.severity not in ("critical", "high"):
+            result = ExecutionResult(
+                workflow_id=event.workflow_id, success=False,
+                action_taken=f"규정 위반({mapping.severity}) — Slack 알림 생략, View 대시보드로만 기록",
+                executed_at=workflow.now(),
+            )
+            return await self._finish(event, mapping, result)
+
+        # Critical/High → Slack 승인 요청
+        evidence_text = (
+            "\n".join(f"  {k}: {v}" for k, v in mapping.evidence.items())
+            if mapping.evidence else "  (없음)"
+        )
         approval_req = ApprovalRequest(
-            workflow_id=event.workflow_id, scenario="secops", severity="high",
+            workflow_id=event.workflow_id,
+            scenario="secops",
+            severity=mapping.severity,
             summary=f"보안 격리 승인 요청: {event.source_pod}",
-            detail=mapping.violation_description,
-            regulation_mapping=mapping,           # secops는 regulation_mapping 필수
+            detail=(
+                f"[{mapping.severity.upper()}] confidence={mapping.confidence:.0%}\n"
+                f"{mapping.violation_description}\n\n"
+                f"Evidence:\n{evidence_text}\n\n"
+                f"Blast Radius: {'안전' if mapping.blast_radius_safe else '위험'} — "
+                f"{mapping.blast_radius_detail}"
+            ),
+            regulation_mapping=mapping,
         )
         ticket = await workflow.execute_activity(
             send_approval_request, approval_req,
-            task_queue=HITL_TASK_QUEUE,   # 공통 슬랙 봇 큐로 라우팅 (.activities 스텁은 run_demo용)
+            task_queue=HITL_TASK_QUEUE,
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
         )
         await self._audit(event.workflow_id, "approval_requested", "Slack 승인 요청 전송",
