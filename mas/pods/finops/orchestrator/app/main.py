@@ -23,7 +23,12 @@ from app.agent_runtime import (
     build_replan_context,
     plan_status,
 )
-from app.chat_runtime import build_pending_replan_response, run_planner_llm, run_report_chat
+from app.chat_runtime import (
+    build_pending_replan_response,
+    run_explain_llm,
+    run_planner_llm,
+    run_report_chat,
+)
 from app.dev_workflow_support import (
     TEST_EVENT_SEEDS,
     event_row_to_dict,
@@ -2069,8 +2074,8 @@ async def retry_workflow(workflow_id: str) -> dict[str, str]:
 
 @app.post("/api/workflows/{workflow_id}/replan")
 async def replan_workflow(workflow_id: str, intent: ReplanIntent) -> dict[str, Any]:
-    if intent.intent != "replan":
-        raise HTTPException(status_code=400, detail="intent must be replan")
+    if intent.intent not in {"replan", "partial_replan"}:
+        raise HTTPException(status_code=400, detail="intent must be replan or partial_replan")
     return await start_replan_workflow(workflow_id, intent)
 
 
@@ -2330,7 +2335,15 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             message=request.message.strip(),
             current_plan=current_plan,
         )
-    if intent.intent == "replan":
+    if intent.intent == "explain":
+        with connect() as conn:
+            return await run_explain_llm(
+                conn,
+                workflow_id=workflow_id,
+                message=request.message.strip(),
+                conversation_history=request.conversation_history,
+            )
+    if intent.intent in {"replan", "partial_replan"}:
         if intent.requires_confirmation:
             return build_pending_replan_response(
                 intent,

@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "AgentStatus": {
+      "enum": [
+        "completed",
+        "needs_data",
+        "blocked",
+        "requires_review",
+        "failed"
+      ],
+      "title": "AgentStatus",
+      "type": "string"
+    },
+    "DataRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "target_agent": {
+          "title": "Target Agent",
+          "type": "string"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "required_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Fields",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_agent",
+        "operation",
+        "parameters",
+        "required_fields",
+        "reason"
+      ],
+      "title": "DataRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "$ref": "#/$defs/AgentStatus"
+    },
+    "agent_key": {
+      "title": "Agent Key",
+      "type": "string"
+    },
+    "agent_name": {
+      "title": "Agent Name",
+      "type": "string"
+    },
+    "result": {
+      "additionalProperties": true,
+      "title": "Result",
+      "type": "object"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "data_requests": {
+      "items": {
+        "$ref": "#/$defs/DataRequest"
+      },
+      "title": "Data Requests",
+      "type": "array"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "reasoning_source": {
+      "enum": [
+        "rule",
+        "llm",
+        "rule+llm"
+      ],
+      "title": "Reasoning Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "agent_key",
+    "agent_name",
+    "result",
+    "message",
+    "evidence",
+    "data_requests",
+    "confidence",
+    "warnings",
+    "reasoning_source"
+  ],
+  "title": "AgentResponse",
+  "type": "object"
+}

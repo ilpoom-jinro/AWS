@@ -82,8 +82,8 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
         Resource = aws_sns_topic.root_activity_alert.arn
         Condition = {
           ArnLike = {
+            # root_console_login 은 us-east-1로 이동했으므로 여기선 제거
             "aws:SourceArn" = [
-              aws_cloudwatch_event_rule.root_console_login.arn,
               aws_cloudwatch_event_rule.root_api_call.arn,
             ]
           }
@@ -113,6 +113,8 @@ resource "aws_sns_topic_policy" "root_activity_alert" {
 # userIdentity.type = "Root"인 경우만 트리거
 # =============================================
 resource "aws_cloudwatch_event_rule" "root_console_login" {
+  # root 콘솔 로그인은 무조건 us-east-1에 기록됨 → 규칙도 us-east-1에 있어야 트리거됨
+  provider    = aws.us_east_1
   name        = "detect-root-console-login"
   description = "root 계정 콘솔 로그인 탐지"
 
@@ -166,16 +168,8 @@ resource "aws_cloudwatch_event_rule" "root_api_call" {
 }
 
 # =============================================
-# EventBridge Target #1 - root 콘솔 로그인 → SNS
-# =============================================
-resource "aws_cloudwatch_event_target" "root_console_login_to_sns" {
-  rule      = aws_cloudwatch_event_rule.root_console_login.name
-  target_id = "RootConsoleLoginToSNS"
-  arn       = aws_sns_topic.root_activity_alert.arn
-}
-
-# =============================================
-# EventBridge Target #2 - root API 호출 → SNS
+# EventBridge Target — root API 호출 → SNS (ap-northeast-2)
+# root_console_login 은 us-east-1로 이동했으므로 타깃도 아래 use1 블록에서 정의
 # =============================================
 resource "aws_cloudwatch_event_target" "root_api_call_to_sns" {
   rule      = aws_cloudwatch_event_rule.root_api_call.name
@@ -259,3 +253,121 @@ resource "aws_cloudwatch_metric_alarm" "root_activity" {
 #   protocol  = "lambda"
 #   endpoint  = aws_lambda_function.slack_notifier.arn    # Slack 알림 Lambda 별도 구성 필요
 # }
+
+# =============================================
+# us-east-1 인프라 (#40 리전 버그 수정)
+#
+# root 글로벌 서비스 API(IAM 등) 호출은 us-east-1에 기록됨 → 규칙도 us-east-1 필요.
+# root_console_login 은 이미 위에서 provider = aws.us_east_1 로 이동함.
+# =============================================
+
+resource "aws_cloudwatch_event_rule" "root_api_call_use1" {
+  provider    = aws.us_east_1
+  name        = "detect-root-api-call"
+  description = "root 계정 AWS API 호출 탐지 (us-east-1)"
+
+  event_pattern = jsonencode({
+    source = [{
+      "anything-but" = ["aws.signin"]
+    }]
+    detail = {
+      userIdentity = {
+        type = ["Root"]
+      }
+    }
+  })
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "EventBridge"
+    Environment = "all"
+  }
+}
+
+# =============================================
+# SNS Topic — root 활동 알림 수신 (us-east-1)
+#
+# us-east-1 EventBridge 규칙의 타깃 SNS는 동일 리전이어야 함.
+# 무암호화: root-activity-alert 와 동일 이유 (aws/sns 관리형 키에
+# events.amazonaws.com GenerateDataKey 권한 없음).
+# CMK 적용은 MAS에서 root/network 토픽과 함께 일괄 진행 예정.
+# =============================================
+resource "aws_sns_topic" "root_activity_alert_use1" {
+  provider = aws.us_east_1
+  name     = "root-activity-alert-use1"
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "SNS"
+    Environment = "all"
+  }
+}
+
+resource "aws_sns_topic_policy" "root_activity_alert_use1" {
+  provider = aws.us_east_1
+  arn      = aws_sns_topic.root_activity_alert_use1.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowAccountOwner"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${var.account_id}:root"
+        }
+        Action = [
+          "SNS:GetTopicAttributes",
+          "SNS:SetTopicAttributes",
+          "SNS:AddPermission",
+          "SNS:RemovePermission",
+          "SNS:DeleteTopic",
+          "SNS:Subscribe",
+          "SNS:ListSubscriptionsByTopic",
+          "SNS:Publish",
+          "SNS:Receive"
+        ]
+        Resource = aws_sns_topic.root_activity_alert_use1.arn
+      },
+      {
+        # CloudWatch Alarm 은 ap-northeast-2 토픽만 씀 → AllowCloudWatchAlarmsPublish 불필요
+        Sid    = "AllowEventBridgePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action   = "SNS:Publish"
+        Resource = aws_sns_topic.root_activity_alert_use1.arn
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = [
+              aws_cloudwatch_event_rule.root_console_login.arn,
+              aws_cloudwatch_event_rule.root_api_call_use1.arn,
+            ]
+          }
+          StringEquals = {
+            "aws:SourceAccount" = var.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "root_console_login_to_sns_use1" {
+  provider  = aws.us_east_1
+  rule      = aws_cloudwatch_event_rule.root_console_login.name
+  target_id = "RootConsoleLoginToSNS"
+  arn       = aws_sns_topic.root_activity_alert_use1.arn
+}
+
+resource "aws_cloudwatch_event_target" "root_api_call_to_sns_use1" {
+  provider  = aws.us_east_1
+  rule      = aws_cloudwatch_event_rule.root_api_call_use1.name
+  target_id = "RootApiCallToSNS"
+  arn       = aws_sns_topic.root_activity_alert_use1.arn
+}

@@ -54,7 +54,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: 'v3.1.1'
 
@@ -126,6 +126,27 @@ jobs:
             -t "${IMAGE_URI}" \
             -t "${LATEST_IMAGE_URI}" \
             "${{ steps.component.outputs.build_context }}"
+
+      - name: Trivy scan (CRITICAL gate)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0 (CVE-2026-33634 안전 버전, v0.36.0은 권고 목록 외)
+        with:
+          # 직전 "Build image" step에서 로컬 daemon에 남긴 태그를 스캔 대상으로 지정
+          # LATEST_IMAGE_URI 는 동일 레이어이므로 중복 스캔 불필요
+          image-ref: ${{ steps.image.outputs.uri }}
+          # 이미지 레이어를 직접 스캔 (registry push 전 로컬 이미지 대상)
+          scan-type: image
+          # 텍스트 테이블 형식 출력 (sarif+exit-code 조합은 severity 필터 무시 버그 존재)
+          format: table
+          # CRITICAL 취약점만 job 실패로 처리
+          severity: CRITICAL
+          # CRITICAL 발견 시 exit 1 → push step 차단
+          exit-code: 1
+          # 아직 패치가 없는 취약점은 제외 (영구 차단 방지)
+          ignore-unfixed: true
+          # OS 패키지 및 라이브러리 취약점 모두 스캔
+          vuln-type: os,library
+          # 진행 바 숨김 (CI 로그 가독성)
+          hide-progress: true
 
       - name: Push image
         shell: bash

@@ -1,0 +1,13 @@
+# ZAP 스캔 오탐(false positive) 무시 규칙 파일
+# 형식 (TSV, 탭 구분):
+#   <rule-id>\t<IGNORE|WARN|FAIL>\t<url-regex (빈 값이면 전체 URL에 적용)>
+#
+# 예시:
+#   10020\tIGNORE\t.*       ← ID 10020 규칙을 모든 URL에서 무시
+#   10021\tIGNORE\thttps://example\.com/.*  ← 특정 경로에만 적용
+#
+# rule-id 목록: https://www.zaproxy.org/docs/alerts/
+# 규칙을 추가할 때는 오탐 근거(티켓 번호 등)를 주석으로 함께 남겨주세요.
+100000	IGNORE	(server-error 데모 엔드포인트의 의도된 500 응답)
+90022	IGNORE	(server-error 데모 — Application Error Disclosure, 의도된 동작)
+10023	IGNORE	(server-error 데모 — Debug Error Messages, 의도된 동작)

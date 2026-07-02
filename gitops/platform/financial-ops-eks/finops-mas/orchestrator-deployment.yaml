@@ -34,6 +34,8 @@ spec:
               value: finops-temporal.finops-mas.svc.cluster.local:7233
             - name: AWS_REGION
               value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
             - name: FINOPS_EKS_CLUSTER_NAME
               value: financial-ops-eks
             - name: FINOPS_SPOT_INSTANCE_TYPES

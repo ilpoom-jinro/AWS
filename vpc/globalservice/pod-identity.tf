@@ -130,3 +130,63 @@ resource "aws_eks_pod_identity_association" "kyverno_background" {
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
+
+resource "aws_eks_pod_identity_association" "kyverno_reports" {
+  cluster_name    = aws_eks_cluster.service.name
+  namespace       = "kyverno"
+  service_account = "kyverno-reports-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_iam_role" "trivy" {
+  name = "financial-service-trivy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "trivy" {
+  name = "financial-service-trivy-ecr-read"
+  role = aws_iam_role.trivy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ECRTokenAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRImageRead"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/financial/*"
+      },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "trivy_operator" {
+  cluster_name    = aws_eks_cluster.service.name
+  namespace       = "trivy"
+  service_account = "trivy-operator"
+  role_arn        = aws_iam_role.trivy.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}

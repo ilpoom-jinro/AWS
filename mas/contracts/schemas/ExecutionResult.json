@@ -1,0 +1,48 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "success": {
+      "title": "Success",
+      "type": "boolean"
+    },
+    "executed_at": {
+      "format": "date-time",
+      "title": "Executed At",
+      "type": "string"
+    },
+    "action_taken": {
+      "title": "Action Taken",
+      "type": "string"
+    },
+    "output": {
+      "default": "",
+      "title": "Output",
+      "type": "string"
+    },
+    "error": {
+      "default": "",
+      "title": "Error",
+      "type": "string"
+    },
+    "rollback_available": {
+      "default": true,
+      "title": "Rollback Available",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "success",
+    "action_taken"
+  ],
+  "title": "ExecutionResult",
+  "type": "object"
+}

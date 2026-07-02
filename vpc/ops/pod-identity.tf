@@ -93,6 +93,29 @@ resource "aws_iam_role_policy_attachment" "mas_orchestrator" {
   policy_arn = "arn:aws:iam::${var.account_id}:policy/mas-policy"
 }
 
+resource "aws_iam_role_policy" "mas_orchestrator_bedrock_runtime" {
+  name = "bedrock-runtime-access"
+  role = aws_iam_role.mas_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockRuntimeAccess"
+        Effect = "Allow"
+        Action = [
+          "bedrock:Converse",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:GetFoundationModel",
+          "bedrock:GetInferenceProfile",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
   name = "finops-collector-read"
   role = aws_iam_role.mas_orchestrator.id
@@ -221,6 +244,29 @@ resource "aws_iam_role" "mas_agent" {
 resource "aws_iam_role_policy_attachment" "mas_agent" {
   role       = aws_iam_role.mas_agent.name
   policy_arn = "arn:aws:iam::${var.account_id}:policy/mas-policy"
+}
+
+resource "aws_iam_role_policy" "mas_agent_bedrock_runtime" {
+  name = "bedrock-runtime-access"
+  role = aws_iam_role.mas_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockRuntimeAccess"
+        Effect = "Allow"
+        Action = [
+          "bedrock:Converse",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:GetFoundationModel",
+          "bedrock:GetInferenceProfile",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "mas_agent_finops_collector" {
@@ -453,6 +499,15 @@ resource "aws_eks_pod_identity_association" "kyverno_background" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
+resource "aws_eks_pod_identity_association" "kyverno_reports" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "kyverno"
+  service_account = "kyverno-reports-controller"
+  role_arn        = aws_iam_role.kyverno.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
 # ── Velero ────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "velero" {
@@ -568,6 +623,57 @@ resource "aws_eks_pod_identity_association" "velero_node_agent" {
   namespace       = "velero"
   service_account = "node-agent"
   role_arn        = aws_iam_role.velero.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_iam_role" "trivy" {
+  name = "financial-ops-trivy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "trivy" {
+  name = "financial-ops-trivy-ecr-read"
+  role = aws_iam_role.trivy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ECRTokenAuth"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "ECRImageRead"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages",
+          "ecr:DescribeRepositories",
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${var.account_id}:repository/financial/*"
+      },
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "trivy_operator" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "trivy"
+  service_account = "trivy-operator"
+  role_arn        = aws_iam_role.trivy.arn
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }

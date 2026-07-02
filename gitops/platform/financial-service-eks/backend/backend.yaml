@@ -44,7 +44,7 @@ spec:
                   name: stock-api-db
                   key: DB_PASSWORD
             - name: CORS_ORIGINS
-              value: "*"
+              value: "https://ilpumjinro.store,https://aws.ilpumjinro.store"
 
             # OpenTelemetry tracing settings
             - name: OTEL_TRACING_ENABLED

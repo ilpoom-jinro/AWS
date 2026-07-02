@@ -29,6 +29,11 @@ server:
             secretKey: password
             createDatabase: false
             manageSchema: true
+            # RDS는 rds.force_ssl로 SSL 강제 → TLS 미사용 시 pg_hba에서 거부됨.
+            # AWS RDS CA 검증은 비활성(enableHostVerification:false), 전송 암호화만 사용.
+            tls:
+              enabled: true
+              enableHostVerification: false
             maxConns: 20
             maxIdleConns: 20
             maxConnLifetime: 1h
@@ -45,6 +50,10 @@ server:
             secretKey: password
             createDatabase: false
             manageSchema: true
+            # RDS는 rds.force_ssl로 SSL 강제 → TLS 미사용 시 pg_hba에서 거부됨.
+            tls:
+              enabled: true
+              enableHostVerification: false
             maxConns: 10
             maxIdleConns: 10
             maxConnLifetime: 1h

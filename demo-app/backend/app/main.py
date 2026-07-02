@@ -69,6 +69,17 @@ if env_bool("OTEL_TRACING_ENABLED"):
 
 tracer = trace.get_tracer("stock-demo-api")
 
+# 보안 응답 헤더 주입 — ZAP #63 발견사항 개선
+# X-Content-Type-Options: MIME 스니핑 방지 (ZAP 10021)
+# Cross-Origin-Resource-Policy: 교차 출처 리소스 로딩 제한 (ZAP 90004)
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    return response
+
+
 @app.middleware("http")
 async def log_request_with_trace_id(request: Request, call_next):
     started_at = time.perf_counter()

@@ -276,6 +276,19 @@ class RemediationPlan(WorkflowDerivedMixin):
     previous_image: str = ""
     rollback_available: bool = False
 
+    # ── Platform Core 실행 지원 필드 ────────────────────────────────────────
+    # AIOps Workflow가 IncidentContext에서 채워서 전달한다.
+
+    # restart / rollback strategy 전용: Deployment 이름을 직접 지정하는 대신
+    # pod_name 으로 Platform Core가 kubectl을 통해 Deployment를 추론한다.
+    # (요청서 §2: "pod_name에서 Deployment를 추론")
+    pod_name: str = ""
+
+    # scale_out rollback 전용: execute_remediation 이 HPA 패치 직전 maxReplicas 를
+    # ExecutionResult.output 으로 반환하면, AIOps Workflow가 이 필드에 저장한 뒤
+    # execute_rollback 에 넘긴다. 0이면 미설정(delta 차감 방식으로 폴백).
+    previous_hpa_max_replicas: int = 0
+
 
 class RecoveryVerification(WorkflowDerivedMixin):
     verified_at: datetime = Field(default_factory=utc_now)
@@ -681,10 +694,11 @@ AGENT_ALLOWED_REQUESTS: dict[str, list[str]] = {
 
 
 class ReplanIntent(FinOpsAgentContract):
-    intent: Literal["replan", "query"]
+    intent: Literal["replan", "query", "partial_replan", "explain"]
     constraints: dict[str, Any]
     forbidden_actions: list[str]
     replan_from: str
+    target_agent: str | None = None
     requires_confirmation: bool
     reason: str
 
@@ -692,6 +706,8 @@ class ReplanIntent(FinOpsAgentContract):
     def validate_replan_from(self) -> "ReplanIntent":
         if self.replan_from not in VALID_FINOPS_AGENT_KEYS:
             raise ValueError(f"unknown replan_from agent_key: {self.replan_from}")
+        if self.target_agent is not None and self.target_agent not in VALID_FINOPS_AGENT_KEYS:
+            raise ValueError(f"unknown target_agent agent_key: {self.target_agent}")
         return self
 
 
