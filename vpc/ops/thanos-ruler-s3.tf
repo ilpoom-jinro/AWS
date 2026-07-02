@@ -41,9 +41,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "thanos_objstore" 
   bucket = aws_s3_bucket.thanos_objstore.id
   rule {
     apply_server_side_encryption_by_default {
-      # 팀 표준: 기존 S3 KMS 키(data.aws_kms_key.key_s3) 재사용 (flowlogs 버킷과 동일)
+      # 팀 표준: 기존 S3 KMS 키(var.kms_key_s3_arn, 루트의 key_s3) 재사용 (flowlogs 버킷과 동일)
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = data.aws_kms_key.key_s3.arn
+      kms_master_key_id = var.kms_key_s3_arn
     }
     bucket_key_enabled = true
   }
@@ -111,7 +111,7 @@ resource "aws_iam_policy" "thanos_objstore" {
           "kms:Decrypt",
           "kms:GenerateDataKey"
         ]
-        Resource = [data.aws_kms_key.key_s3.arn]
+        Resource = [var.kms_key_s3_arn]
       }
     ]
   })
