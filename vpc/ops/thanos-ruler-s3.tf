@@ -31,7 +31,7 @@ resource "aws_s3_bucket_versioning" "thanos_objstore" {
 resource "aws_s3_bucket_public_access_block" "thanos_objstore" {
   bucket                  = aws_s3_bucket.thanos_objstore.id
   block_public_acls       = true
-  block_public_policy      = true
+  block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
