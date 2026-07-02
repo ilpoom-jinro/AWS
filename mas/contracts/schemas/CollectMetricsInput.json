@@ -1,0 +1,24 @@
+{
+  "description": "FinOps: Prometheus + Kubecost 메트릭 수집 Activity 입력\n구현 위치: mas/agents/finops/src/finops/nodes/detector.py",
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "type": "string"
+    },
+    "namespace": {
+      "title": "Namespace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cluster_name",
+    "namespace"
+  ],
+  "title": "CollectMetricsInput",
+  "type": "object"
+}

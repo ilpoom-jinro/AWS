@@ -1,0 +1,29 @@
+{
+  "description": "Slack HITL 승인 요청 생성 후 반환되는 티켓\n\n- Slack 메시지 식별\n- 리마인더 전송\n- 메시지 상태 업데이트\n- 승인/거부 결과 반영 용도임",
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "slack_message_ts": {
+      "title": "Slack Message Ts",
+      "type": "string"
+    },
+    "channel_id": {
+      "title": "Channel Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "slack_message_ts",
+    "channel_id"
+  ],
+  "title": "ApprovalTicket",
+  "type": "object"
+}

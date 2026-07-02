@@ -1,0 +1,72 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "root_cause": {
+      "title": "Root Cause",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "strategy": {
+      "enum": [
+        "restart",
+        "scale_out",
+        "rollback",
+        "manual"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "strategy_detail": {
+      "title": "Strategy Detail",
+      "type": "string"
+    },
+    "estimated_recovery_minutes": {
+      "default": 5,
+      "minimum": 0,
+      "title": "Estimated Recovery Minutes",
+      "type": "integer"
+    },
+    "previous_image": {
+      "default": "",
+      "title": "Previous Image",
+      "type": "string"
+    },
+    "rollback_available": {
+      "default": false,
+      "title": "Rollback Available",
+      "type": "boolean"
+    },
+    "pod_name": {
+      "default": "",
+      "title": "Pod Name",
+      "type": "string"
+    },
+    "previous_hpa_max_replicas": {
+      "default": 0,
+      "title": "Previous Hpa Max Replicas",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "root_cause",
+    "confidence",
+    "strategy",
+    "strategy_detail"
+  ],
+  "title": "RemediationPlan",
+  "type": "object"
+}
