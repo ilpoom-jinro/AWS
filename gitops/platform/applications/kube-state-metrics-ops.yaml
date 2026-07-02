@@ -1,0 +1,27 @@
+# gitops/platform/applications/kube-state-metrics-ops.yaml
+# ops 클러스터용 KSM. service용과 동일 차트·values를 재사용하고
+# destination만 financial-ops-eks로 지정한다.
+# → aiops-mas, finops-mas 등 ops 워크로드의 파드 상태 메트릭 수집.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-state-metrics-ops
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: helmChart/charts/kube-state-metrics
+    helm:
+      valueFiles:
+        - ../../kube-state-metrics/values.yaml
+  destination:
+    name: financial-ops-eks   # aiops-mas 등 ops 워크로드가 있는 클러스터
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

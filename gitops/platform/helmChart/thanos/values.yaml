@@ -58,11 +58,136 @@ compactor:
 storegateway:
   enabled: false
 
-# TODO: S3 object storage is intentionally deferred.
-# TODO: S3 Vectors should be populated later by an AI indexing pipeline from selected observability data.
-# objstoreConfig:
-#   type: S3
-#   config:
-#     bucket: jinro-observability-thanos
-#     endpoint: s3.ap-northeast-2.amazonaws.com
-#     region: ap-northeast-2
+# S3 object storage — Thanos Ruler objstore용 활성화 (Pod Identity로 접근).
+# 버킷/IAM은 vpc/ops/thanos-ruler-s3.tf에서 생성. credential은 Pod Identity가
+# 주입하므로 config에 access key를 넣지 않는다.
+# 버킷명은 계정 ID 접미사 포함 → gitops-platform-sync가 치환하거나 실제 값으로 대체 필요.
+objstoreConfig: |-
+  type: S3
+  config:
+    bucket: REPLACE_WITH_THANOS_OBJSTORE_BUCKET
+    endpoint: s3.ap-northeast-2.amazonaws.com
+    region: ap-northeast-2
+
+# ServiceAccount에 Pod Identity가 S3 권한을 부여 (SA 이름 = thanos)
+serviceAccount:
+  create: true
+  name: thanos
+
+# ── Thanos Ruler (알림 규칙 평가 → Alertmanager 발송) ──
+ruler:
+  enabled: true
+  replicaCount: 1
+  nodeSelector:
+    role: monitoring
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: monitoring
+      effect: NoSchedule
+  # 평가한 알림을 보낼 Alertmanager 주소
+  alertmanagers:
+    - http://observability-alertmanager.observability.svc.cluster.local:9093
+  # 알림 라벨에 cluster를 강제로 붙여, 우리 webhook 트리거가 파싱 가능하게 한다.
+  # (규칙 자체에도 namespace label이 있어야 함 — alert-rules ConfigMap에서 정의)
+  extraFlags:
+    - --label=ruler_cluster="financial-ops-eks"
+  # 우리 anomaly_type 알림 규칙 (다음 단계에서 ConfigMap으로 주입)
+  existingConfigmap: aiops-alert-rules
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ── AIOps 알림 규칙 ConfigMap (Ruler가 existingConfigmap으로 참조) ──
+extraDeploy:
+  - |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: aiops-alert-rules
+      namespace: observability
+      labels:
+        app: aiops
+    data:
+      aiops-rules.yaml: |
+        groups:
+          - name: aiops-pod-anomalies
+            rules:
+              # ── crashloop_backoff ──
+              - alert: AIOpsCrashLoopBackOff
+                expr: |
+                  max by (cluster, namespace, pod) (
+                    kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+                  )
+                for: 2m
+                labels:
+                  severity: warning
+                  aiops_anomaly: crashloop_backoff
+                annotations:
+                  summary: "CrashLoopBackOff 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+              # ── oom_killed ──
+              - alert: AIOpsOOMKilled
+                expr: |
+                  max by (cluster, namespace, pod) (
+                    kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+                  )
+                for: 1m
+                labels:
+                  severity: warning
+                  aiops_anomaly: oom_killed
+                annotations:
+                  summary: "OOMKilled 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+              # ── image_pull_backoff ──
+              - alert: AIOpsImagePullBackOff
+                expr: |
+                  max by (cluster, namespace, pod) (
+                    kube_pod_container_status_waiting_reason{reason=~"ImagePullBackOff|ErrImagePull"} == 1
+                  )
+                for: 2m
+                labels:
+                  severity: warning
+                  aiops_anomaly: image_pull_backoff
+                annotations:
+                  summary: "ImagePullBackOff 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+              # ── pending_timeout ──
+              - alert: AIOpsPendingTimeout
+                expr: |
+                  max by (cluster, namespace, pod) (
+                    kube_pod_status_phase{phase="Pending"} == 1
+                  )
+                for: 5m
+                labels:
+                  severity: warning
+                  aiops_anomaly: pending_timeout
+                annotations:
+                  summary: "Pod Pending 5분 초과 ({{ $labels.namespace }}/{{ $labels.pod }})"
+              # ── evicted ──
+              - alert: AIOpsEvicted
+                expr: |
+                  max by (cluster, namespace, pod) (
+                    kube_pod_status_reason{reason="Evicted"} == 1
+                  )
+                for: 1m
+                labels:
+                  severity: warning
+                  aiops_anomaly: evicted
+                annotations:
+                  summary: "Pod Evicted 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+              # ── high_latency (Istio P95 > 1000ms, config.HIGH_LATENCY_P95_MS와 일치) ──
+              - alert: AIOpsHighLatency
+                expr: |
+                  histogram_quantile(0.95,
+                    sum by (cluster, namespace, destination_workload, le) (
+                      rate(istio_request_duration_milliseconds_bucket[5m])
+                    )
+                  ) > 1000
+                for: 3m
+                labels:
+                  severity: warning
+                  aiops_anomaly: high_latency
+                annotations:
+                  summary: "P95 지연 1s 초과 ({{ $labels.namespace }}/{{ $labels.destination_workload }})"

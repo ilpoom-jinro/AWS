@@ -19,12 +19,18 @@ RUN apt-get update \
         "pydantic-settings" \
         "sqlalchemy[asyncio]==2.0.41" \
         "asyncpg==0.30.0" \
-        "temporalio==1.9.0"
+        "temporalio==1.9.0" \
+        "kubernetes>=30.1" \
+        "httpx>=0.27" \
+        "fastapi" \
+        "uvicorn"
 
 # contracts / workflows / shared 는 Platform Core가 소유 — 함께 복사
 COPY pods/aiops/orchestrator/app ./app
 COPY shared ./shared
 COPY contracts ./contracts
 COPY workflows ./workflows
+COPY activities ./activities
 
-CMD ["python", "-m", "app.worker"]
+EXPOSE 8080
+CMD ["python", "-m", "app.run"]

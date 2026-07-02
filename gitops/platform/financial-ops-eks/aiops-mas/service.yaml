@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiops-orchestrator
+  namespace: aiops-mas
+  labels:
+    app: aiops-orchestrator
+spec:
+  selector:
+    app: aiops-orchestrator
+  ports:
+    # Alertmanager → 이 Service → webhook (trigger.py)
+    - name: webhook
+      port: 80
+      targetPort: 8080

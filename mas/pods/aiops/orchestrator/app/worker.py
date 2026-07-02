@@ -27,6 +27,7 @@ from temporalio.worker import Worker
 
 from .activities_aiops import analyze_root_cause, detect_incident, verify_recovery
 from .activities_platform import execute_remediation, execute_rollback, record_audit_log
+from .workflow import AIOpsRemediationWorkflow
 
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "aiops-task-queue")
@@ -35,11 +36,10 @@ TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "aiops-task-queue")
 async def main() -> None:
     client = await Client.connect(TEMPORAL_ADDRESS, data_converter=pydantic_data_converter)
 
-    # TODO(AIOps 팀): workflow.py 완성 후 workflows=[AIOpsRemediationWorkflow] 추가
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[],
+        workflows=[AIOpsRemediationWorkflow],
         activities=[
             # AIOps 팀 소유 — v1.3.0 구현체 교체 대상
             detect_incident,
