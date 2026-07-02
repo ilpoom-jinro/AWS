@@ -191,6 +191,10 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "estimated_cost_usd": ["result.estimated_cost_usd"],
             "expected_value_usd": ["result.expected_value_usd"],
             "override": ["result.override"],
+            "cost_efficiency_score": ["result.cost_efficiency_score"],
+            "roi_validation": ["result.roi_validation"],
+            "business_impact_assessment": ["result.business_impact_assessment"],
+            "final_approval_recommendation": ["result.final_approval_recommendation"],
         },
     },
     "policy_guardrail": {

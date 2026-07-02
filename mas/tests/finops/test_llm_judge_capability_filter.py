@@ -142,7 +142,7 @@ class LlmJudgeCapabilityFilterTests(unittest.TestCase):
 
         filtered = support.filter_required_fields_by_capability(
             "unit_economics",
-            ["cost_ratio", "cost_efficiency_score", "roi_validation"],
+            ["cost_ratio", "unsupported_score", "unsupported_validation"],
         )
 
         self.assertEqual(filtered, ["cost_ratio"])
@@ -153,7 +153,7 @@ class LlmJudgeCapabilityFilterTests(unittest.TestCase):
             '{"target_agent":"unit_economics",'
             '"operation":"validate_cost_efficiency_with_business_impact",'
             '"parameters":{},'
-            '"required_fields":["cost_efficiency_score","roi_validation"],'
+            '"required_fields":["unsupported_score","unsupported_validation"],'
             '"reason":"unsupported fields"}'
         )
 
