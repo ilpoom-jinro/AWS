@@ -6,6 +6,7 @@ from typing import Any
 from app import agent_logic
 from app.agent_support import (
     handle_broker_request,
+    llm_judge_cost_risk,
     llm_judge_data_request,
     llm_judge_policy_risk,
     standard_response,
@@ -85,6 +86,37 @@ async def run_agent_async(agent_key: str, context: dict[str, Any]) -> dict[str, 
             result["risk_level"] = risk_analysis.get("risk_level")
             result["risk_summary"] = risk_analysis.get("risk_summary")
             result["llm_risk_recommendation"] = risk_analysis.get("recommendation")
+            return standard_response(
+                agent_key,
+                agent_logic.AGENT_NAME,
+                result,
+                message,
+                context.get("agent_results", {}),
+                "rule+llm",
+            )
+
+        return standard_response(
+            agent_key,
+            agent_logic.AGENT_NAME,
+            result,
+            message,
+            context.get("agent_results", {}),
+            "rule",
+        )
+
+    if agent_key == "cost":
+        risk_analysis = await llm_judge_cost_risk(agent_key, context, result)
+        if risk_analysis is not None:
+            existing_warnings = result.get("warnings", [])
+            if isinstance(existing_warnings, str):
+                existing_warnings = [existing_warnings]
+            elif not isinstance(existing_warnings, list):
+                existing_warnings = []
+
+            result["warnings"] = existing_warnings + risk_analysis.get("warnings", [])
+            result["cost_risk_level"] = risk_analysis.get("cost_risk_level")
+            result["cost_risk_summary"] = risk_analysis.get("cost_risk_summary")
+            result["cost_recommendation"] = risk_analysis.get("cost_recommendation")
             return standard_response(
                 agent_key,
                 agent_logic.AGENT_NAME,
