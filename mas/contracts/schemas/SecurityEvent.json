@@ -1,0 +1,91 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "detected_at": {
+      "format": "date-time",
+      "title": "Detected At",
+      "type": "string"
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "type": "string"
+    },
+    "namespace": {
+      "title": "Namespace",
+      "type": "string"
+    },
+    "source_pod": {
+      "title": "Source Pod",
+      "type": "string"
+    },
+    "source_ip": {
+      "format": "ipvanyaddress",
+      "title": "Source Ip",
+      "type": "string"
+    },
+    "destination_ip": {
+      "format": "ipvanyaddress",
+      "title": "Destination Ip",
+      "type": "string"
+    },
+    "destination_port": {
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Destination Port",
+      "type": "integer"
+    },
+    "protocol": {
+      "enum": [
+        "tcp",
+        "udp",
+        "icmp"
+      ],
+      "title": "Protocol",
+      "type": "string"
+    },
+    "direction": {
+      "enum": [
+        "inbound",
+        "outbound"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "threat_type": {
+      "enum": [
+        "abnormal_outbound",
+        "port_scan",
+        "data_exfiltration",
+        "policy_violation"
+      ],
+      "title": "Threat Type",
+      "type": "string"
+    },
+    "raw_log": {
+      "default": "",
+      "title": "Raw Log",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cluster_name",
+    "namespace",
+    "source_pod",
+    "source_ip",
+    "destination_ip",
+    "destination_port",
+    "protocol",
+    "direction",
+    "threat_type"
+  ],
+  "title": "SecurityEvent",
+  "type": "object"
+}

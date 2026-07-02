@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "ExecutionResult": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        },
+        "executed_at": {
+          "format": "date-time",
+          "title": "Executed At",
+          "type": "string"
+        },
+        "action_taken": {
+          "title": "Action Taken",
+          "type": "string"
+        },
+        "output": {
+          "default": "",
+          "title": "Output",
+          "type": "string"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "rollback_available": {
+          "default": true,
+          "title": "Rollback Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "success",
+        "action_taken"
+      ],
+      "title": "ExecutionResult",
+      "type": "object"
+    },
+    "RegulationMapping": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "analyzed_at": {
+          "format": "date-time",
+          "title": "Analyzed At",
+          "type": "string"
+        },
+        "violated_regulations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Violated Regulations",
+          "type": "array"
+        },
+        "violation_description": {
+          "title": "Violation Description",
+          "type": "string"
+        },
+        "blast_radius_safe": {
+          "default": false,
+          "title": "Blast Radius Safe",
+          "type": "boolean"
+        },
+        "blast_radius_detail": {
+          "default": "",
+          "title": "Blast Radius Detail",
+          "type": "string"
+        },
+        "isolation_policy_yaml": {
+          "default": "",
+          "title": "Isolation Policy Yaml",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "violated_regulations",
+        "violation_description"
+      ],
+      "title": "RegulationMapping",
+      "type": "object"
+    },
+    "SecurityEvent": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "detected_at": {
+          "format": "date-time",
+          "title": "Detected At",
+          "type": "string"
+        },
+        "cluster_name": {
+          "title": "Cluster Name",
+          "type": "string"
+        },
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "source_pod": {
+          "title": "Source Pod",
+          "type": "string"
+        },
+        "source_ip": {
+          "format": "ipvanyaddress",
+          "title": "Source Ip",
+          "type": "string"
+        },
+        "destination_ip": {
+          "format": "ipvanyaddress",
+          "title": "Destination Ip",
+          "type": "string"
+        },
+        "destination_port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Destination Port",
+          "type": "integer"
+        },
+        "protocol": {
+          "enum": [
+            "tcp",
+            "udp",
+            "icmp"
+          ],
+          "title": "Protocol",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "inbound",
+            "outbound"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "threat_type": {
+          "enum": [
+            "abnormal_outbound",
+            "port_scan",
+            "data_exfiltration",
+            "policy_violation"
+          ],
+          "title": "Threat Type",
+          "type": "string"
+        },
+        "raw_log": {
+          "default": "",
+          "title": "Raw Log",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cluster_name",
+        "namespace",
+        "source_pod",
+        "source_ip",
+        "destination_ip",
+        "destination_port",
+        "protocol",
+        "direction",
+        "threat_type"
+      ],
+      "title": "SecurityEvent",
+      "type": "object"
+    }
+  },
+  "description": "SecOps: 규제 보고서 생성 Activity 입력\n\nnote:\n    Temporal 공식 문서 → 복수 파라미터 대신 단일 모델을 권장함\n    event / mapping / result 3개를 하나로 묶는다\n구현 위치: mas/agents/secops/src/secops/nodes/reporter.py",
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "event": {
+      "$ref": "#/$defs/SecurityEvent"
+    },
+    "mapping": {
+      "$ref": "#/$defs/RegulationMapping"
+    },
+    "result": {
+      "$ref": "#/$defs/ExecutionResult"
+    }
+  },
+  "required": [
+    "event",
+    "mapping",
+    "result"
+  ],
+  "title": "GenerateComplianceReportInput",
+  "type": "object"
+}
