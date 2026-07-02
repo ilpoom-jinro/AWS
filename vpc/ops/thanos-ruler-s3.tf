@@ -88,9 +88,9 @@ resource "aws_iam_policy" "thanos_objstore" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "ListBucket"
-        Effect = "Allow"
-        Action = ["s3:ListBucket"]
+        Sid      = "ListBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
         Resource = [aws_s3_bucket.thanos_objstore.arn]
       },
       {
