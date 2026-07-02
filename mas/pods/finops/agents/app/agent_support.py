@@ -501,6 +501,110 @@ required_fields는 반드시 위 목록 안에서만 선택하세요.
         return None
 
 
+async def llm_judge_policy_risk(
+    agent_key: str,
+    context: dict,
+    rule_result: dict,
+) -> dict[str, Any] | None:
+    if agent_key != "policy_guardrail":
+        return None
+
+    prompt = """
+당신은 FinOps Policy Guardrail 분석가입니다.
+현재 이벤트의 위험 요소를 분석하고 운영자가 알아야 할 경고 사항을 정리하세요.
+
+다음 형식의 JSON만 반환하세요:
+{
+  "warnings": [
+    "위험 요소 1",
+    "위험 요소 2"
+  ],
+  "risk_level": "low" | "medium" | "high" | "critical",
+  "risk_summary": "한 줄 요약",
+  "recommendation": "auto_approvable" | "requires_human_approval"
+}
+
+주의:
+- DataRequest나 다른 Agent 호출은 절대 만들지 마세요
+- context에 있는 데이터만 사용하세요
+- 없는 데이터를 만들어내지 마세요
+
+위험 판단 기준:
+- RDS CPU > 65%: DB 병목 위험 경고
+- RDS CPU > 70%: DB 병목 위험 차단
+- Pod 준비율 < 70%: 인프라 위험 경고
+- 비용 > 예산 90%: 예산 초과 위험
+- 비용 > 예산: 예산 초과 차단
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent: {agent_key}\n"
+                                f"Rule result:\n{json.dumps(rule_result, ensure_ascii=False, default=str)}\n\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=LLM_JUDGE_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_policy_risk_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+
+    warnings = parsed.get("warnings", [])
+    if isinstance(warnings, str):
+        warnings = [warnings]
+    if not isinstance(warnings, list):
+        warnings = []
+
+    risk_level = parsed.get("risk_level")
+    if risk_level not in {"low", "medium", "high", "critical"}:
+        return None
+
+    recommendation = parsed.get("recommendation")
+    if recommendation not in {"auto_approvable", "requires_human_approval"}:
+        return None
+
+    risk_summary = parsed.get("risk_summary")
+    if not isinstance(risk_summary, str):
+        risk_summary = ""
+
+    return {
+        "warnings": [str(item) for item in warnings],
+        "risk_level": risk_level,
+        "risk_summary": risk_summary,
+        "recommendation": recommendation,
+    }
+
+
 async def handle_broker_request(
     agent_key: str,
     agent_name: str,
@@ -638,6 +742,12 @@ def standard_response(
             evidence.append(f"Used upstream result {dependency}")
         else:
             warnings.append(f"Upstream result {dependency} was not available")
+
+    result_warnings = result.get("warnings")
+    if isinstance(result_warnings, list):
+        warnings.extend(str(item) for item in result_warnings)
+    elif isinstance(result_warnings, str):
+        warnings.append(result_warnings)
 
     response = AgentResponse(
         status=AgentStatus.COMPLETED,
