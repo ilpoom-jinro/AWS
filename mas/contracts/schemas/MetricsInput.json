@@ -1,0 +1,85 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "collected_at": {
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "type": "string"
+    },
+    "namespace": {
+      "title": "Namespace",
+      "type": "string"
+    },
+    "resource_name": {
+      "title": "Resource Name",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "prometheus",
+        "kubecost",
+        "billing_api"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "cpu_usage_avg_7d": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Cpu Usage Avg 7D",
+      "type": "number"
+    },
+    "memory_usage_avg_7d": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Memory Usage Avg 7D",
+      "type": "number"
+    },
+    "cpu_request": {
+      "minimum": 0.0,
+      "title": "Cpu Request",
+      "type": "number"
+    },
+    "memory_request_gb": {
+      "minimum": 0.0,
+      "title": "Memory Request Gb",
+      "type": "number"
+    },
+    "cost_per_day_usd": {
+      "minimum": 0.0,
+      "title": "Cost Per Day Usd",
+      "type": "number"
+    },
+    "cost_per_month_usd": {
+      "minimum": 0.0,
+      "title": "Cost Per Month Usd",
+      "type": "number"
+    }
+  },
+  "required": [
+    "cluster_name",
+    "namespace",
+    "resource_name",
+    "source",
+    "cpu_usage_avg_7d",
+    "memory_usage_avg_7d",
+    "cpu_request",
+    "memory_request_gb",
+    "cost_per_day_usd",
+    "cost_per_month_usd"
+  ],
+  "title": "MetricsInput",
+  "type": "object"
+}

@@ -1,0 +1,68 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "scenario": {
+      "enum": [
+        "finops",
+        "aiops",
+        "secops"
+      ],
+      "title": "Scenario",
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "workflow_started",
+        "anomaly_detected",
+        "analysis_completed",
+        "iac_generated",
+        "approval_requested",
+        "approval_granted",
+        "approval_denied",
+        "approval_timeout",
+        "action_executed",
+        "rollback_triggered",
+        "workflow_completed",
+        "workflow_failed"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "actor": {
+      "title": "Actor",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "description": "event_type별 payload 구조는 contracts/README.md 참고해주십셔",
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "scenario",
+    "event_type",
+    "actor",
+    "summary"
+  ],
+  "title": "AuditLog",
+  "type": "object"
+}

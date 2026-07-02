@@ -1,0 +1,24 @@
+{
+  "description": "SecOps: VPC Flow Logs / CloudTrail 기반 위협 탐지 Activity 입력\n\nnote:\n    SecurityEvent에는 namespace 필드가 있으나\n    VPC 레벨 탐지는 namespace 단위가 아닌 vpc_id 단위로 수행된다 탐지 후 SecurityEvent.namespace는 구현체에서 채운다\n구현 위치: mas/agents/secops/src/secops/nodes/detector.py",
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "type": "string"
+    },
+    "vpc_id": {
+      "title": "Vpc Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cluster_name",
+    "vpc_id"
+  ],
+  "title": "DetectThreatInput",
+  "type": "object"
+}
