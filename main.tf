@@ -15,6 +15,11 @@ module "security" {
   pii_scan_ecr_repo_arn   = aws_ecr_repository.pii_scan.arn
   # SIEM Athena results 버킷 이름 suffix용 (security/siem-athena.tf)
   aws_region = var.aws_region
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 module "vpc1" {

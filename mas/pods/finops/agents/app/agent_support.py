@@ -516,6 +516,35 @@ required_fields는 반드시 위 목록 안에서만 선택하세요.
         logger.warning("finops_llm_judge_data_request_invalid: %s", exc)
         return None
 
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+    target_agent = parsed.get("target_agent")
+    if target_agent not in allowed_targets:
+        return None
+    required_fields = parsed.get("required_fields")
+    if not isinstance(required_fields, list):
+        return None
+    filtered_fields = filter_required_fields_by_capability(
+        str(target_agent),
+        [field for field in required_fields if isinstance(field, str)],
+    )
+    if not filtered_fields:
+        logger.info(
+            "finops_llm_judge_data_request_no_supported_fields: agent=%s target=%s requested=%s",
+            agent_key,
+            target_agent,
+            required_fields,
+        )
+        return None
+    parsed["required_fields"] = filtered_fields
+    try:
+        return DataRequest.model_validate(parsed)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_data_request_invalid: %s", exc)
+        return None
 
 async def llm_judge_policy_risk(
     agent_key: str,

@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "push_window_minutes": {
+      "exclusiveMinimum": 0,
+      "title": "Push Window Minutes",
+      "type": "integer"
+    },
+    "required_pods": {
+      "exclusiveMinimum": 0,
+      "title": "Required Pods",
+      "type": "integer"
+    },
+    "estimated_cost_usd": {
+      "minimum": 0.0,
+      "title": "Estimated Cost Usd",
+      "type": "number"
+    },
+    "estimated_p95_ms": {
+      "minimum": 0.0,
+      "title": "Estimated P95 Ms",
+      "type": "number"
+    },
+    "risk_level": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Risk Level",
+      "type": "string"
+    },
+    "budget_exceeded": {
+      "title": "Budget Exceeded",
+      "type": "boolean"
+    },
+    "policy_violations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Policy Violations",
+      "type": "array"
+    },
+    "score": {
+      "default": 0.0,
+      "title": "Score",
+      "type": "number"
+    }
+  },
+  "required": [
+    "label",
+    "push_window_minutes",
+    "required_pods",
+    "estimated_cost_usd",
+    "estimated_p95_ms",
+    "risk_level",
+    "budget_exceeded",
+    "policy_violations"
+  ],
+  "title": "PlanCandidate",
+  "type": "object"
+}

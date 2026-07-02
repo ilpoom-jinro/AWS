@@ -87,6 +87,13 @@ async def main() -> None:
             print("\n=== 최종 ComplianceReport ===")
             print(report.model_dump_json(indent=2))
 
+            # R&R E2E의 마지막 칸: 저장된 감사 로그 출력 ("...감사로그 저장까지")
+            from .audit import read_audit_trail
+            trail = read_audit_trail(report.workflow_id)
+            print(f"\n=== 감사 로그 (workflow={report.workflow_id}) — {len(trail)}건 저장됨 ===")
+            for r in trail:
+                print(f"  [{r['occurred_at']}] {r['event_type']:<20} {r['actor']:<16} {r['summary']}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
