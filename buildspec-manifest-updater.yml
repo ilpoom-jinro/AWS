@@ -104,6 +104,7 @@ phases:
         replicas = int(os.environ["REPLICAS"])
         ecr_registry = os.environ.get("ECR_REGISTRY", "REPLACE_WITH_ECR_REGISTRY")
         ecr_repository = os.environ.get("ECR_REPOSITORY", f"financial/mas/{app_name}")
+        image_tag = os.environ.get("IMAGE_TAG", "latest") or "latest"
         argocd_application_name = os.environ["ARGOCD_APPLICATION_NAME"]
 
         app_path = manifest_path.parent
@@ -245,7 +246,7 @@ phases:
           images.append({
             "name": target_container,
             "newName": f"{ecr_registry}/{ecr_repository}",
-            "newTag": "latest",
+            "newTag": image_tag,
           })
           changed = True
 
@@ -348,6 +349,7 @@ phases:
         ecr_registry = os.environ.get("ECR_REGISTRY", "")
         ecr_repository = os.environ.get("ECR_REPOSITORY", "")
         target_container = os.environ.get("TARGET_CONTAINER", "")
+        app_name = os.environ.get("APP_NAME", "")
 
         if manifests_only:
           print("Skipping image update because MANIFESTS_ONLY=true.")
@@ -361,19 +363,40 @@ phases:
           if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
             return
 
+          matched = False
+          new_name = f"{ecr_registry}/{ecr_repository}" if ecr_registry and ecr_repository else None
+          image_names = {
+            value for value in [
+              target_container,
+              app_name,
+              ecr_repository,
+              new_name,
+            ] if value
+          }
+
           for image in doc["images"]:
             if not isinstance(image, dict):
               continue
-            if target_container and image.get("name") != target_container:
+            current_name = image.get("name")
+            current_new_name = image.get("newName")
+            if image_names and current_name not in image_names and current_new_name != new_name:
               continue
 
-            new_name = f"{ecr_registry}/{ecr_repository}" if ecr_registry and ecr_repository else None
+            matched = True
             if new_name and image.get("newName") != new_name:
               image["newName"] = new_name
               changed = True
             if image_tag and image.get("newTag") != image_tag:
               image["newTag"] = image_tag
               changed = True
+
+          if not matched and new_name and image_tag and target_container:
+            doc["images"].append({
+              "name": target_container,
+              "newName": new_name,
+              "newTag": image_tag,
+            })
+            changed = True
 
         def visit(node):
           global changed
