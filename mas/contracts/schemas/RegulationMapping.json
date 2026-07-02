@@ -1,0 +1,51 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "analyzed_at": {
+      "format": "date-time",
+      "title": "Analyzed At",
+      "type": "string"
+    },
+    "violated_regulations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Violated Regulations",
+      "type": "array"
+    },
+    "violation_description": {
+      "title": "Violation Description",
+      "type": "string"
+    },
+    "blast_radius_safe": {
+      "default": false,
+      "title": "Blast Radius Safe",
+      "type": "boolean"
+    },
+    "blast_radius_detail": {
+      "default": "",
+      "title": "Blast Radius Detail",
+      "type": "string"
+    },
+    "isolation_policy_yaml": {
+      "default": "",
+      "title": "Isolation Policy Yaml",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "violated_regulations",
+    "violation_description"
+  ],
+  "title": "RegulationMapping",
+  "type": "object"
+}

@@ -1,0 +1,57 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "violated_regulations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Violated Regulations",
+      "type": "array"
+    },
+    "threat_summary": {
+      "title": "Threat Summary",
+      "type": "string"
+    },
+    "action_taken": {
+      "title": "Action Taken",
+      "type": "string"
+    },
+    "isolation_applied": {
+      "title": "Isolation Applied",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "severity",
+    "violated_regulations",
+    "threat_summary",
+    "action_taken",
+    "isolation_applied"
+  ],
+  "title": "ComplianceReport",
+  "type": "object"
+}
