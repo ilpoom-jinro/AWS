@@ -95,6 +95,7 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "campaign_importance": ["result.campaign_importance"],
             "approval_required": ["result.approval_required"],
             "max_delay_minutes": ["result.max_delay_minutes"],
+            "source": ["result.source"],
         },
     },
     "demand_shaping": {
@@ -107,7 +108,10 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "peak_reduction_percent": ["result.peak_reduction_percent"],
             "vip_send_mode": ["result.vip_send_mode"],
             "general_send_mode": ["result.general_send_mode"],
+            "vip_audience_count": ["result.vip_audience_count"],
+            "general_audience_count": ["result.general_audience_count"],
             "candidates": ["result.candidates"],
+            "source": ["result.source"],
         },
     },
     "traffic_forecast": {
@@ -115,6 +119,7 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "reforecast",
             "reforecast_with_updated_constraints",
             "reforecast_with_demand_shaping_update",
+            "reforecast_with_constraints",
             "validate_forecast",
         ],
         "fields": {
@@ -140,10 +145,14 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "peak_rps_before": ["result.peak_rps_before"],
             "send_window_minutes": ["result.send_window_minutes"],
             "peak_reduction_percent": ["result.peak_reduction_percent"],
+            "alb_request_count_5m": ["result.alb_request_count_5m"],
+            "queue_depth": ["result.queue_depth"],
+            "hpa_current_replicas": ["result.hpa_current_replicas"],
             "candidate_forecasts": ["result.candidate_forecasts"],
             "pod_scaling_timeline": ["result.pod_scaling_timeline"],
             "risk_assessment": ["result.risk_assessment"],
             "reforecast": ["result.reforecast"],
+            "source": ["result.source"],
         },
     },
     "bottleneck_capacity": {
@@ -156,19 +165,24 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "rds_connections": ["result.rds_connections"],
             "rds_read_iops": ["result.rds_read_iops"],
             "cache_hit_ratio": ["result.cache_hit_ratio"],
+            "alb_status": ["result.alb_status"],
+            "alb_healthy_targets": ["result.alb_healthy_targets"],
+            "ready_pods": ["result.ready_pods"],
+            "running_pods": ["result.running_pods"],
             "validated_rps": ["result.validated_rps"],
             "required_app_pods": ["result.required_app_pods"],
             "bottleneck_risk": ["result.bottleneck_risk"],
-            "status": ["result.status"],
             "reforecast_applied": ["result.reforecast_applied"],
             "adjusted_capacity_rps": ["result.adjusted_capacity_rps"],
             "pod_scaling_timeline": ["result.pod_scaling_timeline"],
+            "source": ["result.source"],
         },
     },
     "infra_execution": {
         "operations": [
             "validate_capacity_plan",
             "get_target_pods",
+            "execute_scale_plan",
         ],
         "fields": {
             "target_app_pods": ["result.target_app_pods"],
@@ -177,8 +191,13 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "scale_down": ["result.scale_down"],
             "current_app_pods": ["result.current_app_pods"],
             "ready_app_pods": ["result.ready_app_pods"],
+            "deployment_ready_replicas": ["result.deployment_ready_replicas"],
             "nodegroup_desired": ["result.nodegroup_desired"],
             "nodegroup_max": ["result.nodegroup_max"],
+            "spot_instance_types": ["result.spot_instance_types"],
+            "eks_nodegroup_capacity_type": ["result.eks_nodegroup_capacity_type"],
+            "eks_nodegroup_status": ["result.eks_nodegroup_status"],
+            "source": ["result.source"],
         },
     },
     "unit_economics": {
@@ -191,6 +210,10 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "estimated_cost_usd": ["result.estimated_cost_usd"],
             "expected_value_usd": ["result.expected_value_usd"],
             "override": ["result.override"],
+            "cost_efficiency_score": ["result.cost_efficiency_score"],
+            "roi_validation": ["result.roi_validation"],
+            "business_impact_assessment": ["result.business_impact_assessment"],
+            "final_approval_recommendation": ["result.final_approval_recommendation"],
         },
     },
     "policy_guardrail": {
@@ -207,6 +230,7 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "approval_required_over_usd": ["result.approval_required_over_usd"],
             "policy_version": ["result.policy_version"],
             "proceed": ["result.proceed"],
+            "conditions": ["result.conditions"],
         },
     },
     "cost": {
@@ -215,12 +239,23 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "recalculate",
         ],
         "fields": {
+            "eks": ["result.eks"],
+            "network": ["result.network"],
+            "logs": ["result.logs"],
+            "push": ["result.push"],
             "total": ["result.total"],
-            "estimated_cost_usd": ["result.estimated_cost_usd"],
-            "budget_exceeded": ["result.budget_exceeded"],
+            "estimated_cost_usd": [
+                "result.estimated_cost_usd",
+                "candidate_costs[0].estimated_cost_usd",
+            ],
+            "budget_exceeded": [
+                "result.budget_exceeded",
+                "candidate_costs[0].budget_exceeded",
+            ],
             "pod_count": ["result.pod_count"],
             "event_incremental_budget_usd": ["result.event_incremental_budget_usd"],
             "candidate_costs": ["result.candidate_costs"],
+            "source": ["result.source"],
         },
     },
     "observer": {
@@ -300,6 +335,35 @@ def resolve_fields_from_context(
     return resolved
 
 
+def build_agent_capability_field_summary(target_agents: list[str]) -> str:
+    lines: list[str] = []
+    for target_agent in target_agents:
+        fields = sorted(AGENT_CAPABILITIES.get(target_agent, {}).get("fields", {}))
+        if fields:
+            lines.append(
+                f"  {target_agent}:\n"
+                f"    반환 가능 필드: {', '.join(fields)}"
+            )
+        else:
+            lines.append(
+                f"  {target_agent}:\n"
+                "    반환 가능 필드: capability 미등록 - 기존 요청 필드만 사용"
+            )
+    return "\n".join(lines)
+
+
+def filter_required_fields_by_capability(
+    target_agent: str,
+    required_fields: list[str],
+) -> list[str]:
+    capability = AGENT_CAPABILITIES.get(target_agent)
+    if not capability:
+        return list(required_fields)
+
+    allowed_fields = set(capability.get("fields", {}).keys())
+    return [field for field in required_fields if field in allowed_fields]
+
+
 def _resolve_field_path(agent_result: dict, field_path: str) -> Any:
     if field_path.startswith("result."):
         field_path = field_path.removeprefix("result.")
@@ -340,6 +404,7 @@ async def llm_judge_data_request(
     if not allowed_targets:
         return None
 
+    capability_summary = build_agent_capability_field_summary(allowed_targets)
     prompt = f"""
 현재 분석 결과와 지표를 보고 추가 분석이 필요한지 판단하세요.
 필요하면 다음 JSON 형식으로만 반환하세요.
@@ -357,6 +422,32 @@ async def llm_judge_data_request(
 허용되지 않은 Agent 요청은 절대 하지 마세요.
 AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
 반드시 JSON 또는 null만 반환하세요.
+"""
+
+    prompt += f"""
+
+요청 가능한 target Agent와 반환 가능한 필드:
+
+{capability_summary}
+
+required_fields는 반드시 위 목록 안에서만 선택하세요.
+목록에 없는 필드는 요청하지 마세요.
+"""
+
+    prompt += """
+
+[절대 금지 operation]
+다음 단어가 포함된 operation은 절대 만들지 마세요:
+  execute, scale, deploy, run, start,
+  trigger, launch, apply, perform
+
+허용되는 operation 종류:
+  reforecast, validate, check, get,
+  recalculate, estimate, assess, analyze
+
+이유:
+  실행 관련 operation은 승인 후 EventExecutionWorkflow 단계에서만 수행됩니다.
+  계획/분석/검증 단계에서는 데이터 조회와 검증 요청만 허용됩니다.
 """
 
     def invoke() -> str:
@@ -400,13 +491,355 @@ AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
     parsed = _parse_json(text)
     if not parsed:
         return None
-    if parsed.get("target_agent") not in allowed_targets:
+    target_agent = parsed.get("target_agent")
+    if target_agent not in allowed_targets:
         return None
+    required_fields = parsed.get("required_fields")
+    if not isinstance(required_fields, list):
+        return None
+    filtered_fields = filter_required_fields_by_capability(
+        str(target_agent),
+        [field for field in required_fields if isinstance(field, str)],
+    )
+    if not filtered_fields:
+        logger.info(
+            "finops_llm_judge_data_request_no_supported_fields: agent=%s target=%s requested=%s",
+            agent_key,
+            target_agent,
+            required_fields,
+        )
+        return None
+    parsed["required_fields"] = filtered_fields
     try:
         return DataRequest.model_validate(parsed)
     except Exception as exc:
         logger.warning("finops_llm_judge_data_request_invalid: %s", exc)
         return None
+
+
+async def llm_judge_policy_risk(
+    agent_key: str,
+    context: dict,
+    rule_result: dict,
+) -> dict[str, Any] | None:
+    if agent_key != "policy_guardrail":
+        return None
+
+    prompt = """
+당신은 FinOps Policy Guardrail 분석가입니다.
+현재 이벤트의 위험 요소를 분석하고 운영자가 알아야 할 경고 사항을 정리하세요.
+
+다음 형식의 JSON만 반환하세요:
+{
+  "warnings": [
+    "위험 요소 1",
+    "위험 요소 2"
+  ],
+  "risk_level": "low" | "medium" | "high" | "critical",
+  "risk_summary": "한 줄 요약",
+  "recommendation": "auto_approvable" | "requires_human_approval"
+}
+
+주의:
+- DataRequest나 다른 Agent 호출은 절대 만들지 마세요
+- context에 있는 데이터만 사용하세요
+- 없는 데이터를 만들어내지 마세요
+
+위험 판단 기준:
+- RDS CPU > 65%: DB 병목 위험 경고
+- RDS CPU > 70%: DB 병목 위험 차단
+- Pod 준비율 < 70%: 인프라 위험 경고
+- 비용 > 예산 90%: 예산 초과 위험
+- 비용 > 예산: 예산 초과 차단
+"""
+
+    prompt += f"""
+
+요청 가능한 target Agent와 반환 가능한 필드:
+
+{capability_summary}
+
+required_fields는 반드시 위 목록 안에서만 선택하세요.
+목록에 없는 필드는 요청하지 마세요.
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent: {agent_key}\n"
+                                f"Rule result:\n{json.dumps(rule_result, ensure_ascii=False, default=str)}\n\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=LLM_JUDGE_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_policy_risk_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+
+    warnings = parsed.get("warnings", [])
+    if isinstance(warnings, str):
+        warnings = [warnings]
+    if not isinstance(warnings, list):
+        warnings = []
+
+    risk_level = parsed.get("risk_level")
+    if risk_level not in {"low", "medium", "high", "critical"}:
+        return None
+
+    recommendation = parsed.get("recommendation")
+    if recommendation not in {"auto_approvable", "requires_human_approval"}:
+        return None
+
+    risk_summary = parsed.get("risk_summary")
+    if not isinstance(risk_summary, str):
+        risk_summary = ""
+
+    return {
+        "warnings": [str(item) for item in warnings],
+        "risk_level": risk_level,
+        "risk_summary": risk_summary,
+        "recommendation": recommendation,
+    }
+
+
+async def llm_judge_cost_risk(
+    agent_key: str,
+    context: dict,
+    rule_result: dict,
+) -> dict[str, Any] | None:
+    if agent_key != "cost":
+        return None
+
+    prompt = """
+당신은 FinOps Cost 분석가입니다.
+비용 분석 결과를 검토하고 운영자가 알아야 할 비용 관련 경고 사항을 정리하세요.
+
+다음 형식의 JSON만 반환하세요:
+{
+  "warnings": [
+    "비용 관련 경고 1"
+  ],
+  "cost_risk_level": "low" | "medium" | "high",
+  "cost_risk_summary": "한 줄 요약",
+  "cost_recommendation": "within_budget" | "approaching_limit" | "exceeded"
+}
+
+절대 하지 말 것:
+- DataRequest 생성 금지
+- 다른 Agent 호출 금지
+- 인프라 실행 요청 금지
+  (실행은 승인 후 EventExecutionWorkflow 담당)
+- context에 없는 데이터 만들어내기 금지
+
+비용 위험 판단 기준:
+- 비용 > 예산 90%: "approaching_limit" 경고
+- 비용 > 예산: "exceeded"
+- 그 외: "within_budget"
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent: {agent_key}\n"
+                                f"Rule result:\n{json.dumps(rule_result, ensure_ascii=False, default=str)}\n\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=LLM_JUDGE_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_cost_risk_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+
+    warnings = parsed.get("warnings", [])
+    if isinstance(warnings, str):
+        warnings = [warnings]
+    if not isinstance(warnings, list):
+        warnings = []
+
+    cost_risk_level = parsed.get("cost_risk_level")
+    if cost_risk_level not in {"low", "medium", "high"}:
+        return None
+
+    cost_recommendation = parsed.get("cost_recommendation")
+    if cost_recommendation not in {
+        "within_budget",
+        "approaching_limit",
+        "exceeded",
+    }:
+        return None
+
+    cost_risk_summary = parsed.get("cost_risk_summary")
+    if not isinstance(cost_risk_summary, str):
+        cost_risk_summary = ""
+
+    return {
+        "warnings": [str(item) for item in warnings],
+        "cost_risk_level": cost_risk_level,
+        "cost_risk_summary": cost_risk_summary,
+        "cost_recommendation": cost_recommendation,
+    }
+
+
+async def llm_judge_policy_risk(
+    agent_key: str,
+    context: dict,
+    rule_result: dict,
+) -> dict[str, Any] | None:
+    if agent_key != "policy_guardrail":
+        return None
+
+    prompt = """
+당신은 FinOps Policy Guardrail 분석가입니다.
+현재 이벤트의 위험 요소를 분석하고 운영자가 알아야 할 경고 사항을 정리하세요.
+
+다음 형식의 JSON만 반환하세요:
+{
+  "warnings": [
+    "위험 요소 1",
+    "위험 요소 2"
+  ],
+  "risk_level": "low" | "medium" | "high" | "critical",
+  "risk_summary": "한 줄 요약",
+  "recommendation": "auto_approvable" | "requires_human_approval"
+}
+
+주의:
+- DataRequest나 다른 Agent 호출은 절대 만들지 마세요
+- context에 있는 데이터만 사용하세요
+- 없는 데이터를 만들어내지 마세요
+
+위험 판단 기준:
+- RDS CPU > 65%: DB 병목 위험 경고
+- RDS CPU > 70%: DB 병목 위험 차단
+- Pod 준비율 < 70%: 인프라 위험 경고
+- 비용 > 예산 90%: 예산 초과 위험
+- 비용 > 예산: 예산 초과 차단
+"""
+
+    def invoke() -> str:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value),
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": (
+                                f"{prompt}\n\n"
+                                f"Agent: {agent_key}\n"
+                                f"Rule result:\n{json.dumps(rule_result, ensure_ascii=False, default=str)}\n\n"
+                                f"Context:\n{json.dumps(context, ensure_ascii=False, default=str)}"
+                            )
+                        }
+                    ],
+                }
+            ],
+        )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        return "\n".join(item.get("text", "") for item in content if item.get("text"))
+
+    try:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(invoke)
+        try:
+            text = future.result(timeout=LLM_JUDGE_TIMEOUT_SECONDS).strip()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+    except Exception as exc:
+        logger.warning("finops_llm_judge_policy_risk_failed: %s", exc)
+        return None
+
+    if not text or text.lower() == "null":
+        return None
+    parsed = _parse_json(text)
+    if not parsed:
+        return None
+
+    warnings = parsed.get("warnings", [])
+    if isinstance(warnings, str):
+        warnings = [warnings]
+    if not isinstance(warnings, list):
+        warnings = []
+
+    risk_level = parsed.get("risk_level")
+    if risk_level not in {"low", "medium", "high", "critical"}:
+        return None
+
+    recommendation = parsed.get("recommendation")
+    if recommendation not in {"auto_approvable", "requires_human_approval"}:
+        return None
+
+    risk_summary = parsed.get("risk_summary")
+    if not isinstance(risk_summary, str):
+        risk_summary = ""
+
+    return {
+        "warnings": [str(item) for item in warnings],
+        "risk_level": risk_level,
+        "risk_summary": risk_summary,
+        "recommendation": recommendation,
+    }
 
 
 async def handle_broker_request(
@@ -546,6 +979,12 @@ def standard_response(
             evidence.append(f"Used upstream result {dependency}")
         else:
             warnings.append(f"Upstream result {dependency} was not available")
+
+    result_warnings = result.get("warnings")
+    if isinstance(result_warnings, list):
+        warnings.extend(str(item) for item in result_warnings)
+    elif isinstance(result_warnings, str):
+        warnings.append(result_warnings)
 
     response = AgentResponse(
         status=AgentStatus.COMPLETED,

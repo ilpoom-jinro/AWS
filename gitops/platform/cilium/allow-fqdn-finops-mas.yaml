@@ -41,9 +41,12 @@ spec:
           rules:
             dns:
               - matchPattern: "*.amazonaws.com"
-    # Bedrock Runtime FQDN egress
+    # AWS STS + Bedrock FQDN egress
     - toFQDNs:
         - matchName: "bedrock-runtime.ap-northeast-2.amazonaws.com"
+        - matchName: "bedrock.ap-northeast-2.amazonaws.com"
+        - matchName: "sts.ap-northeast-2.amazonaws.com"
+        - matchName: "sts.amazonaws.com"
       toPorts:
         - ports:
             - port: "443"

@@ -93,6 +93,29 @@ resource "aws_iam_role_policy_attachment" "mas_orchestrator" {
   policy_arn = "arn:aws:iam::${var.account_id}:policy/mas-policy"
 }
 
+resource "aws_iam_role_policy" "mas_orchestrator_bedrock_runtime" {
+  name = "bedrock-runtime-access"
+  role = aws_iam_role.mas_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockRuntimeAccess"
+        Effect = "Allow"
+        Action = [
+          "bedrock:Converse",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:GetFoundationModel",
+          "bedrock:GetInferenceProfile",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
   name = "finops-collector-read"
   role = aws_iam_role.mas_orchestrator.id
@@ -221,6 +244,29 @@ resource "aws_iam_role" "mas_agent" {
 resource "aws_iam_role_policy_attachment" "mas_agent" {
   role       = aws_iam_role.mas_agent.name
   policy_arn = "arn:aws:iam::${var.account_id}:policy/mas-policy"
+}
+
+resource "aws_iam_role_policy" "mas_agent_bedrock_runtime" {
+  name = "bedrock-runtime-access"
+  role = aws_iam_role.mas_agent.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockRuntimeAccess"
+        Effect = "Allow"
+        Action = [
+          "bedrock:Converse",
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:GetFoundationModel",
+          "bedrock:GetInferenceProfile",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "mas_agent_finops_collector" {

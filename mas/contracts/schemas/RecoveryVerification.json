@@ -1,0 +1,45 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "verified_at": {
+      "format": "date-time",
+      "title": "Verified At",
+      "type": "string"
+    },
+    "recovered": {
+      "title": "Recovered",
+      "type": "boolean"
+    },
+    "needs_rollback": {
+      "title": "Needs Rollback",
+      "type": "boolean"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "reason": {
+      "default": "",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "recovered",
+    "needs_rollback",
+    "confidence"
+  ],
+  "title": "RecoveryVerification",
+  "type": "object"
+}
