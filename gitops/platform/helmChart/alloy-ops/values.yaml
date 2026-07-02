@@ -123,6 +123,35 @@ alloy:
         forward_to      = [prometheus.relabel.ops_metric_filter.receiver]
       }
 
+      // ── kube-state-metrics (ops 클러스터) ─────────────────────────────
+      // aiops-mas, finops-mas 등 ops 워크로드의 파드 상태 메트릭 수집.
+      // AIOps 알림 규칙(kube_pod_container_status_* 등)의 ops 클러스터 데이터 소스.
+      discovery.kubernetes "kube_state_metrics" {
+        role = "pod"
+        selectors {
+          role  = "pod"
+          label = "app.kubernetes.io/name=kube-state-metrics"
+        }
+      }
+
+      discovery.relabel "kube_state_metrics" {
+        targets = discovery.kubernetes.kube_state_metrics.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_ip"]
+          regex         = "(.+)"
+          replacement   = "$1:8080"
+          target_label  = "__address__"
+        }
+      }
+
+      prometheus.scrape "kube_state_metrics" {
+        targets         = discovery.relabel.kube_state_metrics.output
+        scrape_interval = "60s"
+        // KSM 메트릭은 container 라벨이 메트릭에 포함되므로 필터 없이 직접 전송
+        forward_to      = [prometheus.remote_write.ops_thanos.receiver]
+      }
+
       prometheus.relabel "ops_metric_filter" {
         forward_to = [prometheus.remote_write.ops_thanos.receiver]
 

@@ -28,3 +28,10 @@ metricAllowlist:
   - kube_pod_container_status_restarts_total
   - kube_deployment_status_replicas
   - kube_deployment_spec_replicas
+  # ── AIOps 알림 규칙(Thanos Ruler)용 장애 상태 메트릭 ──
+  # CrashLoopBackOff / ImagePullBackOff 감지
+  - kube_pod_container_status_waiting_reason
+  # OOMKilled 감지 (마지막 종료 사유)
+  - kube_pod_container_status_last_terminated_reason
+  # Evicted 감지
+  - kube_pod_status_reason
