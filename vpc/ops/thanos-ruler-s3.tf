@@ -41,8 +41,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "thanos_objstore" 
   bucket = aws_s3_bucket.thanos_objstore.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      # 팀 표준: 기존 S3 KMS 키(data.aws_kms_key.key_s3) 재사용 (flowlogs 버킷과 동일)
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = data.aws_kms_key.key_s3.arn
     }
+    bucket_key_enabled = true
   }
 }
 
@@ -99,6 +102,16 @@ resource "aws_iam_policy" "thanos_objstore" {
           "s3:DeleteObject"
         ]
         Resource = ["${aws_s3_bucket.thanos_objstore.arn}/*"]
+      },
+      {
+        # KMS 암호화 버킷 객체 R/W에 필요 (해당 S3 키로만 제한)
+        Sid    = "KmsForObjstore"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = [data.aws_kms_key.key_s3.arn]
       }
     ]
   })
