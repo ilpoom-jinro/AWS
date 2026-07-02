@@ -1,13 +1,14 @@
-# pinned 2026-07-01, controlled bump via scheduled EOL workflow
+# pinned 2026-07-02, controlled bump via scheduled EOL workflow
 ARG MAS_BASE_IMAGE=python:3.12.13-slim
 FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
 
 RUN pip install --no-cache-dir \
-    "slack_bolt==1.23.0" \
+    "slack_bolt==1.28.0" \
     "slack_sdk==3.35.0" \
-    "temporalio==1.9.0" \
+    "aiohttp==3.14.1" \
+    "temporalio==1.27.2" \
     "pydantic==2.10.4"
 
 # contracts 만 필요 — shared/audit 등 다른 모듈 불필요
