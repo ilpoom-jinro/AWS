@@ -109,6 +109,25 @@ def _build_scale_out_directive(incident, base_detail: str) -> str:
     )
 
 
+def _build_pod_directive(strategy: str, incident, base_detail: str) -> str:
+    """restart/rollback을 Platform Core 파싱 형식으로 인코딩.
+
+    Platform Core(execute_remediation)는 strategy_detail에서 pod=, namespace= 를
+    파싱해 Deployment를 추론한다. namespace를 명시하지 않으면 "default"로 폴백해
+    대상(stock-demo 등)을 못 찾으므로 반드시 함께 인코딩한다.
+    pod_name은 RemediationPlan.pod_name 폴백도 있으나, 명시적으로 넣어 일관성 확보.
+
+    형식:
+      [RESTART]  pod=<pod> namespace=<ns> | <근거>
+      [ROLLBACK] pod=<pod> namespace=<ns> | <근거>
+    """
+    tag = "[RESTART]" if strategy == "restart" else "[ROLLBACK]"
+    return (
+        f"{tag} pod={incident.pod_name} namespace={incident.namespace} "
+        f"| {base_detail}"
+    )
+
+
 def _deploy_name_from_pod(pod_name: str) -> str:
     """파드명에서 Deployment 이름 추출 (ReplicaSet 해시 제거)."""
     import re
@@ -187,13 +206,21 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
     if confidence < settings_confidence_min():
         strategy = "manual"
 
-    # scale_out은 HPA patch 방식으로 실행해야 함 (kubectl scale 금지).
-    # 대상 워크로드는 HPA가 replicas를 관리하므로, 직접 scale하면 HPA가 되돌린다.
     # Platform Core execute_remediation이 파싱할 수 있도록 strategy_detail에
     # 실행 방식을 구조화해 명시한다 (contracts 추가 필드 없이 호환).
-    strategy_detail = rca.get("strategy_detail", "")
+    # 형식은 Platform Core(mas/activities/platform.py)의 _parse_strategy_detail 규칙을 따른다:
+    #   scale_out : [SCALE_OUT via HPA] action=patch_hpa target_hpa=<n> namespace=<ns> maxReplicas+=<N> | 근거
+    #   restart   : [RESTART] pod=<pod> namespace=<ns> | 근거
+    #   rollback  : [ROLLBACK] pod=<pod> namespace=<ns> | 근거
+    # 특히 restart/rollback은 namespace를 명시하지 않으면 Platform Core가 "default"로
+    # 폴백하므로, 대상 네임스페이스(stock-demo 등)를 반드시 인코딩해야 한다.
+    base_detail = rca.get("strategy_detail", "")
     if strategy == "scale_out":
-        strategy_detail = _build_scale_out_directive(incident, strategy_detail)
+        strategy_detail = _build_scale_out_directive(incident, base_detail)
+    elif strategy in ("restart", "rollback"):
+        strategy_detail = _build_pod_directive(strategy, incident, base_detail)
+    else:
+        strategy_detail = base_detail
 
     remediation = RemediationPlan(
         workflow_id=incident.workflow_id,

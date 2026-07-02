@@ -30,6 +30,7 @@ COPY pods/aiops/orchestrator/app ./app
 COPY shared ./shared
 COPY contracts ./contracts
 COPY workflows ./workflows
+COPY activities ./activities
 
 EXPOSE 8080
 CMD ["python", "-m", "app.run"]

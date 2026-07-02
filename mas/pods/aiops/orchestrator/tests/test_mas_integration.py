@@ -229,4 +229,16 @@ _targets = _extract_targets(_payload)
 assert _targets == {("financial-service-eks","stock-demo"),("financial-ops-eks","aiops-mas")}, _targets
 passed += 1; print(f"{passed}. Alertmanager webhook 파싱(중복제거+firing필터) OK")
 
-print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/16 통과 ===")
+# 17. restart/rollback → [RESTART]/[ROLLBACK] directive (namespace 명시)
+from pods.aiops.orchestrator.app.nodes.analyzer import _build_pod_directive
+_ic2 = IncidentContext(cluster_name="financial-service-eks", namespace="stock-demo",
+    pod_name="stock-api-7f9d4c8b-xk2p9", anomaly_type="crashloop_backoff",
+    restart_count=5, recent_logs=["x"])
+for _strat, _tag in [("restart","[RESTART]"),("rollback","[ROLLBACK]")]:
+    _d = _build_pod_directive(_strat, _ic2, "근거")
+    assert _d.startswith(_tag), _d
+    assert "pod=stock-api-7f9d4c8b-xk2p9" in _d
+    assert "namespace=stock-demo" in _d  # default 폴백 방지
+passed += 1; print(f"{passed}. restart/rollback directive(namespace 명시) OK")
+
+print(f"\n=== 메트릭+프롬프트 포함 최종 {passed}/17 통과 ===")
