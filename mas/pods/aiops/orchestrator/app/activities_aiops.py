@@ -1,15 +1,16 @@
 """
 AIOps 팀 소유 Activities — detect_incident, analyze_root_cause, verify_recovery
 =================================================================================
-이 파일은 AIOps 팀이 v1.3.0 구현체로 교체한다.
+AIOps v1.3.0 구현체. 순수 로직은 nodes/ 에 있고, 이 파일은 각 노드를
+@activity.defn 으로 래핑해 Temporal Worker에 노출한다.
+
 Platform Core(activities_platform.py)와 파일을 분리해 덮어쓰기 사고를 방지한다.
+worker.py는 이 파일을 import하므로 수정하지 않아도 된다.
 
-교체 방법:
-    1. 이 파일의 각 함수 본문을 v1.3.0 실제 구현으로 교체한다.
-    2. `raise NotImplementedError(...)` 줄을 삭제하고 실제 로직을 넣으면 된다.
-    3. worker.py는 건드리지 않아도 된다 (이미 이 파일을 import).
+[MAS 권한 경계]
+- detect_incident / analyze_root_cause / verify_recovery: AIOps 소유 (이 파일)
+- execute_remediation / execute_rollback / record_audit_log: Platform Core 소유
 """
-
 from __future__ import annotations
 
 from temporalio import activity
@@ -21,29 +22,30 @@ from contracts.models import (
     RecoveryVerification,
 )
 
+from .nodes import analyzer, detector, verifier
+
 
 @activity.defn(name="detect_incident")
-async def detect_incident(input: DetectIncidentInput) -> IncidentContext:
+async def detect_incident(input: DetectIncidentInput) -> IncidentContext | None:
+    """Kubernetes 장애 탐지. 장애가 없으면 None을 반환한다.
+
+    상태 이상(CrashLoop/OOM/ImagePull 등)뿐 아니라, 상태 이상이 없는
+    Running 파드의 Istio P95 지연 기반 high_latency까지 탐지한다(v1.3.0).
     """
-    TODO(AIOps 팀): Kubernetes 장애 탐지 구현체로 교체.
-    AIOps v1.3.0의 detector 코드를 이 Activity에 연결한다.
-    """
-    raise NotImplementedError(
-        "detect_incident는 AIOps 팀이 v1.3.0 구현체로 교체해야 합니다."
-    )
+    return await detector.detect_incident(input)
 
 
 @activity.defn(name="analyze_root_cause")
 async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
-    """TODO(AIOps 팀): RCA 분석 구현체로 교체."""
-    raise NotImplementedError(
-        "analyze_root_cause는 AIOps 팀이 v1.3.0 구현체로 교체해야 합니다."
-    )
+    """Bedrock 기반 RCA. Thanos 메트릭을 교차검증해 조치 전략을 결정한다.
+
+    scale_out은 HPA patch 방식으로 strategy_detail에 인코딩되어
+    Platform Core(execute_remediation)가 파싱한다(v1.3.0).
+    """
+    return await analyzer.analyze_root_cause(incident)
 
 
 @activity.defn(name="verify_recovery")
 async def verify_recovery(incident: IncidentContext) -> RecoveryVerification:
-    """TODO(AIOps 팀): 복구 검증 구현체로 교체."""
-    raise NotImplementedError(
-        "verify_recovery는 AIOps 팀이 v1.3.0 구현체로 교체해야 합니다."
-    )
+    """조치 후 복구 여부를 재검증한다."""
+    return await verifier.verify_recovery(incident)

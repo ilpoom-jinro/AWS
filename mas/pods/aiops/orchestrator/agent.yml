@@ -5,5 +5,9 @@ image_repository: financial/mas/aiops/orchestrator
 base_image_repository: financial/mas/base
 dockerfile: mas/pods/aiops/orchestrator/Dockerfile
 build_context: mas
+manifest_path: financial-ops-eks/aiops-mas/kustomization.yaml
+target_container: aiops-orchestrator-image
+service_account_name: aiops-orchestrator
 namespace: aiops-mas
 target_cluster: financial-ops-eks
+replicas: "1"
