@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent_support import get_agent_result
+from contracts.models import AgentResponse, AgentStatus
 
 
 AGENT_KEY = "policy_guardrail"
@@ -14,19 +15,77 @@ LLM_PROMPT = (
 )
 
 
-def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _build_rule_result(context: dict[str, Any]) -> dict[str, Any]:
     policy = context["policy"]
     source = context.get("policy_source", {})
     unit = get_agent_result(context, "unit_economics")
-    result = {
+    return {
         "allowed": source.get("allowed_actions", ["scale_out", "prewarm", "spread_push"]),
         "forbidden": source.get("forbidden_actions", []),
-        "approval_required": policy["approval_required"],
-        "cost_ratio": unit["cost_ratio"],
+        "approval_required": policy.get("approval_required", True),
+        "cost_ratio": unit.get("cost_ratio"),
         "monthly_budget_limit_usd": source.get("monthly_budget_limit_usd"),
         "approval_required_over_usd": source.get("approval_required_over_usd"),
         "policy_version": source.get("policy_version"),
     }
+
+
+def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentResponse:
+    result = _build_rule_result(context)
+    broker_data = context.get("broker_results", {}).get("unit_economics")
+    if broker_data is not None:
+        broker_failed = broker_data.get("_broker_status") == "failed"
+        supported_fields = {
+            key: value
+            for key, value in broker_data.items()
+            if not key.startswith("_")
+        }
+        if broker_failed or not supported_fields:
+            result["approval_required"] = True
+            result["unit_economics_additional_validation"] = "unavailable"
+            response = AgentResponse(
+                status=AgentStatus.COMPLETED,
+                agent_key=AGENT_KEY,
+                agent_name=AGENT_NAME,
+                result=result,
+                message=(
+                    "Validated proposed actions with rule-based policy because "
+                    "unit economics additional validation was unavailable."
+                ),
+                evidence=["Used upstream result Unit Economics Agent.cost_ratio"],
+                data_requests=[],
+                confidence=0.72,
+                warnings=[
+                    "unit_economics additional validation unavailable, using rule-based result"
+                ],
+                reasoning_source="rule",
+            )
+            return response
+
+        result["unit_economics_additional_validation"] = supported_fields
+        if str(supported_fields.get("final_approval_recommendation", "")).lower() in {
+            "requires_human_approval",
+            "requires_review",
+            "reject",
+        }:
+            result["approval_required"] = True
+        response = AgentResponse(
+            status=AgentStatus.COMPLETED,
+            agent_key=AGENT_KEY,
+            agent_name=AGENT_NAME,
+            result=result,
+            message="Validated proposed actions with unit economics additional validation.",
+            evidence=[
+                "Used upstream result Unit Economics Agent.cost_ratio",
+                "Used broker result unit_economics additional validation",
+            ],
+            data_requests=[],
+            confidence=0.86,
+            warnings=[],
+            reasoning_source="rule",
+        )
+        return response
+
     return result, "Validated proposed actions against budget, approval, and forbidden-action policies."
 
 
