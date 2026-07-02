@@ -300,6 +300,35 @@ def resolve_fields_from_context(
     return resolved
 
 
+def build_agent_capability_field_summary(target_agents: list[str]) -> str:
+    lines: list[str] = []
+    for target_agent in target_agents:
+        fields = sorted(AGENT_CAPABILITIES.get(target_agent, {}).get("fields", {}))
+        if fields:
+            lines.append(
+                f"  {target_agent}:\n"
+                f"    반환 가능 필드: {', '.join(fields)}"
+            )
+        else:
+            lines.append(
+                f"  {target_agent}:\n"
+                "    반환 가능 필드: capability 미등록 - 기존 요청 필드만 사용"
+            )
+    return "\n".join(lines)
+
+
+def filter_required_fields_by_capability(
+    target_agent: str,
+    required_fields: list[str],
+) -> list[str]:
+    capability = AGENT_CAPABILITIES.get(target_agent)
+    if not capability:
+        return list(required_fields)
+
+    allowed_fields = set(capability.get("fields", {}).keys())
+    return [field for field in required_fields if field in allowed_fields]
+
+
 def _resolve_field_path(agent_result: dict, field_path: str) -> Any:
     if field_path.startswith("result."):
         field_path = field_path.removeprefix("result.")
@@ -340,6 +369,7 @@ async def llm_judge_data_request(
     if not allowed_targets:
         return None
 
+    capability_summary = build_agent_capability_field_summary(allowed_targets)
     prompt = f"""
 현재 분석 결과와 지표를 보고 추가 분석이 필요한지 판단하세요.
 필요하면 다음 JSON 형식으로만 반환하세요.
@@ -357,6 +387,16 @@ async def llm_judge_data_request(
 허용되지 않은 Agent 요청은 절대 하지 마세요.
 AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
 반드시 JSON 또는 null만 반환하세요.
+"""
+
+    prompt += f"""
+
+요청 가능한 target Agent와 반환 가능한 필드:
+
+{capability_summary}
+
+required_fields는 반드시 위 목록 안에서만 선택하세요.
+목록에 없는 필드는 요청하지 마세요.
 """
 
     def invoke() -> str:
@@ -400,8 +440,25 @@ AWS를 직접 변경하거나 실행 명령을 내리지 마세요.
     parsed = _parse_json(text)
     if not parsed:
         return None
-    if parsed.get("target_agent") not in allowed_targets:
+    target_agent = parsed.get("target_agent")
+    if target_agent not in allowed_targets:
         return None
+    required_fields = parsed.get("required_fields")
+    if not isinstance(required_fields, list):
+        return None
+    filtered_fields = filter_required_fields_by_capability(
+        str(target_agent),
+        [field for field in required_fields if isinstance(field, str)],
+    )
+    if not filtered_fields:
+        logger.info(
+            "finops_llm_judge_data_request_no_supported_fields: agent=%s target=%s requested=%s",
+            agent_key,
+            target_agent,
+            required_fields,
+        )
+        return None
+    parsed["required_fields"] = filtered_fields
     try:
         return DataRequest.model_validate(parsed)
     except Exception as exc:
