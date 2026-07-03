@@ -529,6 +529,19 @@ jobs:
           -target=aws_codebuild_project.manifest_updater
           $TF_MOVED_RESOURCE_TARGETS
 
+      # 루트 레벨 waf.tf 리소스. 타겟 apply 구조라 명시하지 않으면 누락되어
+      # WAF web ACL/SSM 파라미터가 생성되지 않는다(시드가 어노테이션 주입할 ARN을
+      # SSM에서 읽으므로 시드 스텝보다 반드시 먼저 apply되어야 함).
+      - name: Apply WAF
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_wafv2_web_acl.service_alb
+          -target=aws_cloudwatch_log_group.waf
+          -target=aws_wafv2_web_acl_logging_configuration.service_alb
+          -target=aws_ssm_parameter.service_alb_waf_acl_arn
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Re-apply changed infrastructure
         if: inputs.action == 'reapply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m
