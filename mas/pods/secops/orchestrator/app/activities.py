@@ -337,10 +337,12 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
 
     dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
     if not dry_run:
+        from kubernetes.config.config_exception import ConfigException
         try:
             await asyncio.to_thread(_load_k8s_config)
-        except Exception:
-            dry_run = True   # 클러스터 접근 불가 → dry-run (발표자 PC 등)
+        except ConfigException:
+            # 클러스터 설정 없음(로컬/발표자 PC)만 dry-run. 그 외(패키지 미설치·네트워크 등)는 전파.
+            dry_run = True
 
     if dry_run:
         return ExecutionResult(
