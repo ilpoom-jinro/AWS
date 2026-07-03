@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: secops-orchestrator-config
+  namespace: secops-mas
+data:
+  # worker.py가 읽는 Temporal 환경변수 (aiops와 동일한 공유 Temporal)
+  TEMPORAL_ADDRESS:       "temporal-frontend.temporal.svc.cluster.local:7233"
+  TEMPORAL_TASK_QUEUE:    "secops-task-queue"
+  HITL_TASK_QUEUE:        "hitl-approval-queue"      # 슬랙 HITL 봇 공용 큐
+  # Bedrock (워크플로우 실행 시 사용 — 현재 trigger 없어 미호출)
+  AWS_REGION:             "ap-northeast-2"
+  BEDROCK_REGION:         "ap-northeast-2"
+  BEDROCK_MODEL:          "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (서울 리전 지원 확인 필요)
+  USE_REAL_BEDROCK:       "true"
+  USE_BEDROCK_KB:         "false"                    # KB 프로비저닝 완료 후 true
+  # BEDROCK_KB_ID:        "<KB 생성 후 주입>"
+  # 감사로그 RDS — 지연 로딩이라 기동엔 불필요. 실제 DB 생기면 값 교체(민감하면 Secret으로 이동).
+  DATABASE_URL:           "postgresql+asyncpg://secops:secops@secops-db.secops-mas.svc.cluster.local:5432/secops"
