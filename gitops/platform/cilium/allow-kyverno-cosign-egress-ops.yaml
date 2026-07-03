@@ -6,12 +6,11 @@ spec:
   # ops kyverno-admission-controller / kyverno-reports-controller → cosign 서명(.sig) 검증 egress
   # ECR VPC 인터페이스 엔드포인트(사설IP)와 S3(서명 객체) 모두 coredns 조회 없이 직접 접근 확인(audit 로그)
   # → toFQDNs로 못 잡음, toCIDR/toCIDRSet 사용
-  # service 클러스터는 VPC엔드포인트가 없고 NAT+DNS 경유(allow-kyverno-cosign-egress-svc 참고)라
-  # 이 IP들은 ops VPC 전용 — nodeSelector로 ops 노드에만 적용해 clusterwide 오적용 방지.
+  # nodeSelector 제거: Cilium CRD상 endpointSelector와 상호 배타적.
+  # ops 스코프는 이 정책의 CIDR(ECR 사설IP .222/.246 + S3 대역)이
+  # service 클러스터엔 존재하지 않아 자동으로 매칭 안 되는 것으로 대체.
+  # service kyverno는 allow-kyverno-cosign-egress-svc(FQDN)가 커버.
   description: "ops kyverno cosign 검증 egress (DNS 우회라 IP 방식). ops 노드 전용."
-  nodeSelector:
-    matchLabels:
-      eks.amazonaws.com/nodegroup: financial-ops-eks-general   # ops 일반 노드 (kyverno가 여기 뜸)
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: kyverno
