@@ -13,7 +13,7 @@
 
 resource "aws_wafv2_web_acl" "service_alb" {
   name        = "financial-service-alb-waf"
-  description = "REGIONAL WAF for the internet-facing service ALB (stock-web)"
+  description = "REGIONAL WAF for the internet-facing service ALB - stock-web"
   scope       = "REGIONAL"
 
   default_action {
