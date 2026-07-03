@@ -18,8 +18,8 @@ metadata:
   namespace: financial-api
 subjects:
   - kind: ServiceAccount
-    name: secops-orchestrator        # SecOps 워커 SA (배포 설정에 맞게)
-    namespace: secops                # 워커가 도는 네임스페이스 (예시)
+    name: secops-orchestrator        # SecOps 워커 SA
+    namespace: secops-mas            # 워커가 도는 실제 네임스페이스 (agent.yml 기준)
 roleRef:
   kind: Role
   name: secops-isolation-applier
