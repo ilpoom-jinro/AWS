@@ -626,6 +626,26 @@ jobs:
           run_codebuild_and_wait financial-ansible-bootstrap
           run_codebuild_and_wait financial-gitops-bootstrap
 
+      # stock-web ALB는 LB 컨트롤러가 동적으로 생성/재생성하므로 DNS suffix가 바뀐다.
+      # route53 alias(data.aws_lb 태그 조회 기반)를 현재 ALB로 재동기화한다.
+      # 루트 레벨 리소스라 타겟 apply 구조에서 누락되어 stale-alias가 반복됐다.
+      # 시드 이후(ALB 존재 시점)에 실행하며, ALB가 아직 없으면 스킵해 레코드를 지우지 않는다.
+      - name: Apply Route53 records to current stock-web ALB
+        if: inputs.action == 'apply' || inputs.action == 'reapply'
+        shell: bash
+        run: |
+          alb_count="$(aws elbv2 describe-load-balancers \
+            --query "length(LoadBalancers[?contains(LoadBalancerName, 'stockdem-stockweb')])" \
+            --output text 2>/dev/null || echo 0)"
+          if [ "${alb_count}" = "0" ]; then
+            echo "stock-web ALB not found yet; skipping Route53 sync."
+            exit 0
+          fi
+          terraform apply -auto-approve -input=false -lock-timeout=5m -refresh=true \
+            -target=aws_route53_health_check.aws_primary \
+            -target=aws_route53_record.root_primary \
+            -target=aws_route53_record.aws_direct
+
   codebuild-update:
     name: Update selected Ops VPC CodeBuild
     runs-on: ubuntu-latest
