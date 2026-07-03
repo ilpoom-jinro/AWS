@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - serviceaccount.yaml
+  - external-secret.yaml
   - configmap.yaml
   - deployment.yaml
   # service.yaml 없음 — SecOps는 순수 워커(수신 포트 없음)
