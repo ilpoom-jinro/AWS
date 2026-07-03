@@ -128,7 +128,7 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: crashloop_backoff
                 annotations:
-                  summary: "CrashLoopBackOff 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+                  summary: "CrashLoopBackOff 감지 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}})"
               # ── oom_killed ──
               - alert: AIOpsOOMKilled
                 expr: |
@@ -140,7 +140,7 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: oom_killed
                 annotations:
-                  summary: "OOMKilled 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+                  summary: "OOMKilled 감지 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}})"
               # ── image_pull_backoff ──
               - alert: AIOpsImagePullBackOff
                 expr: |
@@ -152,7 +152,7 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: image_pull_backoff
                 annotations:
-                  summary: "ImagePullBackOff 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+                  summary: "ImagePullBackOff 감지 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}})"
               # ── pending_timeout ──
               - alert: AIOpsPendingTimeout
                 expr: |
@@ -164,7 +164,7 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: pending_timeout
                 annotations:
-                  summary: "Pod Pending 5분 초과 ({{ $labels.namespace }}/{{ $labels.pod }})"
+                  summary: "Pod Pending 5분 초과 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}})"
               # ── evicted ──
               - alert: AIOpsEvicted
                 expr: |
@@ -176,7 +176,7 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: evicted
                 annotations:
-                  summary: "Pod Evicted 감지 ({{ $labels.namespace }}/{{ $labels.pod }})"
+                  summary: "Pod Evicted 감지 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.pod }}`}})"
               # ── high_latency (Istio P95 > 1000ms, config.HIGH_LATENCY_P95_MS와 일치) ──
               - alert: AIOpsHighLatency
                 expr: |
@@ -190,4 +190,4 @@ extraDeploy:
                   severity: warning
                   aiops_anomaly: high_latency
                 annotations:
-                  summary: "P95 지연 1s 초과 ({{ $labels.namespace }}/{{ $labels.destination_workload }})"
+                  summary: "P95 지연 1s 초과 ({{`{{ $labels.namespace }}`}}/{{`{{ $labels.destination_workload }}`}})"
