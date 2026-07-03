@@ -4,7 +4,21 @@ metadata:
   name: default-deny-all
 spec:
   description: "전체 endpoint default-deny (policyAuditMode 동안 AUDIT만)"
-  endpointSelector: {}
+  endpointSelector:
+    matchExpressions:
+      # 인프라 단계 enforce 제외: MAS 스택 + ambient.
+      # MAS 구축 시 각 네임스페이스 egress 확정 후 이 목록에서 빼서 enforce 편입 예정.
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+          - finops-mas      # MAS - 재무 에이전트
+          - secops-mas      # MAS - 보안 에이전트
+          - aiops-mas       # MAS - AIOps 에이전트
+          - temporal        # MAS orchestration
+          - agents          # ambient MAS 워크로드
+          - teleport-apps   # MAS 앱(finops-ui) 프록시
+          - istio-system    # ambient 컨트롤플레인(ztunnel), MAS 때 정밀 enforce
+          - stock-demo      # service ambient 워크로드(대국민 서비스), enforce 제외
   enableDefaultDeny:
     ingress: true
     egress: true
