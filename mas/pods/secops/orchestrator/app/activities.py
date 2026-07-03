@@ -24,7 +24,6 @@ from temporalio.exceptions import ApplicationError
 from contracts.models import (
     ApprovalRequest,
     ApprovalTicket,
-    AuditLog,
     ComplianceReport,
     DetectThreatInput,
     ExecutionResult,
@@ -34,9 +33,13 @@ from contracts.models import (
 )
 
 from .retrieval import RetrievedChunk, get_retriever
-from .audit import get_audit_sink
+from activities.platform import record_audit_log
 
 USE_REAL_BEDROCK = os.getenv("USE_REAL_BEDROCK", "false").lower() == "true"
+# 1차 triage (Nova Lite / Haiku): 저비용 필터 — 위협 아닌 이벤트를 조기 차단해 Sonnet 비용 통제
+BEDROCK_MODEL_LIGHT = os.getenv("BEDROCK_MODEL_LIGHT", "amazon.nova-lite-v1:0")
+# 2차 최종 판단 (Sonnet): 1차 통과분만 호출
+BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6-20251001-v1:0")
 
 # 이벤트 → 규정 검색 쿼리 키워드 (한국어 규정 본문과 매칭되도록)
 THREAT_QUERY_TERMS = {
@@ -78,39 +81,114 @@ def _parse_llm_json(text: str) -> dict:
 
 
 def analyze_violation(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
+    """위반 분석. USE_REAL_BEDROCK=false면 stub, true면 2단계 Bedrock 호출."""
     if not USE_REAL_BEDROCK:
         if event.destination_ip.is_private:
-            return {"violated_regulations": [],
-                    "violation_description": "내부 대상 트래픽 — 위반 아님(stub 판단)"}
+            return {
+                "violated_regulations": [],
+                "violation_description": "내부 대상 트래픽 — 위반 아님(stub 판단)",
+                "confidence": 0.9,
+                "severity": "low",
+                "evidence": {},
+            }
         # 검색된 규정 근거를 그대로 인용해 판단에 박는다 (화면에 보이는 RAG 근거)
         sources = list(dict.fromkeys(c.source for c in chunks)) or ["(검색 결과 없음)"]
-        evidence = ""
+        evidence_note = ""
         if chunks:
             top = chunks[0]
-            evidence = (f" 검색된 규정 근거 — 「{top.source}」: "
-                        f"\"{top.text[:120].strip()}…\" (관련도 {top.score}).")
+            evidence_note = (f" 검색된 규정 근거 — 「{top.source}」: "
+                             f"\"{top.text[:120].strip()}…\" (관련도 {top.score}).")
         return {
             "violated_regulations": sources,
             "violation_description": (
                 f"{event.source_pod}가 외부 {event.destination_ip}:{event.destination_port}로 "
-                f"비정상 대용량 outbound 전송.{evidence} 데이터 유출 정황으로 위 규정 위반 소지."
+                f"비정상 대용량 outbound 전송.{evidence_note} 데이터 유출 정황으로 위 규정 위반 소지."
             ),
+            "confidence": 0.75,
+            "severity": "high",
+            "evidence": {
+                "source": "stub",
+                "source_pod": event.source_pod,
+                "destination": f"{event.destination_ip}:{event.destination_port}",
+                "threat_type": event.threat_type,
+                "raw_log": event.raw_log[:200],
+            },
+        }
+    # Real Bedrock: 1차(Nova Lite) → 필터 통과 시 2차(Sonnet) 최종 판정
+    triage = _triage_with_bedrock(event, chunks)
+    if not triage["is_threat"]:
+        return {
+            "violated_regulations": [],
+            "violation_description": (
+                f"1차 판단({BEDROCK_MODEL_LIGHT}): 위협 아님 "
+                f"(confidence={triage['confidence']:.0%})"
+            ),
+            "confidence": triage["confidence"],
+            "severity": triage["severity"],
+            "evidence": {"triage_model": BEDROCK_MODEL_LIGHT},
         }
     return _analyze_with_bedrock(event, chunks)
 
 
-def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
-    """실제 Bedrock 호출 — 검색된 규정 근거를 grounding으로 넣어 판단. 에러는 계약 규칙대로 분류."""
+def _triage_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
+    """1차 판단 (Nova Lite): 위협 여부 + confidence + severity 빠른 필터.
+    is_threat=False면 Sonnet 호출 생략 — 비용 통제 핵심."""
     from botocore.exceptions import ClientError
-    from shared.bedrock import ClaudeModel, get_bedrock_client
+    from shared.bedrock import get_bedrock_client
 
     client = get_bedrock_client()
-    model_id = os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value)
+    grounding = "\n\n".join(
+        f"[{c.source}] (관련도 {c.score})\n{c.text[:300]}" for c in chunks
+    ) or "(검색 결과 없음)"
+    system_prompt = (
+        "너는 보안 이벤트 사전 분류기다. 아래 이벤트가 금융 규제 위반 가능성이 있는지 빠르게 판단해라. "
+        "반드시 아래 JSON만 출력해라.\n"
+        '{"is_threat": bool, "confidence": float, "severity": "critical"|"high"|"medium"|"low"}'
+    )
+    user_text = (
+        f"[보안 이벤트 요약]\n"
+        f"threat_type={event.threat_type} source_pod={event.source_pod} "
+        f"destination={event.destination_ip}:{event.destination_port} "
+        f"direction={event.direction}\n\n"
+        f"[규정 근거 요약]\n{grounding}"
+    )
+    try:
+        resp = client.converse(
+            modelId=BEDROCK_MODEL_LIGHT,
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": user_text}]}],
+            inferenceConfig={"maxTokens": 256, "temperature": 0},
+        )
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            raise ApplicationError(
+                f"Bedrock triage ValidationException: {e}", non_retryable=True
+            ) from e
+        raise
+    text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
+    data = _parse_llm_json(text)
+    return {
+        "is_threat": bool(data.get("is_threat", True)),
+        "confidence": float(data.get("confidence", 0.5)),
+        "severity": str(data.get("severity", "medium")),
+    }
+
+
+def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> dict:
+    """2차 최종 판단 (Sonnet): 위반 규정 + 설명 + confidence + severity + evidence.
+    1차 triage 통과분만 호출 — Sonnet 비용이 Nova의 ~85×이므로 반드시 필터 후 진입."""
+    from botocore.exceptions import ClientError
+    from shared.bedrock import get_bedrock_client
+
+    client = get_bedrock_client()
     system_prompt = (
         "너는 금융 보안 규제 분석기다. 보안 이벤트가 '검색된 규정 근거'를 위반하는지, "
         "반드시 그 근거에 기반해 판단해라. 근거에 없는 규정은 지어내지 마라. "
         "반드시 아래 JSON 스키마만 출력해라.\n"
-        '{"violated_regulations": [string], "violation_description": string}'
+        '{"violated_regulations": [string], "violation_description": string, '
+        '"confidence": float, "severity": "critical"|"high"|"medium"|"low", '
+        '"evidence": {"event_id": string, "source": string, "detail": string}}'
     )
     grounding = "\n\n".join(
         f"[{c.source}] (관련도 {c.score})\n{c.text}" for c in chunks
@@ -121,7 +199,7 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     )
     try:
         resp = client.converse(
-            modelId=model_id,
+            modelId=BEDROCK_MODEL,
             system=[{"text": system_prompt}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
             inferenceConfig={"maxTokens": 1024, "temperature": 0},
@@ -129,14 +207,16 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         if code == "ValidationException":
-            # 입력/모델 ID 오류 → 재시도 무의미
             raise ApplicationError(f"Bedrock ValidationException: {e}", non_retryable=True) from e
-        raise  # ThrottlingException 등 → Temporal이 재시도
+        raise
     text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
     data = _parse_llm_json(text)
     return {
         "violated_regulations": list(data.get("violated_regulations", [])),
         "violation_description": str(data.get("violation_description", "")),
+        "confidence": float(data.get("confidence", 0.8)),
+        "severity": str(data.get("severity", "high")),
+        "evidence": dict(data.get("evidence", {})),
     }
 
 
@@ -190,17 +270,20 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
 
 @activity.defn(name="map_regulation")
 async def map_regulation(event: SecurityEvent) -> RegulationMapping:
-    """RAG 규정 조회 + Claude 위반 분석 + Blast Radius + 격리 정책 생성."""
+    """RAG 규정 조회 + 2단계 Bedrock 판단(Nova→Sonnet) + Blast Radius + 격리 정책 생성."""
     chunks = retrieve_regulations(event)
     analysis = analyze_violation(event, chunks)
     safe, detail = check_blast_radius(event)
     return RegulationMapping(
-        workflow_id=event.workflow_id,           # 같은 workflow_id 전파
+        workflow_id=event.workflow_id,
         violated_regulations=analysis["violated_regulations"],
         violation_description=analysis["violation_description"],
         blast_radius_safe=safe,
         blast_radius_detail=detail,
         isolation_policy_yaml=build_isolation_policy(event),
+        confidence=analysis.get("confidence", 0.0),
+        severity=analysis.get("severity", "low"),
+        evidence=analysis.get("evidence", {}),
     )
 
 
@@ -226,11 +309,13 @@ async def generate_compliance_report(input: GenerateComplianceReportInput) -> Co
     e, m, r = input.event, input.mapping, input.result
     return ComplianceReport(
         workflow_id=e.workflow_id,
-        severity="high",
+        severity=m.severity,
         violated_regulations=m.violated_regulations,
         threat_summary=f"{e.threat_type} from {e.source_pod}",
         action_taken=r.action_taken,
         isolation_applied=r.success,
+        confidence=m.confidence,
+        evidence=m.evidence,
     )
 
 
@@ -245,10 +330,3 @@ async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
         slack_message_ts="1718000000.000100",
         channel_id="C_SECOPS_STUB",
     )
-
-
-@activity.defn(name="record_audit_log")
-async def record_audit_log(log: AuditLog) -> None:
-    """감사 로그 저장. 로컬 SQLite/JSONL(기본) 또는 shared SDK→RDS (AUDIT_SINK=shared)."""
-    await get_audit_sink().save(log)
-    activity.logger.info("[audit] %s | %s | %s", log.event_type, log.actor, log.summary)

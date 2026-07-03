@@ -339,6 +339,9 @@ class SecurityEvent(WorkflowRootMixin):
     ]
 
     raw_log: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    severity: SeverityType = "low"
+    event_source: Literal["vpc_flow_log", "cloudtrail", "guardduty", "tetragon", "stub"] = "stub"
 
 
 class RegulationMapping(WorkflowDerivedMixin):
@@ -348,6 +351,12 @@ class RegulationMapping(WorkflowDerivedMixin):
     blast_radius_safe: bool = False
     blast_radius_detail: str = ""
     isolation_policy_yaml: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    severity: SeverityType = "low"
+    evidence: dict[str, Any] = Field(
+        default_factory=dict,
+        description="CloudTrail Event ID, GuardDuty Finding ID, Flow Log 등 근거 증적",
+    )
 
 
 class ComplianceReport(WorkflowDerivedMixin):
@@ -357,6 +366,8 @@ class ComplianceReport(WorkflowDerivedMixin):
     threat_summary: str
     action_taken: str
     isolation_applied: bool
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---

@@ -18,12 +18,10 @@
       "type": "string"
     },
     "context": {
-      "additionalProperties": true,
       "title": "Context",
       "type": "object"
     },
     "parameters": {
-      "additionalProperties": true,
       "title": "Parameters",
       "type": "object"
     },

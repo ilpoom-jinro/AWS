@@ -50,7 +50,6 @@
       "type": "string"
     },
     "payload": {
-      "additionalProperties": true,
       "description": "event_type별 payload 구조는 contracts/README.md 참고해주십셔",
       "title": "Payload",
       "type": "object"
