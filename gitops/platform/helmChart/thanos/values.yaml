@@ -65,14 +65,14 @@ storegateway:
 objstoreConfig: |-
   type: S3
   config:
-    bucket: REPLACE_WITH_THANOS_OBJSTORE_BUCKET
+    bucket: jinro-observability-thanos-REPLACE_WITH_ACCOUNT_ID
     endpoint: s3.ap-northeast-2.amazonaws.com
     region: ap-northeast-2
 
-# ServiceAccount에 Pod Identity가 S3 권한을 부여 (SA 이름 = thanos)
-serviceAccount:
-  create: true
-  name: thanos
+# 주의: 이 차트는 최상위 serviceAccount 값을 사용하지 않는다(컴포넌트별 SA).
+# Pod Identity는 ruler/receive 각각의 실제 SA명에 연결한다 (thanos-ruler-s3.tf 참조):
+#   ruler   → observability-thanos-ruler
+#   receive → observability-thanos-receive
 
 # ── Thanos Ruler (알림 규칙 평가 → Alertmanager 발송) ──
 ruler:
@@ -113,7 +113,7 @@ extraDeploy:
       labels:
         app: aiops
     data:
-      aiops-rules.yaml: |
+      aiops-rules.yml: |
         groups:
           - name: aiops-pod-anomalies
             rules:
