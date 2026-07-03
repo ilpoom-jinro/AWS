@@ -89,6 +89,29 @@
           "default": "",
           "title": "Isolation Policy Yaml",
           "type": "string"
+        },
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "severity": {
+          "default": "low",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "CloudTrail Event ID, GuardDuty Finding ID, Flow Log 등 근거 증적",
+          "title": "Evidence",
+          "type": "object"
         }
       },
       "required": [
@@ -173,6 +196,36 @@
         "raw_log": {
           "default": "",
           "title": "Raw Log",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "severity": {
+          "default": "low",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "event_source": {
+          "default": "stub",
+          "enum": [
+            "vpc_flow_log",
+            "cloudtrail",
+            "guardduty",
+            "tetragon",
+            "stub"
+          ],
+          "title": "Event Source",
           "type": "string"
         }
       },
