@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
+  # service.yaml 없음 — SecOps는 순수 워커(수신 포트 없음)
+
+images:
+  - name: secops-orchestrator-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/secops/orchestrator
+    newTag: latest
