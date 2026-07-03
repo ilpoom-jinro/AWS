@@ -130,16 +130,21 @@
       register: ops_rds_endpoint
       changed_when: false
 
-    - name: Read the Service ALB WAF web ACL ARN
+    # WAF ACL ARN은 SSM Parameter Store 경유로 읽는다. seed CodeBuild가 도는
+    # 격리 ops VPC에는 wafv2 엔드포인트가 없어 `aws wafv2` 호출은 connect timeout
+    # (SSM 엔드포인트는 존재). WAF가 아직 apply되지 않아 파라미터가 없어도
+    # seed를 막지 않도록 failed_when: false (WAF는 선택 기능 → 미적용 시 어노테이션 제거).
+    - name: Read the Service ALB WAF web ACL ARN (optional; via SSM)
       ansible.builtin.command:
         cmd: >
-          aws wafv2 list-web-acls
-          --scope REGIONAL
+          aws ssm get-parameter
           --region {{ aws_region }}
-          --query "WebACLs[?Name=='financial-service-alb-waf'].ARN | [0]"
+          --name /financial/waf/service-alb-acl-arn
+          --query Parameter.Value
           --output text
       register: waf_acl_arn
       changed_when: false
+      failed_when: false
 
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
@@ -152,8 +157,7 @@
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
         service_rds_endpoint.stdout in ["", "None"] or
-        ops_rds_endpoint.stdout in ["", "None"] or
-        waf_acl_arn.stdout in ["", "None"]
+        ops_rds_endpoint.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -246,8 +250,12 @@
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
             "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
             "REPLACE_WITH_OPS_RDS_ENDPOINT": os.environ["OPS_RDS_ENDPOINT"],
-            "REPLACE_WITH_WAF_ACL_ARN": os.environ["WAF_ACL_ARN"],
         }
+
+        # WAF는 선택 기능. SSM 파라미터가 있으면(=WAF apply됨) ARN을 주입하고,
+        # 없으면(빈 값/None) placeholder가 든 어노테이션 줄 자체를 제거한다.
+        # (빈 문자열로 치환하면 wafv2-acl-arn: "" 가 되어 LB 컨트롤러가 거부)
+        waf_arn = os.environ.get("WAF_ACL_ARN", "").strip()
 
         for path in Path(".").rglob("*"):
             if path.suffix not in [".yaml", ".yml", ".md"]:
@@ -255,6 +263,14 @@
             content = path.read_text()
             for placeholder, value in replacements.items():
                 content = content.replace(placeholder, value)
+            if "REPLACE_WITH_WAF_ACL_ARN" in content:
+                if waf_arn and waf_arn != "None":
+                    content = content.replace("REPLACE_WITH_WAF_ACL_ARN", waf_arn)
+                else:
+                    content = "".join(
+                        line for line in content.splitlines(keepends=True)
+                        if "REPLACE_WITH_WAF_ACL_ARN" not in line
+                    )
             path.write_text(content)
         PY
 

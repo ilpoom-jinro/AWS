@@ -180,6 +180,21 @@ resource "aws_wafv2_web_acl_logging_configuration" "service_alb" {
   log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
 }
 
+# gitops-platform-sync(ansible)가 frontend ingress의 wafv2-acl-arn 어노테이션을
+# 주입할 때 ARN을 읽어가는 경로. seed CodeBuild는 격리 ops VPC에서 돌아
+# wafv2 엔드포인트에 도달할 수 없으므로(엔드포인트 없음), VPC 엔드포인트가 있는
+# SSM Parameter Store를 매개로 ARN을 전달한다.
+resource "aws_ssm_parameter" "service_alb_waf_acl_arn" {
+  name        = "/financial/waf/service-alb-acl-arn"
+  description = "Service ALB WAFv2 REGIONAL web ACL ARN (consumed by gitops-platform-sync)"
+  type        = "String"
+  value       = aws_wafv2_web_acl.service_alb.arn
+
+  tags = {
+    ManagedBy = "terraform"
+  }
+}
+
 output "service_alb_waf_acl_arn" {
   description = "REGIONAL WAF web ACL ARN — frontend ingress의 wafv2-acl-arn 어노테이션에 주입"
   value       = aws_wafv2_web_acl.service_alb.arn
