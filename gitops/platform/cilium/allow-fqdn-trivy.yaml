@@ -25,12 +25,17 @@ spec:
           rules:
             dns:
               - matchPattern: "*.amazonaws.com"
+              - matchName: "mirror.gcr.io"       # 추가: 취약점 DB OCI 아티팩트 pull FQDN 학습용
+              - matchName: "check.trivy.dev"      # 추가: DB 업데이트 체크 FQDN 학습용
     - toFQDNs:
+        - matchName: "api.ecr.ap-northeast-2.amazonaws.com"       # 추가: ECR API 조회
         - matchPattern: "*.dkr.ecr.ap-northeast-2.amazonaws.com"
         # ECR 블롭 스토리지(레이어/OCI 아티팩트 본문)는 GET 요청에 대해 S3 호스팅
         # presigned URL로 307 redirect — 실제 데이터는 이 호스트로 전송됨.
         # (velero S3 규칙과 동일한 패턴; 미차단 확인은 배포 후 Hubble로 검증 필요)
         - matchPattern: "*.s3.ap-northeast-2.amazonaws.com"
+        - matchName: "mirror.gcr.io"       # 추가: 취약점 DB(trivy-db/trivy-java-db) OCI 아티팩트 pull
+        - matchName: "check.trivy.dev"     # 추가: DB 업데이트 체크
       toPorts:
         - ports:
             - port: "443"

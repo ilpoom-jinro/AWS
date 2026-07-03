@@ -26,6 +26,7 @@ resources:
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
   - allow-argocd-to-service-api.yaml
+  - allow-kyverno-cosign-egress.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml

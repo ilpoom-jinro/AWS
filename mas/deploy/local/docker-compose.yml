@@ -1,0 +1,21 @@
+# 로컬 발표용 Postgres — RDS(PostgreSQL) 대역. 발표자 PC에서 감사 로그 저장/조회 시연.
+# 실행:   cd mas/deploy/local && docker compose up -d
+# 종료:   docker compose down          (데이터까지 지우려면 docker compose down -v)
+# DATABASE_URL=postgresql+asyncpg://mas:mas@localhost:5432/mas
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mas-audit-db
+    environment:
+      POSTGRES_USER: mas
+      POSTGRES_PASSWORD: mas
+      POSTGRES_DB: mas
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mas -d mas"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
