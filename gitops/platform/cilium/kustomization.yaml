@@ -26,12 +26,14 @@ resources:
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
   - allow-argocd-to-service-api.yaml
+  - allow-kyverno-cosign-egress-ops.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
   - allow-alloy-service-ztunnel.yaml
   - allow-alloy-service-scraping.yaml
   - allow-alloy-service-to-ops-nlb.yaml
+  - allow-kyverno-cosign-egress-svc.yaml
 
   # FQDN egress
   - allow-fqdn-finops-mas.yaml

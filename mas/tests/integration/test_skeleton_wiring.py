@@ -147,7 +147,7 @@ class TestHITLSignalsSource(unittest.TestCase):
         from pods.aiops.orchestrator.app.workflow import AIOpsRemediationWorkflow
         from contracts.models import ApprovalResult
 
-        sig = inspect.signature(AIOpsRemediationWorkflow.approval_result)
+        sig = inspect.signature(AIOpsRemediationWorkflow.approval_result, eval_str=True)
         params = list(sig.parameters.values())
         result_param = params[1]  # params[0] = self
         self.assertIs(result_param.annotation, ApprovalResult)
@@ -155,7 +155,7 @@ class TestHITLSignalsSource(unittest.TestCase):
     @unittest.skipUnless(TEMPORALIO_AVAILABLE, "temporalio 미설치 — 컨테이너 환경에서 실행")
     def test_secops_submit_approval_bool_first_param(self) -> None:
         from pods.secops.orchestrator.app.workflow import SecOpsWorkflow
-        sig = inspect.signature(SecOpsWorkflow.submit_approval)
+        sig = inspect.signature(SecOpsWorkflow.submit_approval, eval_str=True)
         params = list(sig.parameters.values())
         self.assertIs(params[1].annotation, bool)
 

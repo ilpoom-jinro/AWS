@@ -122,10 +122,25 @@ resource "aws_iam_role_policy_attachment" "thanos_objstore" {
   policy_arn = aws_iam_policy.thanos_objstore.arn
 }
 
-resource "aws_eks_pod_identity_association" "thanos_objstore" {
-  cluster_name    = aws_eks_cluster.ops.name
-  namespace       = "observability"
-  service_account = "thanos"
+resource "aws_eks_pod_identity_association" "thanos_ruler_objstore" {
+  cluster_name = aws_eks_cluster.ops.name
+  namespace    = "observability"
+  # Bitnami thanos 차트는 컴포넌트별 SA를 생성한다 (release: observability-thanos).
+  # ruler가 objstore(S3)에 평가 블록을 업로드하므로 ruler SA에 권한 부여.
+  service_account = "observability-thanos-ruler"
+  role_arn        = aws_iam_role.thanos_objstore.arn
+
+  depends_on = [
+    aws_eks_addon.pod_identity_agent,
+    aws_iam_role_policy_attachment.thanos_objstore,
+  ]
+}
+
+resource "aws_eks_pod_identity_association" "thanos_receive_objstore" {
+  cluster_name = aws_eks_cluster.ops.name
+  namespace    = "observability"
+  # receive도 objstoreConfig가 설정되면 TSDB 블록을 S3로 업로드하므로 동일 권한 필요.
+  service_account = "observability-thanos-receive"
   role_arn        = aws_iam_role.thanos_objstore.arn
 
   depends_on = [

@@ -1,0 +1,41 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-kyverno-cosign-egress-ops
+spec:
+  # ops kyverno-admission-controller / kyverno-reports-controller → cosign 서명(.sig) 검증 egress
+  # ECR VPC 인터페이스 엔드포인트(사설IP)와 S3(서명 객체) 모두 coredns 조회 없이 직접 접근 확인(audit 로그)
+  # → toFQDNs로 못 잡음, toCIDR/toCIDRSet 사용
+  # service 클러스터는 VPC엔드포인트가 없고 NAT+DNS 경유(allow-kyverno-cosign-egress-svc 참고)라
+  # 이 IP들은 ops VPC 전용 — nodeSelector로 ops 노드에만 적용해 clusterwide 오적용 방지.
+  description: "ops kyverno cosign 검증 egress (DNS 우회라 IP 방식). ops 노드 전용."
+  nodeSelector:
+    matchLabels:
+      eks.amazonaws.com/nodegroup: financial-ops-eks-general   # ops 일반 노드 (kyverno가 여기 뜸)
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kyverno
+  egress:
+    # ECR VPC 인터페이스 엔드포인트 (사설IP, cosign .sig 검증)
+    - toCIDR:
+        - 10.20.11.222/32   # ecr.api VPC 엔드포인트 ENI
+        - 10.20.11.246/32   # ecr.dkr VPC 엔드포인트 ENI
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # S3 (cosign 서명 객체) - DNS 우회라 FQDN 불가, S3 prefix list(pl-78a54011) 대역
+    - toCIDRSet:
+        - cidr: 3.5.140.0/22
+        - cidr: 3.5.144.0/23
+        - cidr: 3.5.184.0/21     # 캡처된 kyverno S3 IP(3.5.184.195, 3.5.189.65) 포함
+        - cidr: 52.219.144.0/22
+        - cidr: 52.219.148.0/23
+        - cidr: 52.219.202.0/23
+        - cidr: 52.219.204.0/22
+        - cidr: 52.219.56.0/22
+        - cidr: 52.219.60.0/23
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
