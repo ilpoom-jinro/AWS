@@ -44,8 +44,8 @@
             - flow
             - port-distribution
             - icmp
-      # 임시 audit — 재구축 후 누락 정책 보강 중. 전수 검증 후 false 복귀 (망분리 #79)
-      policyAuditMode: true
+      # enforce 모드. audit 전수 검증 완료 후 전환 (누락 egress 정책 보강: trivy/kyverno cosign/argocd-gitea/velero dualstack, MAS·ambient 네임스페이스는 default-deny NotIn 제외)
+      policyAuditMode: false
       operator:
         replicas: 1
         image:
