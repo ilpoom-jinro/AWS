@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secops-orchestrator
+  namespace: secops-mas
+  labels:
+    app: secops-orchestrator
+    mas.platform/agent: secops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secops-orchestrator
+  template:
+    metadata:
+      labels:
+        app: secops-orchestrator
+    spec:
+      serviceAccountName: secops-orchestrator
+      containers:
+        - name: secops-orchestrator
+          image: secops-orchestrator-image        # kustomization images에서 실제 ECR 경로로 치환
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: secops-orchestrator-config
+          # 주의: SecOps는 순수 Temporal 워커(worker.py: worker.run())라 HTTP 서버가 없음.
+          #   → aiops/finops식 HTTP /health 프로브를 쓰면 프로브 실패로 CrashLoop.
+          #   프로세스가 죽으면 k8s가 재시작하므로 HTTP liveness/readiness는 두지 않음.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
