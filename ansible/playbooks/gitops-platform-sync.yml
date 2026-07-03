@@ -130,6 +130,17 @@
       register: ops_rds_endpoint
       changed_when: false
 
+    - name: Read the Service ALB WAF web ACL ARN
+      ansible.builtin.command:
+        cmd: >
+          aws wafv2 list-web-acls
+          --scope REGIONAL
+          --region {{ aws_region }}
+          --query "WebACLs[?Name=='financial-service-alb-waf'].ARN | [0]"
+          --output text
+      register: waf_acl_arn
+      changed_when: false
+
     - name: Stop when an automatically discovered AWS value is missing
       ansible.builtin.fail:
         msg: "Failed to discover the Ops VPC ID, Service VPC ID, monitoring NLB security group IDs, or Service RDS endpoint."
@@ -141,7 +152,8 @@
         thanos_receive_nlb_sg_id.stdout in ["", "None"] or
         tempo_nlb_sg_id.stdout in ["", "None"] or
         service_rds_endpoint.stdout in ["", "None"] or
-        ops_rds_endpoint.stdout in ["", "None"]
+        ops_rds_endpoint.stdout in ["", "None"] or
+        waf_acl_arn.stdout in ["", "None"]
 
   tasks:
     - name: Start local port-forward to the internal Git service
@@ -234,6 +246,7 @@
             "REPLACE_WITH_OPS_TEMPO_NLB_SG_ID": os.environ["TEMPO_NLB_SG_ID"],
             "REPLACE_WITH_SERVICE_RDS_ENDPOINT": os.environ["SERVICE_RDS_ENDPOINT"],
             "REPLACE_WITH_OPS_RDS_ENDPOINT": os.environ["OPS_RDS_ENDPOINT"],
+            "REPLACE_WITH_WAF_ACL_ARN": os.environ["WAF_ACL_ARN"],
         }
 
         for path in Path(".").rglob("*"):
@@ -267,6 +280,7 @@
         TEMPO_NLB_SG_ID: "{{ tempo_nlb_sg_id.stdout }}"
         SERVICE_RDS_ENDPOINT: "{{ service_rds_endpoint.stdout }}"
         OPS_RDS_ENDPOINT: "{{ ops_rds_endpoint.stdout }}"
+        WAF_ACL_ARN: "{{ waf_acl_arn.stdout }}"
 
     - name: Install ESO CRDs on Ops EKS
       ansible.builtin.shell: >
