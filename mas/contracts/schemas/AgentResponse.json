@@ -23,7 +23,6 @@
           "type": "string"
         },
         "parameters": {
-          "additionalProperties": true,
           "title": "Parameters",
           "type": "object"
         },
@@ -64,7 +63,6 @@
       "type": "string"
     },
     "result": {
-      "additionalProperties": true,
       "title": "Result",
       "type": "object"
     },

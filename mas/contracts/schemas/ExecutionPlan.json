@@ -23,7 +23,6 @@
           "type": "string"
         },
         "parameters": {
-          "additionalProperties": true,
           "title": "Parameters",
           "type": "object"
         },
@@ -32,7 +31,6 @@
           "default": "pending"
         },
         "result": {
-          "additionalProperties": true,
           "title": "Result",
           "type": "object"
         },

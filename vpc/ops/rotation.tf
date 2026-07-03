@@ -41,6 +41,8 @@ resource "aws_security_group_rule" "rds_from_rotation_lambda" {
 }
 
 data "aws_serverlessapplicationrepository_application" "postgres_rotation" {
+  # SAR 앱은 us-east-1 게시본. 서울 SAR authorizer 장애 회피 위해 us-east-1로 조회.
+  provider         = aws.us_east_1
   application_id   = "arn:aws:serverlessrepo:us-east-1:297356227824:applications/SecretsManagerRDSPostgreSQLRotationSingleUser"
   semantic_version = "1.1.367"
 }
