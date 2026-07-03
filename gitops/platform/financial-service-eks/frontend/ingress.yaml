@@ -28,6 +28,9 @@ metadata:
     alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
     # ALB Access Logs → S3 (#13). 버킷은 security/alb_access_logs.tf에서 Terraform 관리
     alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true,access_logs.s3.bucket=financial-alb-access-logs-REPLACE_WITH_ACCOUNT_ID,access_logs.s3.prefix=alb
+    # WAFv2(REGIONAL) web ACL 연결 — LB 컨트롤러가 ALB에 associate. web ACL은
+    # terraform waf.tf에서 관리, ARN은 ansible이 이름으로 조회해 치환(계정 독립).
+    alb.ingress.kubernetes.io/wafv2-acl-arn: REPLACE_WITH_WAF_ACL_ARN
 spec:
   ingressClassName: alb
   rules:
