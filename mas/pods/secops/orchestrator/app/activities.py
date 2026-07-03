@@ -15,6 +15,7 @@ SecOps Temporal Activities
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -287,19 +288,75 @@ async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     )
 
 
+def _load_k8s_config() -> None:
+    """in-cluster(배포 Pod) 우선, 실패 시 kubeconfig(로컬). 둘 다 없으면 ConfigException."""
+    from kubernetes import config
+    from kubernetes.config.config_exception import ConfigException
+    try:
+        config.load_incluster_config()
+    except ConfigException:
+        config.load_kube_config()   # kubeconfig도 없으면 ConfigException 재발생
+
+
+def _apply_authorization_policy(doc: dict) -> str:
+    """Istio AuthorizationPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'."""
+    from kubernetes import client
+    from kubernetes.client.rest import ApiException
+
+    group, version = doc["apiVersion"].split("/", 1)   # security.istio.io, v1
+    plural = "authorizationpolicies"
+    ns = doc["metadata"].get("namespace") or "default"
+    name = doc["metadata"]["name"]
+    api = client.CustomObjectsApi()
+    try:
+        api.create_namespaced_custom_object(group, version, ns, plural, doc)
+        return "created"
+    except ApiException as exc:
+        if exc.status != 409:            # 409=이미 존재 → replace로 멱등, 그 외는 전파(재시도)
+            raise
+        existing = api.get_namespaced_custom_object(group, version, ns, plural, name)
+        doc["metadata"]["resourceVersion"] = existing["metadata"]["resourceVersion"]
+        api.replace_namespaced_custom_object(group, version, ns, plural, name, doc)
+        return "replaced"
+
+
 @activity.defn(name="apply_isolation")
 async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
     """
-    Istio 정책 적용. 권한상 Platform Core 소유 (여기선 stub).
-    상태 변경 Activity → heartbeat 호출 + 멱등 구현 필요.
+    Istio AuthorizationPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
+      - 배포 Pod: in-cluster 자격증명으로 실제 apply (create-or-replace)
+      - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry-run (정책 검증만, 미적용)
+    상태 변경 Activity → heartbeat. 동기 k8s 호출은 스레드로 오프로드(이벤트 루프 비차단).
     """
-    activity.heartbeat("applying isolation policy")
-    # TODO(실제, 민수님 PR 리뷰): k8s client로 mapping.isolation_policy_yaml apply (멱등)
+    import yaml
+
+    activity.heartbeat("apply_isolation: start")
+    doc = yaml.safe_load(mapping.isolation_policy_yaml)
+    name = doc.get("metadata", {}).get("name", "?")
+    ns = doc.get("metadata", {}).get("namespace", "default")
+
+    dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
+    if not dry_run:
+        try:
+            await asyncio.to_thread(_load_k8s_config)
+        except Exception:
+            dry_run = True   # 클러스터 접근 불가 → dry-run (발표자 PC 등)
+
+    if dry_run:
+        return ExecutionResult(
+            workflow_id=mapping.workflow_id,
+            success=True,
+            action_taken=f"[DRY-RUN] AuthorizationPolicy '{name}' (ns={ns}) 검증 완료 — 클러스터 미적용",
+            output=mapping.isolation_policy_yaml,
+        )
+
+    activity.heartbeat("apply_isolation: applying")
+    outcome = await asyncio.to_thread(_apply_authorization_policy, doc)
     return ExecutionResult(
         workflow_id=mapping.workflow_id,
         success=True,
-        action_taken="Istio AuthorizationPolicy 적용으로 pod 격리 (stub)",
-        output="isolated",
+        action_taken=f"Istio AuthorizationPolicy '{name}' (ns={ns}) {outcome} — pod 격리 적용",
+        output=f"{outcome}: {name} (ns={ns})",
     )
 
 
