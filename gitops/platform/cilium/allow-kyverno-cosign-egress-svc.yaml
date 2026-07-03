@@ -1,0 +1,37 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-kyverno-cosign-egress-svc
+spec:
+  # service kyverno-admission-controller / kyverno-reports-controller → cosign 서명(.sig) 검증 egress
+  # service는 ECR VPC 인터페이스 엔드포인트가 없고 NAT Gateway 경유 + coredns 조회 확인(audit 로그)
+  # → ops(allow-kyverno-cosign-egress-ops)와 달리 toFQDNs 사용 가능
+  description: "service kyverno cosign 검증 egress (DNS 타므로 FQDN). service는 NAT 경유."
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kyverno
+  egress:
+    # DNS 조회 허용 (FQDN 학습 필수)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    # ECR + S3 (cosign 검증) - FQDN, NAT 경유여도 이름 기반 커버
+    - toFQDNs:
+        - matchName: "api.ecr.ap-northeast-2.amazonaws.com"
+        - matchPattern: "*.dkr.ecr.ap-northeast-2.amazonaws.com"
+        - matchName: "s3.ap-northeast-2.amazonaws.com"
+        - matchPattern: "*.s3.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
