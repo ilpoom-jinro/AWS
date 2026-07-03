@@ -27,6 +27,11 @@ spec:
         - matchName: "s3.ap-northeast-2.amazonaws.com"
         # S3 virtual-hosted style: <bucket>.s3.ap-northeast-2.amazonaws.com
         - matchPattern: "*.s3.ap-northeast-2.amazonaws.com"
+        # velero kopia maintain job은 S3 dualstack 엔드포인트(IPv4/IPv6 겸용) 사용
+        # (financial-velero-backup-<계정>.s3.dualstack.ap-northeast-2.amazonaws.com) —
+        # 위 non-dualstack 패턴과 매칭 안 돼 audit에서 AUDIT만 찍히고 enforce 시 끊김 확인
+        - matchPattern: "*.s3.dualstack.ap-northeast-2.amazonaws.com"   # 추가: velero dualstack 백업 버킷
+        - matchName: "s3.dualstack.ap-northeast-2.amazonaws.com"        # 추가: dualstack 엔드포인트 자체
         - matchName: "ec2.ap-northeast-2.amazonaws.com"
         - matchName: "kms.ap-northeast-2.amazonaws.com"
       toPorts:

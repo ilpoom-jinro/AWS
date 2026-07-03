@@ -46,15 +46,28 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-argocd-to-git
 spec:
+  # audit 로그 확인: 목적지 git 파드가 Cilium에 world(ID:16777224)로 인식돼
+  # 기존 toEndpoints(namespace=git)가 매칭 안 됨 → enforce 시 트래픽 끊김.
+  # git은 ambient 아님(ztunnel 무관). toEndpoints는 정상 파드 인식 시 대비 유지,
+  # toCIDR을 추가해 world 인식 케이스를 커버.
   description: "argocd repo-server → git 네임스페이스 internal-git-http:3000 egress 허용"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: argocd
       app.kubernetes.io/name: argocd-repo-server
   egress:
+    # 기존 유지: 파드로 인식될 때
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: git
+      toPorts:
+        - ports:
+            - port: "3000"
+              protocol: TCP
+    # 추가: git 파드가 world로 인식되는 경우 대비 (파드 대역 CIDR)
+    # 10.20.12.0/24 = git 파드가 뜨는 노드 서브넷 대역
+    - toCIDR:
+        - 10.20.12.0/24   # git 파드(internal-git) IP 대역
       toPorts:
         - ports:
             - port: "3000"
