@@ -19,7 +19,7 @@ RUN apt-get update \
         "pydantic-settings" \
         "sqlalchemy[asyncio]==2.0.41" \
         "asyncpg==0.30.0" \
-        "temporalio==1.9.0" \
+        "temporalio==1.10.0" \
         "kubernetes>=30.1" \
         "httpx>=0.27" \
         "fastapi" \
