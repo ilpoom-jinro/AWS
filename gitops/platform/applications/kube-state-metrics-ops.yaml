@@ -1,6 +1,8 @@
 # gitops/platform/applications/kube-state-metrics-ops.yaml
-# ops 클러스터용 KSM. service용과 동일 차트·values를 재사용하고
-# destination만 financial-ops-eks로 지정한다.
+# ops 클러스터용 KSM. service용과 동일 차트·values를 재사용한다.
+# ArgoCD가 ops 클러스터(financial-ops-eks) 안에서 실행되므로,
+# destination은 원격 이름(name)이 아니라 자기 클러스터(default.svc)로 지정한다.
+# (aiops-mas, finops-mas 등 기존 ops 워크로드와 동일 방식)
 # → aiops-mas, finops-mas 등 ops 워크로드의 파드 상태 메트릭 수집.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -19,7 +21,8 @@ spec:
       valueFiles:
         - ../../kube-state-metrics/values.yaml
   destination:
-    name: financial-ops-eks   # aiops-mas 등 ops 워크로드가 있는 클러스터
+    # ops 클러스터 = ArgoCD가 실행 중인 자기 클러스터
+    server: https://kubernetes.default.svc
     namespace: kube-system
   syncPolicy:
     automated:
