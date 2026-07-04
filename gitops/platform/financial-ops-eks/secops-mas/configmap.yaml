@@ -16,5 +16,4 @@ data:
   USE_REAL_BEDROCK:       "true"
   USE_BEDROCK_KB:         "false"                    # KB 프로비저닝 완료 후 true
   # BEDROCK_KB_ID:        "<KB 생성 후 주입>"
-  # 감사로그 RDS — 지연 로딩이라 기동엔 불필요. 실제 DB 생기면 값 교체(민감하면 Secret으로 이동).
-  DATABASE_URL:           "postgresql+asyncpg://secops:secops@secops-db.secops-mas.svc.cluster.local:5432/secops"
+  # DATABASE_URL → ExternalSecret(secops-orchestrator-secrets)에서 주입 (평문 금지)
