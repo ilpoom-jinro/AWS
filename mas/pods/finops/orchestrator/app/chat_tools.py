@@ -58,32 +58,25 @@ def get_agent_result(conn, workflow_id: str, agent_key: str) -> dict:
 def get_all_agent_results(conn, workflow_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        select agent_key, agent, result, evidence, warnings, confidence, reasoning_source
+        select distinct on (agent_key)
+               agent_key, agent, result, evidence, warnings, confidence, reasoning_source, phase, id
         from agent_decision_log
         where workflow_id = %s
           and status <> 'running'
           and agent_key is not null
-        order by phase, id
+        order by agent_key, id desc
         """,
         (workflow_id,),
     ).fetchall()
 
     results = []
-    seen = set()
-
-    for row in rows:
-        agent_key = row[0]
-        if not agent_key or agent_key in seen:
-            continue
-        seen.add(agent_key)
-
+    for row in sorted(rows, key=lambda item: item[7] or 0):
         normalized = normalize_agent_result_row(
             (row[2], row[3], row[4], row[5], row[6])
         )
-
         results.append(
             {
-                "agent_key": agent_key,
+                "agent_key": row[0],
                 "agent_name": row[1],
                 **normalized,
             }
