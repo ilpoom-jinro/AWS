@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: dummy-monitoring-agent
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
@@ -80,7 +80,7 @@ spec:
     spec:
       containers:
         - name: dummy-log-collector
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
@@ -137,7 +137,7 @@ spec:
     spec:
       containers:
         - name: dummy-metrics-exporter
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
