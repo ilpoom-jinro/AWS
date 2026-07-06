@@ -170,7 +170,7 @@ class PlanCandidateTests(unittest.TestCase):
     def test_03_traffic_calculates_candidate_forecasts(self) -> None:
         _, forecast, _ = candidate_pipeline()
         candidates = forecast["candidate_forecasts"]
-        self.assertEqual([item["peak_rps_after"] for item in candidates], [823, 568, 568])
+        self.assertEqual([item["peak_rps_after"] for item in candidates], [812, 560, 560])
         self.assertEqual(candidates[0]["required_app_pods"], 29)
         self.assertLess(candidates[1]["required_app_pods"], 29)
         self.assertLess(candidates[1]["estimated_p95_ms"], candidates[0]["estimated_p95_ms"])
@@ -406,7 +406,7 @@ class PlanCandidateTests(unittest.TestCase):
             context["agent_results"][key] = response.model_dump(mode="json")
 
         plan = runtime.build_final_plan(context)
-        self.assertEqual(plan["peak_rps_after"], 823)
+        self.assertEqual(plan["peak_rps_after"], 812)
         self.assertEqual(plan["required_app_pods"], 29)
         self.assertEqual(len(plan["plan_candidates"]), 3)
         self.assertTrue(plan["quality_gate_result"]["passed"])

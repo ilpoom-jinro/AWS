@@ -227,9 +227,10 @@ resource "aws_eks_pod_identity_association" "mas_orchestrator_aiops" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
-# NOTE: secops-mas의 Pod Identity association은 SecOps 전용 역할로 전환됨.
-#   secops-role.tf의 aws_eks_pod_identity_association.secops_orchestrator가 대체한다.
-#   (한 service_account에 두 association이 있으면 충돌하므로 여기 옛 association 제거)
+# NOTE: secops-mas Pod Identity association은 secops-role.tf의
+#   aws_eks_pod_identity_association.secops_orchestrator(전용 역할)로 이관됨.
+#   전환은 terraform-operations.yml의 TF_MOVED_RESOURCE_TARGETS에서 옛/새 association을
+#   함께 타겟해 처리한다.
 
 # ── MAS Agent ─────────────────────────────────────────────────────────────────
 

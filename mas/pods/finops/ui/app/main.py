@@ -18,6 +18,8 @@ ORCHESTRATOR_URL = os.getenv(
 
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
+VISIBLE_SCENARIOS = {"fomc-briefing"}
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -43,6 +45,16 @@ def call_orchestrator(path: str, method: str = "GET", body: dict[str, Any] | Non
         raise HTTPException(status_code=503, detail=f"orchestrator unavailable: {exc}") from exc
 
 
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -51,7 +63,7 @@ def health() -> dict[str, str]:
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
     workflows = call_orchestrator("/api/workflows")
-    calendar = call_orchestrator("/api/events")
+    calendar = filter_visible_scenarios(call_orchestrator("/api/events"))
     active = workflows[0] if workflows else None
     return {
         "scenario": "finops",
@@ -65,12 +77,12 @@ def dashboard() -> dict[str, Any]:
 
 @app.get("/api/calendar")
 def calendar() -> Any:
-    return call_orchestrator("/api/calendar")
+    return filter_visible_scenarios(call_orchestrator("/api/calendar"))
 
 
 @app.get("/api/events")
 def events() -> Any:
-    return call_orchestrator("/api/events")
+    return filter_visible_scenarios(call_orchestrator("/api/events"))
 
 
 @app.post("/api/workflows/run")
@@ -528,6 +540,7 @@ def index() -> str:
     <script>
       let currentWorkflow = null;
       let calendarItems = [];
+      const VISIBLE_SCENARIOS = new Set(["fomc-briefing"]);
       let workflowPoller = null;
       let agentDetails = {};
       let conversationHistory = [];
@@ -565,6 +578,11 @@ def index() -> str:
         return String(value || "").replace(/\\s*KST\\s*/i, "").trim();
       }
 
+      function filterVisibleScenarios(items) {
+        if (!Array.isArray(items)) return [];
+        return items.filter(item => item && VISIBLE_SCENARIOS.has(item.event_id));
+      }
+
       function scenarioLabel(item) {
         const time = cleanScheduledAt(item.scheduled_at);
         const users = Number(item.target_users || 0).toLocaleString();
@@ -578,7 +596,7 @@ def index() -> str:
       async function loadDashboard() {
         try {
           const data = await api("/api/dashboard");
-          calendarItems = data.calendar || [];
+          calendarItems = filterVisibleScenarios(data.calendar || []);
           const select = document.getElementById("event-select");
           select.innerHTML = calendarItems.map(item => `
             <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
@@ -602,6 +620,7 @@ def index() -> str:
       }
 
       function renderCalendar(items) {
+        items = filterVisibleScenarios(items);
         const el = document.getElementById("calendar");
         const now = new Date();
         const year = now.getFullYear();
@@ -1418,7 +1437,8 @@ def index() -> str:
           syncAgentDetails([]);
           renderBrokerLog([]);
           renderCallingConversation();
-          const eventId = document.getElementById("event-select").value || "fomc-briefing";
+          const selectedEventId = document.getElementById("event-select").value || "fomc-briefing";
+          const eventId = VISIBLE_SCENARIOS.has(selectedEventId) ? selectedEventId : "fomc-briefing";
           const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});
           currentWorkflow = result.workflow_id;
           await loadWorkflow(currentWorkflow);

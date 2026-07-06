@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -38,12 +39,79 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             f"데이터 source는 {business.get('calendar_source', 'business_calendar')}입니다.",
         ],
     }
+    history = _query_event_history(context, event_type="fomc", limit=5)
+    if history:
+        avg_peak_rps = sum(item["actual_peak_rps"] for item in history) / len(history)
+        avg_shaped_rps = sum(
+            item.get("actual_shaped_rps", item["actual_peak_rps"]) for item in history
+        ) / len(history)
+        avg_pods = sum(item["actual_pods_used"] for item in history) / len(history)
+        avg_cost = sum(float(item["actual_cost_usd"]) for item in history) / len(history)
+        avg_p95 = sum(item["actual_p95_ms"] for item in history) / len(history)
+        result.update(
+            {
+                "baseline_peak_rps": round(avg_peak_rps),
+                "historical_avg_peak_rps": round(avg_peak_rps),
+                "historical_avg_shaped_rps": round(avg_shaped_rps),
+                "historical_avg_pods": round(avg_pods, 1),
+                "historical_avg_cost_usd": round(avg_cost, 2),
+                "historical_avg_p95_ms": round(avg_p95),
+                "historical_event_count": len(history),
+                "historical_events": [
+                    {
+                        "date": str(item["event_date"]),
+                        "peak_rps": item["actual_peak_rps"],
+                        "shaped_rps": item.get("actual_shaped_rps"),
+                        "pods": item["actual_pods_used"],
+                        "cost_usd": float(item["actual_cost_usd"]),
+                        "p95_ms": item["actual_p95_ms"],
+                    }
+                    for item in history
+                ],
+            }
+        )
+    else:
+        result["baseline_peak_rps"] = int(context.get("baseline_peak_rps", 1400) or 1400)
+        result["historical_event_count"] = 0
+        result["historical_events"] = []
+        result["warnings"] = ["No historical event data available; using default baseline."]
     message = (
         f"Classified {event['title']} as grade {event['grade']} for "
         f"{event['target_users']:,} users with a maximum general delay of "
         f"{policy['max_general_delay_minutes']} minutes."
     )
     return result, message
+
+
+def _query_event_history(context: dict[str, Any], event_type: str, limit: int) -> list[dict[str, Any]]:
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            host=os.getenv("DB_HOST", "finops-db"),
+            port=os.getenv("DB_PORT", "5432"),
+            dbname=os.getenv("DB_NAME", "finops"),
+            user=os.getenv("DB_USER", "finops"),
+            password=os.getenv("DB_PASSWORD", "finops"),
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select event_date, event_name,
+                           actual_peak_rps, actual_shaped_rps,
+                           actual_pods_used, actual_cost_usd,
+                           actual_p95_ms
+                    from event_history
+                    where event_type = %s
+                    order by event_date desc
+                    limit %s
+                    """,
+                    (event_type, limit),
+                )
+                columns = [description[0] for description in cur.description]
+                return [dict(zip(columns, row)) for row in cur.fetchall()]
+    except Exception:
+        return []
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:
