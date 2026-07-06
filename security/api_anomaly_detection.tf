@@ -30,7 +30,8 @@
 #   - SNS → Slack 채널 연동 subscription
 # ─────────────────────────────────────────────────────
 resource "aws_sns_topic" "api_anomaly_alert" {
-  name = "api-anomaly-alert"
+  name              = "api-anomaly-alert"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"

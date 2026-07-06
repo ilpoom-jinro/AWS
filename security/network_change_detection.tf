@@ -20,7 +20,8 @@
 #   암호화는 MAS 단계에서 CMK 생성 후 적용 — root-activity-alert 와 공유.
 # =============================================
 resource "aws_sns_topic" "network_change_alert" {
-  name = "network-change-alert"
+  name              = "network-change-alert"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"

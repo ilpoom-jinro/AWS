@@ -26,7 +26,8 @@
 #   - aws_sns_topic_subscription (Slack Lambda 또는 AWS Chatbot)
 # =============================================
 resource "aws_sns_topic" "root_activity_alert" {
-  name = "root-activity-alert"
+  name              = "root-activity-alert"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"
@@ -295,8 +296,9 @@ resource "aws_cloudwatch_event_rule" "root_api_call_use1" {
 # CMK 적용은 MAS에서 root/network 토픽과 함께 일괄 진행 예정.
 # =============================================
 resource "aws_sns_topic" "root_activity_alert_use1" {
-  provider = aws.us_east_1
-  name     = "root-activity-alert-use1"
+  provider          = aws.us_east_1
+  name              = "root-activity-alert-use1"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"
