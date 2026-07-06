@@ -55,6 +55,43 @@ def get_agent_result(conn, workflow_id: str, agent_key: str) -> dict:
     return normalize_agent_result_row(row)
 
 
+def get_all_agent_results(conn, workflow_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        select agent_key, agent, result, evidence, warnings, confidence, reasoning_source
+        from agent_decision_log
+        where workflow_id = %s
+          and status <> 'running'
+          and agent_key is not null
+        order by phase, id
+        """,
+        (workflow_id,),
+    ).fetchall()
+
+    results = []
+    seen = set()
+
+    for row in rows:
+        agent_key = row[0]
+        if not agent_key or agent_key in seen:
+            continue
+        seen.add(agent_key)
+
+        normalized = normalize_agent_result_row(
+            (row[2], row[3], row[4], row[5], row[6])
+        )
+
+        results.append(
+            {
+                "agent_key": agent_key,
+                "agent_name": row[1],
+                **normalized,
+            }
+        )
+
+    return results
+
+
 def get_plan_candidates(conn, workflow_id: str) -> list:
     plan = _plan_row(conn, workflow_id)
     candidates = plan.get("plan_candidates", [])
