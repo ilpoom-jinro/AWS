@@ -498,6 +498,7 @@ jobs:
           -target=random_password.temporal_user
           -target=aws_secretsmanager_secret.temporal_rds
           -target=aws_secretsmanager_secret_version.temporal_rds
+          -target=aws_secretsmanager_secret.slack_hitl_tokens
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply VPC peering
