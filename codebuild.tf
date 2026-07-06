@@ -124,6 +124,16 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
         Resource = "*"
       },
       {
+        Sid    = "CloudWatchMetricsRead"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:GetMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics"
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "SecretsManagerRead"
         Effect = "Allow"
         Action = [
