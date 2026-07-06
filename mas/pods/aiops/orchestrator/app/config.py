@@ -28,6 +28,9 @@ class AIOpsSettings(BaseSettings):
     OPS_EKS_CLUSTER_NAME: str = Field(default="")
     SERVICE_EKS_CLUSTER_NAME: str = Field(default="")
 
+    # AWS 리전 (service 클러스터 원격 접근 시 EKS describe/get-token에 사용)
+    AWS_REGION: str = Field(default="ap-northeast-2")
+
     # Thanos Query (메트릭 수집, 읽기 전용) — 모니터링 스택 전환 반영
     THANOS_QUERY_URL: str = Field(
         default="http://observability-thanos-query.observability.svc.cluster.local:9090"

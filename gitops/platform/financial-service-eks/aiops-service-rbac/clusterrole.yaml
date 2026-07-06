@@ -1,0 +1,11 @@
+# service 클러스터(financial-service-eks)에 배포되는 ClusterRole.
+# ops의 aiops-orchestrator가 원격으로 파드/로그/이벤트를 읽을 수 있도록 한다.
+# (access entry는 "인증", 이 RBAC는 "인가"를 담당)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-remote-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
