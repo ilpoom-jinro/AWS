@@ -18,6 +18,12 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "static_report": True,
         "allowed_actions": policy.get("allowed", []),
         "excluded_actions": policy.get("forbidden", []),
+        "evidence": [
+            f"Policy Guardrail Agent의 allowed actions={policy.get('allowed', [])} 값을 사용했습니다.",
+            f"Policy Guardrail Agent의 forbidden actions={policy.get('forbidden', [])} 값을 사용했습니다.",
+            "Fallback은 VIP-only, general hold, static report 전략으로 구성했습니다.",
+            "금지된 action은 fallback 계획에서 제외했습니다.",
+        ],
     }
     return result, "Prepared a VIP-only fallback with general delivery hold and static reporting."
 
