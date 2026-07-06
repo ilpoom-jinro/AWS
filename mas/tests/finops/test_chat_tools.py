@@ -50,7 +50,7 @@ class ChatToolTests(unittest.TestCase):
         self.assertFalse(chat_runtime.should_continue_tool_loop(5))
         self.assertEqual(chat_runtime.CHAT_MAX_TOOL_CALLS, 5)
 
-        def test_get_all_agent_results_returns_evidence(self) -> None:
+    def test_get_all_agent_results_returns_evidence(self) -> None:
         class FakeCursor:
             def fetchall(self):
                 return [
