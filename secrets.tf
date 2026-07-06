@@ -163,3 +163,24 @@ resource "aws_secretsmanager_secret_version" "temporal_rds" {
     visibilityDatabase = "temporal_visibility"
   })
 }
+
+# ── Slack HITL 봇 토큰 ──────────────────────────────────────
+# 껍데기(리소스)만 IaC로 관리. 값(slack_bot_token 등)은 슬랙 발급 외부 토큰이라
+# Terraform state/git에 평문이 남지 않도록 aws CLI로 수동 주입한다.
+# 이름을 financial- 접두사로 두어 ESO 역할의 financial-* 허용 패턴에 매칭시킨다.
+resource "aws_secretsmanager_secret" "slack_hitl_tokens" {
+  name                    = "financial-slack-hitl-tokens"
+  description             = "SecOps HITL Slack bot tokens (bot/app/channel)"
+  recovery_window_in_days = 7
+  kms_key_id              = data.aws_kms_key.key_secretsmanager.arn # RDS 시크릿과 동일 CMK
+
+  tags = {
+    Name               = "financial-slack-hitl-tokens"
+    DataClassification = "Restricted"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+# aws_secretsmanager_secret_version 은 의도적으로 정의하지 않음 (값은 CLI 수동 주입)
