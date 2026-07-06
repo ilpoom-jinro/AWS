@@ -1,0 +1,51 @@
+# audit_logs 테이블 init Job
+# 의존: (1) terraform secrets.tf financial-ops-rds-password 존재
+#       (2) external-secret.yaml → ops-rds-master Secret 동기화 완료
+# 멱등: CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS → 재실행 안전
+# Replace=true: Job spec.template 불변 → 변경 시 삭제 후 재생성 허용
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: audit-db-init
+  namespace: audit-db-init
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: audit-db-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/postgres:16-alpine
+          env:
+            - name: PGHOST
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: host } }
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: password } }
+            - name: PGDATABASE
+              valueFrom: { secretKeyRef: { name: ops-rds-master, key: dbname } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "[1/1] audit_logs 테이블 생성 (멱등, financial_ops DB)"
+              psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+                   -v ON_ERROR_STOP=1 -f /sql/audit_logs.sql
+              echo "완료: audit_logs 테이블 준비됨"
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: sql
+          configMap:
+            name: audit-db-init-sql
