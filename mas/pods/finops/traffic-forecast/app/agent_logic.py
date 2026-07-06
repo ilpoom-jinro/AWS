@@ -111,6 +111,14 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             "hpa_current_replicas": traffic.get("hpa_current_replicas"),
             "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
             "source": "kubectl" if live_enabled else "traffic_observability_signal",
+            "evidence": [
+                f"재예측 기준 peak_rps_after={peak_rps_after}입니다.",
+                f"ready_pods={ready_pods}, desired_pods={desired_pods}입니다.",
+                f"ready_ratio={ready_pods} / {desired_pods} = {ready_ratio:.3f}입니다.",
+                f"adjusted_capacity_rps={peak_rps_after} * {ready_ratio:.3f} = {adjusted_capacity_rps:.2f}입니다.",
+                f"queue_depth={queue_depth}, p95_latency_ms={p95_latency_ms}를 확인했습니다.",
+                f"pod_scaling_timeline은 {pod_scaling_timeline}입니다.",
+            ],
         }
         return (
             result,
@@ -196,6 +204,15 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "hpa_current_replicas": traffic.get("hpa_current_replicas"),
         "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
         "source": "kubectl" if live_enabled else "traffic_observability_signal",
+        "evidence": [
+            f"기준 peak RPS는 {before}입니다.",
+            f"Demand Shaping 결과 send_window_minutes={window}분을 사용했습니다.",
+            f"Demand Shaping 결과 peak_reduction_percent={reduction}%를 사용했습니다.",
+            f"계산식: {before} * (100 - {reduction}) / 100 = {after} RPS입니다.",
+            f"필요 app pod 수는 {pods}개로 산정했습니다.",
+            f"예상 p95 latency는 {estimated_p95}ms입니다.",
+            f"데이터 source는 {'kubectl' if live_enabled else 'traffic_observability_signal'}입니다.",
+        ],
     }
     historical_avg_shaped_rps = business_control.get("historical_avg_shaped_rps")
     if historical_avg_shaped_rps:

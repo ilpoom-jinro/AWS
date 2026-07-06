@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "ExecutionMode": {
+      "enum": [
+        "dry_run",
+        "live"
+      ],
+      "title": "ExecutionMode",
+      "type": "string"
+    },
+    "ExecutionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "title": "Step Id",
+          "type": "string"
+        },
+        "step_type": {
+          "$ref": "#/$defs/ExecutionStepType"
+        },
+        "scheduled_at": {
+          "title": "Scheduled At",
+          "type": "string"
+        },
+        "parameters": {
+          "title": "Parameters",
+          "type": "object"
+        },
+        "status": {
+          "$ref": "#/$defs/ExecutionStepStatus",
+          "default": "pending"
+        },
+        "result": {
+          "title": "Result",
+          "type": "object"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "step_id",
+        "step_type",
+        "scheduled_at",
+        "parameters"
+      ],
+      "title": "ExecutionStep",
+      "type": "object"
+    },
+    "ExecutionStepStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "success",
+        "failed",
+        "skipped"
+      ],
+      "title": "ExecutionStepStatus",
+      "type": "string"
+    },
+    "ExecutionStepType": {
+      "enum": [
+        "scale_out",
+        "cache_prewarm",
+        "push_schedule",
+        "verify_ready",
+        "go_no_go",
+        "scale_down_watch"
+      ],
+      "title": "ExecutionStepType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "planning_workflow_id": {
+      "title": "Planning Workflow Id",
+      "type": "string"
+    },
+    "execution_workflow_id": {
+      "title": "Execution Workflow Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "#/$defs/ExecutionMode"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/ExecutionStep"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "overall_status": {
+      "default": "pending",
+      "title": "Overall Status",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completed At"
+    }
+  },
+  "required": [
+    "planning_workflow_id",
+    "execution_workflow_id",
+    "event_id",
+    "mode",
+    "steps",
+    "created_at"
+  ],
+  "title": "ExecutionPlan",
+  "type": "object"
+}

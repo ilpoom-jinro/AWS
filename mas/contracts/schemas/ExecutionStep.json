@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "ExecutionStepStatus": {
+      "enum": [
+        "pending",
+        "running",
+        "success",
+        "failed",
+        "skipped"
+      ],
+      "title": "ExecutionStepStatus",
+      "type": "string"
+    },
+    "ExecutionStepType": {
+      "enum": [
+        "scale_out",
+        "cache_prewarm",
+        "push_schedule",
+        "verify_ready",
+        "go_no_go",
+        "scale_down_watch"
+      ],
+      "title": "ExecutionStepType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "step_id": {
+      "title": "Step Id",
+      "type": "string"
+    },
+    "step_type": {
+      "$ref": "#/$defs/ExecutionStepType"
+    },
+    "scheduled_at": {
+      "title": "Scheduled At",
+      "type": "string"
+    },
+    "parameters": {
+      "title": "Parameters",
+      "type": "object"
+    },
+    "status": {
+      "$ref": "#/$defs/ExecutionStepStatus",
+      "default": "pending"
+    },
+    "result": {
+      "title": "Result",
+      "type": "object"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completed At"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    }
+  },
+  "required": [
+    "step_id",
+    "step_type",
+    "scheduled_at",
+    "parameters"
+  ],
+  "title": "ExecutionStep",
+  "type": "object"
+}

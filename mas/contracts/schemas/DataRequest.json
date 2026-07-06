@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "target_agent": {
+      "title": "Target Agent",
+      "type": "string"
+    },
+    "operation": {
+      "title": "Operation",
+      "type": "string"
+    },
+    "parameters": {
+      "title": "Parameters",
+      "type": "object"
+    },
+    "required_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Fields",
+      "type": "array"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "target_agent",
+    "operation",
+    "parameters",
+    "required_fields",
+    "reason"
+  ],
+  "title": "DataRequest",
+  "type": "object"
+}

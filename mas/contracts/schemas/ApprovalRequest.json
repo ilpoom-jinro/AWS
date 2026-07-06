@@ -1,0 +1,299 @@
+{
+  "$defs": {
+    "RegulationMapping": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "analyzed_at": {
+          "format": "date-time",
+          "title": "Analyzed At",
+          "type": "string"
+        },
+        "violated_regulations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Violated Regulations",
+          "type": "array"
+        },
+        "violation_description": {
+          "title": "Violation Description",
+          "type": "string"
+        },
+        "blast_radius_safe": {
+          "default": false,
+          "title": "Blast Radius Safe",
+          "type": "boolean"
+        },
+        "blast_radius_detail": {
+          "default": "",
+          "title": "Blast Radius Detail",
+          "type": "string"
+        },
+        "isolation_policy_yaml": {
+          "default": "",
+          "title": "Isolation Policy Yaml",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "severity": {
+          "default": "low",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "CloudTrail Event ID, GuardDuty Finding ID, Flow Log 등 근거 증적",
+          "title": "Evidence",
+          "type": "object"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "violated_regulations",
+        "violation_description"
+      ],
+      "title": "RegulationMapping",
+      "type": "object"
+    },
+    "RemediationPlan": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "root_cause": {
+          "title": "Root Cause",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "strategy": {
+          "enum": [
+            "restart",
+            "scale_out",
+            "rollback",
+            "manual"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "strategy_detail": {
+          "title": "Strategy Detail",
+          "type": "string"
+        },
+        "estimated_recovery_minutes": {
+          "default": 5,
+          "minimum": 0,
+          "title": "Estimated Recovery Minutes",
+          "type": "integer"
+        },
+        "previous_image": {
+          "default": "",
+          "title": "Previous Image",
+          "type": "string"
+        },
+        "rollback_available": {
+          "default": false,
+          "title": "Rollback Available",
+          "type": "boolean"
+        },
+        "pod_name": {
+          "default": "",
+          "title": "Pod Name",
+          "type": "string"
+        },
+        "previous_hpa_max_replicas": {
+          "default": 0,
+          "title": "Previous Hpa Max Replicas",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "root_cause",
+        "confidence",
+        "strategy",
+        "strategy_detail"
+      ],
+      "title": "RemediationPlan",
+      "type": "object"
+    },
+    "TerraformPlan": {
+      "properties": {
+        "contract_version": {
+          "default": "v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "workflow_id": {
+          "title": "Workflow Id",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "hcl_content": {
+          "title": "Hcl Content",
+          "type": "string"
+        },
+        "validation_passed": {
+          "default": false,
+          "title": "Validation Passed",
+          "type": "boolean"
+        },
+        "validation_attempts": {
+          "default": 0,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Validation Attempts",
+          "type": "integer"
+        },
+        "validation_errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Validation Errors",
+          "type": "array"
+        },
+        "estimated_cost_delta_usd": {
+          "default": 0.0,
+          "title": "Estimated Cost Delta Usd",
+          "type": "number"
+        },
+        "rollback_plan": {
+          "default": "",
+          "title": "Rollback Plan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workflow_id",
+        "hcl_content"
+      ],
+      "title": "TerraformPlan",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "scenario": {
+      "enum": [
+        "finops",
+        "aiops",
+        "secops"
+      ],
+      "title": "Scenario",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "reminder_after_hours": {
+      "default": 4,
+      "minimum": 1,
+      "title": "Reminder After Hours",
+      "type": "integer"
+    },
+    "expire_after_hours": {
+      "default": 8,
+      "minimum": 1,
+      "title": "Expire After Hours",
+      "type": "integer"
+    },
+    "terraform_plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TerraformPlan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "remediation_plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RemediationPlan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "regulation_mapping": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegulationMapping"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "workflow_id",
+    "scenario",
+    "severity",
+    "summary",
+    "detail"
+  ],
+  "title": "ApprovalRequest",
+  "type": "object"
+}

@@ -1,0 +1,86 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "detected_at": {
+      "format": "date-time",
+      "title": "Detected At",
+      "type": "string"
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "type": "string"
+    },
+    "namespace": {
+      "title": "Namespace",
+      "type": "string"
+    },
+    "pod_name": {
+      "title": "Pod Name",
+      "type": "string"
+    },
+    "anomaly_type": {
+      "enum": [
+        "crashloop_backoff",
+        "oom_killed",
+        "high_latency",
+        "image_pull_backoff",
+        "pending_timeout",
+        "evicted"
+      ],
+      "title": "Anomaly Type",
+      "type": "string"
+    },
+    "restart_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Restart Count",
+      "type": "integer"
+    },
+    "cpu_usage_current": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Cpu Usage Current",
+      "type": "number"
+    },
+    "memory_usage_current": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Memory Usage Current",
+      "type": "number"
+    },
+    "error_rate": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Error Rate",
+      "type": "number"
+    },
+    "recent_logs": {
+      "description": "최근 로그 최대 50줄 (일단 임의로 제가 제한걸었습니다 나중에 작업하시다가 수정이 필요해지면 말씀해주세요) Temporal Event History 단일 payload 2MB 제한 대응 전체 로그는 loki / S3 / CloudWatch Logs 등 외부 저장소를 사용할 것",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Recent Logs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "cluster_name",
+    "namespace",
+    "pod_name",
+    "anomaly_type"
+  ],
+  "title": "IncidentContext",
+  "type": "object"
+}

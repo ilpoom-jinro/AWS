@@ -143,6 +143,17 @@ resource "aws_iam_role_policy" "ansible_codebuild" {
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:financial-service-rds-password-*"
       },
       {
+        # gitops-platform-sync가 서비스 ALB WAF web ACL ARN을 읽어 ingress
+        # wafv2-acl-arn 어노테이션에 주입한다. 권한이 없으면 조용히(빈 값)
+        # 어노테이션이 제거되어 WAF가 ALB에 부착되지 않는다.
+        Sid    = "SsmReadWafAclArn"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter"
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/financial/waf/*"
+      },
+      {
         Sid    = "CodeBuildNetworkInterfacePermission"
         Effect = "Allow"
         Action = [

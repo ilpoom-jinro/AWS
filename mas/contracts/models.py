@@ -276,6 +276,19 @@ class RemediationPlan(WorkflowDerivedMixin):
     previous_image: str = ""
     rollback_available: bool = False
 
+    # ── Platform Core 실행 지원 필드 ────────────────────────────────────────
+    # AIOps Workflow가 IncidentContext에서 채워서 전달한다.
+
+    # restart / rollback strategy 전용: Deployment 이름을 직접 지정하는 대신
+    # pod_name 으로 Platform Core가 kubectl을 통해 Deployment를 추론한다.
+    # (요청서 §2: "pod_name에서 Deployment를 추론")
+    pod_name: str = ""
+
+    # scale_out rollback 전용: execute_remediation 이 HPA 패치 직전 maxReplicas 를
+    # ExecutionResult.output 으로 반환하면, AIOps Workflow가 이 필드에 저장한 뒤
+    # execute_rollback 에 넘긴다. 0이면 미설정(delta 차감 방식으로 폴백).
+    previous_hpa_max_replicas: int = 0
+
 
 class RecoveryVerification(WorkflowDerivedMixin):
     verified_at: datetime = Field(default_factory=utc_now)
@@ -326,6 +339,9 @@ class SecurityEvent(WorkflowRootMixin):
     ]
 
     raw_log: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    severity: SeverityType = "low"
+    event_source: Literal["vpc_flow_log", "cloudtrail", "guardduty", "tetragon", "stub"] = "stub"
 
 
 class RegulationMapping(WorkflowDerivedMixin):
@@ -335,6 +351,12 @@ class RegulationMapping(WorkflowDerivedMixin):
     blast_radius_safe: bool = False
     blast_radius_detail: str = ""
     isolation_policy_yaml: str = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    severity: SeverityType = "low"
+    evidence: dict[str, Any] = Field(
+        default_factory=dict,
+        description="CloudTrail Event ID, GuardDuty Finding ID, Flow Log 등 근거 증적",
+    )
 
 
 class ComplianceReport(WorkflowDerivedMixin):
@@ -344,6 +366,8 @@ class ComplianceReport(WorkflowDerivedMixin):
     threat_summary: str
     action_taken: str
     isolation_applied: bool
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---

@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "intent": {
+      "enum": [
+        "replan",
+        "query",
+        "partial_replan",
+        "explain"
+      ],
+      "title": "Intent",
+      "type": "string"
+    },
+    "constraints": {
+      "title": "Constraints",
+      "type": "object"
+    },
+    "forbidden_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "replan_from": {
+      "title": "Replan From",
+      "type": "string"
+    },
+    "target_agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Agent"
+    },
+    "requires_confirmation": {
+      "title": "Requires Confirmation",
+      "type": "boolean"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "intent",
+    "constraints",
+    "forbidden_actions",
+    "replan_from",
+    "requires_confirmation",
+    "reason"
+  ],
+  "title": "ReplanIntent",
+  "type": "object"
+}

@@ -28,6 +28,16 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "approval_required": policy["approval_required"],
         "max_delay_minutes": policy["max_general_delay_minutes"],
         "source": business.get("calendar_source", "business_calendar"),
+
+        "evidence": [
+            f"이벤트 {event['event_id']}는 grade {event['grade']}로 분류되었습니다.",
+            f"대상자는 {event['target_users']:,}명입니다.",
+            f"VIP 대상자는 {business.get('vip_audience_count')}명입니다.",
+            f"일반 대상자는 {business.get('general_audience_count')}명입니다.",
+            f"정책상 approval_required={policy['approval_required']}입니다.",
+            f"일반 사용자 최대 지연 허용 시간은 {policy['max_general_delay_minutes']}분입니다.",
+            f"데이터 source는 {business.get('calendar_source', 'business_calendar')}입니다.",
+        ],
     }
     history = _query_event_history(context, event_type="fomc", limit=5)
     if history:

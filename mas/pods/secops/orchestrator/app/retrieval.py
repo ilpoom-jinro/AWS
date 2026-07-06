@@ -98,6 +98,14 @@ class LocalRegulationRetriever:
 # Bedrock Knowledge Base 구현 (권한/리소스 풀리면 교체)
 #   같은 인터페이스라 map_regulation은 한 줄도 안 바뀐다.
 # =====================================================================
+def _source_from_uri(uri: str) -> str:
+    """s3://bucket/regulations/efin_supervision_art13.md → efin_supervision_art13"""
+    if not uri:
+        return ""
+    name = uri.rstrip("/").split("/")[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
 class BedrockKBRetriever:
     def __init__(self, knowledge_base_id: str | None = None) -> None:
         self._kb_id = knowledge_base_id or os.getenv("BEDROCK_KB_ID", "")
@@ -116,12 +124,15 @@ class BedrockKBRetriever:
         )
         out: list[RetrievedChunk] = []
         for r in resp.get("retrievalResults", []):
-            loc = r.get("location", {})
+            uri = r.get("location", {}).get("s3Location", {}).get("uri", "")
+            meta = r.get("metadata", {}) or {}
+            # 출처: 메타데이터 title > S3 파일명 > 기본값 (report의 violated_regulations 가독성)
+            source = meta.get("title") or _source_from_uri(uri) or "knowledge-base"
             out.append(RetrievedChunk(
                 text=r.get("content", {}).get("text", ""),
-                source=loc.get("s3Location", {}).get("uri", "knowledge-base"),
+                source=source,
                 score=round(float(r.get("score", 0.0)), 3),
-                location=loc.get("type", ""),
+                location=uri,
             ))
         return out
 

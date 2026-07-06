@@ -15,6 +15,11 @@ module "security" {
   pii_scan_ecr_repo_arn   = aws_ecr_repository.pii_scan.arn
   # SIEM Athena results 버킷 이름 suffix용 (security/siem-athena.tf)
   aws_region = var.aws_region
+
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 module "vpc1" {
@@ -26,6 +31,12 @@ module "vpc1" {
   account_id                 = data.aws_caller_identity.current.account_id
   single_az_mode             = var.single_az_mode
   rds_backup_retention       = var.rds_backup_retention
+
+  # providers 인자를 쓰면 default aws 상속이 취소되므로 aws도 명시적으로 전달.
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 module "vpc2" {
@@ -40,6 +51,12 @@ module "vpc2" {
   rds_backup_retention       = var.rds_backup_retention
 
   depends_on = [module.iam] # mas-policy가 먼저 생성된 후 policy attachment 실행
+
+  # providers 인자를 쓰면 default aws 상속이 취소되므로 aws도 명시적으로 전달.
+  providers = {
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
+  }
 }
 
 module "vpc3" {

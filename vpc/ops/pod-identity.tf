@@ -218,6 +218,24 @@ resource "aws_eks_pod_identity_association" "mas_orchestrator" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
+resource "aws_eks_pod_identity_association" "mas_orchestrator_aiops" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "aiops-mas"
+  service_account = "aiops-orchestrator"
+  role_arn        = aws_iam_role.mas_orchestrator.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+resource "aws_eks_pod_identity_association" "mas_orchestrator_secops" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "secops-mas"
+  service_account = "secops-orchestrator"
+  role_arn        = aws_iam_role.mas_orchestrator.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
 # ── MAS Agent ─────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "mas_agent" {

@@ -1,0 +1,74 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "analyzed_at": {
+      "format": "date-time",
+      "title": "Analyzed At",
+      "type": "string"
+    },
+    "violated_regulations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Violated Regulations",
+      "type": "array"
+    },
+    "violation_description": {
+      "title": "Violation Description",
+      "type": "string"
+    },
+    "blast_radius_safe": {
+      "default": false,
+      "title": "Blast Radius Safe",
+      "type": "boolean"
+    },
+    "blast_radius_detail": {
+      "default": "",
+      "title": "Blast Radius Detail",
+      "type": "string"
+    },
+    "isolation_policy_yaml": {
+      "default": "",
+      "title": "Isolation Policy Yaml",
+      "type": "string"
+    },
+    "confidence": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "severity": {
+      "default": "low",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "evidence": {
+      "description": "CloudTrail Event ID, GuardDuty Finding ID, Flow Log 등 근거 증적",
+      "title": "Evidence",
+      "type": "object"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "violated_regulations",
+    "violation_description"
+  ],
+  "title": "RegulationMapping",
+  "type": "object"
+}

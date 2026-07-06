@@ -40,6 +40,7 @@ HITL_TASK_QUEUE = os.getenv("HITL_TASK_QUEUE", "hitl-approval-queue")
 with workflow.unsafe.imports_passed_through():
     from contracts.models import (
         ApprovalRequest,
+        ApprovalResult,
         AuditLog,
         ComplianceReport,
         DetectThreatInput,
@@ -82,16 +83,17 @@ class SecOpsWorkflow:
             **get_activity_options(ActivityName.DETECT_THREAT),
         )
         await self._audit(event.workflow_id, "workflow_started", "SecOps 워크플로우 시작",
-                          {"threat_type": event.threat_type})
+                          {"input": event.model_dump(mode="json")})
 
         # 2) 규제 매핑 (RAG + Claude)
         mapping: RegulationMapping = await workflow.execute_activity(
             map_regulation, event,
             **get_activity_options(ActivityName.MAP_REGULATION),
         )
+        # NOTE: README는 analysis_completed에 AnomalyReport를 기대하나 SecOps는 RegulationMapping을 씀.
+        #       컨트랙트 팀과 협의해 SecOps 전용 키("mapping")를 README에 추가 예정.
         await self._audit(event.workflow_id, "analysis_completed", "규제 매핑 완료",
-                          {"violations": len(mapping.violated_regulations),
-                           "blast_radius_safe": mapping.blast_radius_safe})
+                          {"mapping": mapping.model_dump(mode="json")})
 
         # 3) 분기 — 위반 없으면 조치 없이 종료
         if not mapping.violated_regulations:
@@ -102,20 +104,41 @@ class SecOpsWorkflow:
             )
             return await self._finish(event, mapping, result)
 
-        # 위반 → Slack 승인 요청
+        # 위반 있음 — severity 기반 필터: Critical/High만 Slack push (Medium 이하는 View만)
+        if mapping.severity not in ("critical", "high"):
+            result = ExecutionResult(
+                workflow_id=event.workflow_id, success=False,
+                action_taken=f"규정 위반({mapping.severity}) — Slack 알림 생략, View 대시보드로만 기록",
+                executed_at=workflow.now(),
+            )
+            return await self._finish(event, mapping, result)
+
+        # Critical/High → Slack 승인 요청
+        evidence_text = (
+            "\n".join(f"  {k}: {v}" for k, v in mapping.evidence.items())
+            if mapping.evidence else "  (없음)"
+        )
         approval_req = ApprovalRequest(
-            workflow_id=event.workflow_id, scenario="secops", severity="high",
+            workflow_id=event.workflow_id,
+            scenario="secops",
+            severity=mapping.severity,
             summary=f"보안 격리 승인 요청: {event.source_pod}",
-            detail=mapping.violation_description,
-            regulation_mapping=mapping,           # secops는 regulation_mapping 필수
+            detail=(
+                f"[{mapping.severity.upper()}] confidence={mapping.confidence:.0%}\n"
+                f"{mapping.violation_description}\n\n"
+                f"Evidence:\n{evidence_text}\n\n"
+                f"Blast Radius: {'안전' if mapping.blast_radius_safe else '위험'} — "
+                f"{mapping.blast_radius_detail}"
+            ),
+            regulation_mapping=mapping,
         )
         ticket = await workflow.execute_activity(
             send_approval_request, approval_req,
-            task_queue=HITL_TASK_QUEUE,   # 공통 슬랙 봇 큐로 라우팅 (.activities 스텁은 run_demo용)
+            task_queue=HITL_TASK_QUEUE,
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
         )
         await self._audit(event.workflow_id, "approval_requested", "Slack 승인 요청 전송",
-                          {"slack_message_ts": ticket.slack_message_ts})
+                          {"request": approval_req.model_dump(mode="json")})
 
         # 사람 결정을 durable하게 대기 (만료 시각까지). 워커가 죽어도 상태 보존.
         # TODO(다음): reminder_after_hours 경과 시 send_reminder를 race로 호출
@@ -125,7 +148,13 @@ class SecOpsWorkflow:
                 timeout=timedelta(hours=approval_req.expire_after_hours),
             )
         except asyncio.TimeoutError:
-            await self._audit(event.workflow_id, "approval_timeout", "승인 시간 초과", {})
+            timeout_result = ApprovalResult(
+                workflow_id=event.workflow_id, approved=False,
+                reviewer_id="system", reason="승인 시간 초과",
+                reviewed_at=workflow.now(),
+            )
+            await self._audit(event.workflow_id, "approval_timeout", "승인 시간 초과",
+                              {"result": timeout_result.model_dump(mode="json")})
             result = ExecutionResult(
                 workflow_id=event.workflow_id, success=False,
                 action_taken="승인 시간 초과 — 격리 미실행",
@@ -133,18 +162,24 @@ class SecOpsWorkflow:
             )
             return await self._finish(event, mapping, result)
 
-        # 4) 결정 반영
-        approved = self._decision["approved"]
-        if approved:
+        # 4) 결정 반영 — signal로 받은 dict를 계약 모델 ApprovalResult로 변환
+        approval_result = ApprovalResult(
+            workflow_id=event.workflow_id,
+            approved=self._decision["approved"],
+            reviewer_id=self._decision["reviewer_id"],
+            reason=self._decision["reason"],
+            reviewed_at=workflow.now(),          # 결정성: default_factory 대신 now() 명시
+        )
+        if approval_result.approved:
             await self._audit(event.workflow_id, "approval_granted", "승인됨",
-                              {"reviewer": self._decision["reviewer_id"]})
+                              {"result": approval_result.model_dump(mode="json")})
             if mapping.blast_radius_safe:
                 result = await workflow.execute_activity(
                     apply_isolation, mapping,
                     **get_activity_options(ActivityName.APPLY_ISOLATION),
                 )
                 await self._audit(event.workflow_id, "action_executed", "격리 실행",
-                                  {"success": result.success})
+                                  {"result": result.model_dump(mode="json")})
             else:
                 result = ExecutionResult(
                     workflow_id=event.workflow_id, success=False,
@@ -153,7 +188,7 @@ class SecOpsWorkflow:
                 )
         else:
             await self._audit(event.workflow_id, "approval_denied", "거부됨",
-                              {"reviewer": self._decision["reviewer_id"]})
+                              {"result": approval_result.model_dump(mode="json")})
             result = ExecutionResult(
                 workflow_id=event.workflow_id, success=False,
                 action_taken="승인 거부 → 격리 미실행",
@@ -175,7 +210,7 @@ class SecOpsWorkflow:
             **get_activity_options(ActivityName.GENERATE_COMPLIANCE_REPORT),
         )
         await self._audit(event.workflow_id, "workflow_completed", "워크플로우 완료",
-                          {"isolation_applied": report.isolation_applied})
+                          {"summary": f"{result.action_taken} (격리 적용: {report.isolation_applied})"})
         return report
 
     async def _audit(self, workflow_id: str, event_type: str, summary: str, payload: dict) -> None:

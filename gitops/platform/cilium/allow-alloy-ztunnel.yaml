@@ -18,6 +18,14 @@ spec:
         - ports:
             - port: "15020"
               protocol: TCP
+    - toCIDR:
+        - 10.20.11.0/24  # financial-vpc2-private-a
+        - 10.20.12.0/24  # financial-vpc2-private-b
+        - 10.20.31.0/24  # financial-vpc2-monitor-a
+      toPorts:
+        - ports:
+            - port: "15020"
+              protocol: TCP
 ---
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
