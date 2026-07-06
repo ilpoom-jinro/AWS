@@ -155,13 +155,7 @@ CHAT_TOOLS = [
         "toolSpec": {
             "name": "get_final_report",
             "description": "Return the full final FinOps report JSON for the current workflow.",
-            "inputSchema": {
-                "json": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                }
-            },
+            "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
         }
     },
     {
@@ -178,6 +172,19 @@ CHAT_TOOLS = [
                         }
                     },
                     "required": ["agent_key"],
+                }
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "get_all_agent_results",
+            "description": "Return result, evidence, warnings, confidence, and reasoning source for all FinOps agents in the current workflow.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
                 }
             },
         }
