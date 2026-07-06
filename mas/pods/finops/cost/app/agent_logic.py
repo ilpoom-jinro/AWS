@@ -69,7 +69,6 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             f"budget_exceeded={budget_exceeded}입니다.",
             f"비용 데이터 source는 {source_name}입니다.",
         ],
-        
     }
     return result, f"Estimated incremental cost is ${estimated_cost} for {infra['target_app_pods']} target pods."
 
