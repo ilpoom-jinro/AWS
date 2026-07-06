@@ -558,6 +558,7 @@ jobs:
           -target=random_password.temporal_user
           -target=aws_secretsmanager_secret.temporal_rds
           -target=aws_secretsmanager_secret_version.temporal_rds
+          -target=aws_secretsmanager_secret.slack_hitl_tokens
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Apply VPC peering
@@ -602,6 +603,19 @@ jobs:
           -target=aws_cloudwatch_log_group.waf
           -target=aws_wafv2_web_acl_logging_configuration.service_alb
           -target=aws_ssm_parameter.service_alb_waf_acl_arn
+          $TF_MOVED_RESOURCE_TARGETS
+
+      # 루트 레벨 secops-trigger.tf 리소스. 타겟 apply 구조라 명시하지 않으면 누락됨
+      # (waf.tf/route53와 동일 갭). SNS 토픽은 module.security/flowlogs가 선행 apply되어
+      # 이미 존재하므로 구독/큐만 타겟하면 됨. SQS VPC 엔드포인트는 module.vpc2 스텝에서 적용.
+      - name: Apply SecOps trigger
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_sqs_queue.secops_trigger_dlq
+          -target=aws_sqs_queue.secops_trigger
+          -target=aws_sqs_queue_policy.secops_trigger
+          -target=aws_sns_topic_subscription.secops_trigger
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Re-apply changed infrastructure

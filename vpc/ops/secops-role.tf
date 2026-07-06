@@ -94,6 +94,28 @@ resource "aws_iam_role_policy" "secops_orchestrator_telemetry" {
   })
 }
 
+# 트리거 SQS 소비 — secops-trigger.tf(GuardDuty 아닌 기존 무료 탐지 SNS → SQS)의
+# 큐를 워커 poller가 폴링해 워크플로를 기동한다. 큐 ARN은 결정적(리전+계정+큐명)이라
+# 루트 리소스를 크로스모듈 참조하지 않고 문자열로 구성한다.
+resource "aws_iam_role_policy" "secops_orchestrator_trigger_sqs" {
+  name = "secops-trigger-sqs-consume"
+  role = aws_iam_role.secops_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SecOpsTriggerQueueConsume"
+      Effect = "Allow"
+      Action = [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+      ]
+      Resource = "arn:aws:sqs:${var.aws_region}:${var.account_id}:financial-secops-trigger"
+    }]
+  })
+}
+
 # 감사 로그 DB 등 공통 접근이 필요하면 mas-policy 도 부착 (FinOps 역할과 동일)
 resource "aws_iam_role_policy_attachment" "secops_orchestrator_mas" {
   role       = aws_iam_role.secops_orchestrator.name

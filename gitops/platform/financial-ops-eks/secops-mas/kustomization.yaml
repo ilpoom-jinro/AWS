@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - serviceaccount.yaml
   - external-secret.yaml
+  - slack-hitl-external-secret.yaml   # Slack HITL 봇 토큰 (신규)
   - configmap.yaml
   - deployment.yaml
   # service.yaml 없음 — SecOps는 순수 워커(수신 포트 없음)
