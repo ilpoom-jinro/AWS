@@ -1,0 +1,10 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiops-orchestrator
+rules:
+  # detect_incident: list_namespace_pods, get_pod_logs, get_pod_events
+  # 대상 네임스페이스에 무관하게 클러스터 전체 읽기가 필요 (DetectIncidentInput.namespace 동적)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
