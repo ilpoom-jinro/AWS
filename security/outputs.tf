@@ -54,3 +54,13 @@ output "breakglass_activity_alert_use1_sns_topic_arn" {
   description = "Break Glass 탐지 SNS 토픽 ARN (us-east-1) — MAS Slack 구독 참조용"
   value       = aws_sns_topic.breakglass_activity_alert_use1.arn
 }
+
+output "security_violation_alert_sns_topic_arn" {
+  description = "IAM deny 위반/파괴적 시도 탐지 SNS 토픽 ARN — SecOps 트리거 구독 참조용"
+  value       = aws_sns_topic.security_violation_alert.arn
+}
+
+output "network_change_alert_sns_topic_arn" {
+  description = "SG/NACL/라우팅 변경 탐지 SNS 토픽 ARN — SecOps 트리거 구독 참조용"
+  value       = aws_sns_topic.network_change_alert.arn
+}

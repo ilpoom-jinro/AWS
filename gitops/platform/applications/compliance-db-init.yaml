@@ -1,0 +1,25 @@
+# compliance_reports 테이블 init ArgoCD Application (audit-db-init.yaml 미러링)
+# sync-wave: -1 → secops-mas (wave: 0)보다 먼저 sync (테이블이 워크플로 저장보다 선행)
+# project: ops-infra-project (audit-db-init / temporal-prereqs와 동일 — DB 인프라 초기화)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: compliance-db-init
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: financial-ops-eks/compliance-db-init
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: compliance-db-init
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
