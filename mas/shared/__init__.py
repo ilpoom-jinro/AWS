@@ -15,6 +15,7 @@ from shared.exceptions import (
     AuditLogError,
     BedrockClientError,
     ConfigurationError,
+    ReportError,
     SDKError,
 )
 
@@ -24,6 +25,10 @@ def __getattr__(name: str):
         from shared.audit import save_audit_log
 
         return save_audit_log
+    if name == "save_compliance_report":
+        from shared.reports import save_compliance_report
+
+        return save_compliance_report
     if name in {"ClaudeModel", "get_bedrock_client"}:
         from shared.bedrock import ClaudeModel, get_bedrock_client
 
@@ -37,6 +42,7 @@ __all__ = [
     # 핵심 API
     "get_bedrock_client",
     "save_audit_log",
+    "save_compliance_report",
 
     # 클로드 모델
     "ClaudeModel",
@@ -45,5 +51,6 @@ __all__ = [
     "SDKError",
     "BedrockClientError",
     "AuditLogError",
+    "ReportError",
     "ConfigurationError",
 ]
