@@ -103,6 +103,14 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             "hpa_current_replicas": traffic.get("hpa_current_replicas"),
             "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
             "source": "kubectl" if live_enabled else "traffic_observability_signal",
+            "evidence": [
+                f"재예측 기준 peak_rps_after={peak_rps_after}입니다.",
+                f"ready_pods={ready_pods}, desired_pods={desired_pods}입니다.",
+                f"ready_ratio={ready_pods} / {desired_pods} = {ready_ratio:.3f}입니다.",
+                f"adjusted_capacity_rps={peak_rps_after} * {ready_ratio:.3f} = {adjusted_capacity_rps:.2f}입니다.",
+                f"queue_depth={queue_depth}, p95_latency_ms={p95_latency_ms}를 확인했습니다.",
+                f"pod_scaling_timeline은 {pod_scaling_timeline}입니다.",
+            ],
         }
         return (
             result,
