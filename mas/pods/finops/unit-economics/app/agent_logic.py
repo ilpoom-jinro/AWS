@@ -110,7 +110,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "override": ratio > 5,
         "estimated_cost_usd": estimated_cost_usd,
         "cost_efficiency_score": cost_efficiency_score,
-         "roi_validation": roi_validation,
+        "roi_validation": roi_validation,
         "business_impact_assessment": business_impact,
         "final_approval_recommendation": final_approval,
         "evidence": [
