@@ -378,6 +378,18 @@ async def generate_compliance_report(input: GenerateComplianceReportInput) -> Co
     )
 
 
+@activity.defn(name="record_compliance_report")
+async def record_compliance_report(report: ComplianceReport) -> None:
+    """ComplianceReport를 RDS에 저장 (record_audit_log와 동일 패턴)."""
+    from shared.reports import save_compliance_report
+
+    await save_compliance_report(report)
+    activity.logger.info(
+        "[report] %s | severity=%s | isolation=%s",
+        report.workflow_id, report.severity, report.isolation_applied,
+    )
+
+
 # ---- 공통 Activity (실제 구현은 민수님 / slack-hitl) ----
 @activity.defn(name="send_approval_request")
 async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
