@@ -40,6 +40,10 @@ resource "aws_sqs_queue" "secops_trigger_dlq" {
   name                      = "financial-secops-trigger-dlq"
   message_retention_seconds = 1209600 # 14일
 
+  # SSE-SQS(관리형 SSE) — SNS→SQS 전달과 호환되며 별도 KMS 키 정책 불필요.
+  # 미설정 시 trivy AVD-AWS-0096(HIGH)로 IaC 스캔 실패.
+  sqs_managed_sse_enabled = true
+
   tags = {
     Name      = "financial-secops-trigger-dlq"
     ManagedBy = "terraform"
@@ -56,6 +60,9 @@ resource "aws_sqs_queue" "secops_trigger" {
     deadLetterTargetArn = aws_sqs_queue.secops_trigger_dlq.arn
     maxReceiveCount     = 5
   })
+
+  # SSE-SQS(관리형 SSE) — SNS→SQS 전달 호환 + KMS 키 정책 불필요. (AVD-AWS-0096 대응)
+  sqs_managed_sse_enabled = true
 
   tags = {
     Name      = "financial-secops-trigger"
