@@ -9,7 +9,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-monitoring-agent
@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: dummy-monitoring-agent
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
@@ -66,7 +66,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 5
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-log-collector
@@ -80,7 +80,7 @@ spec:
     spec:
       containers:
         - name: dummy-log-collector
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
@@ -102,7 +102,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: dummy-log-collector
-  minReplicas: 2
+  minReplicas: 1
   maxReplicas: 8
   metrics:
     - type: Resource
@@ -123,7 +123,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 4
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-metrics-exporter
@@ -137,7 +137,7 @@ spec:
     spec:
       containers:
         - name: dummy-metrics-exporter
-          image: nginx:alpine
+          image: 609540154179.dkr.ecr.ap-northeast-2.amazonaws.com/financial/mas/finops/ui:latest
           resources:
             requests:
               cpu: "50m"
