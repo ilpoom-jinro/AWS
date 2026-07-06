@@ -19,7 +19,7 @@ def _build_rule_result(context: dict[str, Any]) -> dict[str, Any]:
     policy = context["policy"]
     source = context.get("policy_source", {})
     unit = get_agent_result(context, "unit_economics")
-    return {
+    result = {
         "allowed": source.get("allowed_actions", ["scale_out", "prewarm", "spread_push"]),
         "forbidden": source.get("forbidden_actions", []),
         "approval_required": policy.get("approval_required", True),
@@ -29,6 +29,17 @@ def _build_rule_result(context: dict[str, Any]) -> dict[str, Any]:
         "policy_version": source.get("policy_version"),
     }
 
+    result["evidence"] = [
+        f"Unit Economics Agent의 cost_ratio={unit.get('cost_ratio')} 값을 사용했습니다.",
+        f"허용된 actions={result['allowed']}입니다.",
+        f"금지된 actions={result['forbidden']}입니다.",
+        f"approval_required={result['approval_required']}입니다.",
+        f"월 예산 한도는 ${result['monthly_budget_limit_usd']}입니다.",
+        f"승인 필요 기준 금액은 ${result['approval_required_over_usd']}입니다.",
+        f"정책 버전은 {result['policy_version']}입니다.",
+    ]
+
+    return result
 
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentResponse:
     result = _build_rule_result(context)
@@ -52,7 +63,10 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
                     "Validated proposed actions with rule-based policy because "
                     "unit economics additional validation was unavailable."
                 ),
-                evidence=["Used upstream result Unit Economics Agent.cost_ratio"],
+                evidence=[
+                    "Used upstream result Unit Economics Agent.cost_ratio",
+                    *result.get("evidence", []),
+                ],
                 data_requests=[],
                 confidence=0.72,
                 warnings=[
@@ -78,6 +92,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
             evidence=[
                 "Used upstream result Unit Economics Agent.cost_ratio",
                 "Used broker result unit_economics additional validation",
+                *result.get("evidence", []),
             ],
             data_requests=[],
             confidence=0.86,

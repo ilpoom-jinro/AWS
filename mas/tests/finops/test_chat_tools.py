@@ -50,6 +50,83 @@ class ChatToolTests(unittest.TestCase):
         self.assertFalse(chat_runtime.should_continue_tool_loop(5))
         self.assertEqual(chat_runtime.CHAT_MAX_TOOL_CALLS, 5)
 
+    def test_get_all_agent_results_returns_evidence(self) -> None:
+        class FakeCursor:
+            def fetchall(self):
+                return [
+                    (
+                        "traffic_forecast",
+                        "Traffic Forecast Agent",
+                        {"result": {"required_app_pods": 29}},
+                        ["기준 peak RPS는 1420입니다."],
+                        [],
+                        0.82,
+                        "rule",
+                        3,
+                        101,
+                    ),
+                    (
+                        "cost",
+                        "Cost Agent",
+                        {"result": {"total": 50.3}},
+                        ["총 비용 계산식은 31.2 + 8.1 + 3.4 + 7.6 = $50.3입니다."],
+                        [],
+                        0.8,
+                        "rule",
+                        6,
+                        102,
+                    ),
+                ]
+
+        class FakeConn:
+            def execute(self, query, params):
+                return FakeCursor()
+
+        results = chat_tools.get_all_agent_results(FakeConn(), "wf-test")
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["agent_key"], "traffic_forecast")
+        self.assertEqual(results[0]["result"], {"required_app_pods": 29})
+        self.assertEqual(
+            results[0]["evidence"],
+            ["기준 peak RPS는 1420입니다."],
+        )
+
+        self.assertEqual(results[1]["agent_key"], "cost")
+        self.assertEqual(results[1]["result"], {"total": 50.3})
+        self.assertEqual(
+            results[1]["evidence"],
+            ["총 비용 계산식은 31.2 + 8.1 + 3.4 + 7.6 = $50.3입니다."],
+        )
+
+    def test_get_all_agent_results_queries_latest_agent_rows(self) -> None:
+        captured = {}
+
+        class FakeCursor:
+            def fetchall(self):
+                return []
+
+        class FakeConn:
+            def execute(self, query, params):
+                captured["query"] = query
+                captured["params"] = params
+                return FakeCursor()
+
+        chat_tools.get_all_agent_results(FakeConn(), "wf-test")
+
+        self.assertEqual(captured["params"], ("wf-test",))
+        self.assertIn("distinct on (agent_key)", captured["query"])
+        self.assertIn("order by agent_key, id desc", captured["query"])
+
+    def test_get_all_agent_results_tool_is_registered(self) -> None:
+        self.assertIn("get_all_agent_results", chat_runtime.TOOL_FUNCTIONS)
+
+        tool_names = [
+            tool["toolSpec"]["name"]
+            for tool in chat_runtime.CHAT_TOOLS
+        ]
+        self.assertIn("get_all_agent_results", tool_names)
+
     def test_conversation_history_structure_is_preserved(self) -> None:
         history = chat_runtime.normalize_conversation_history(
             [

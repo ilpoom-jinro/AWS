@@ -37,6 +37,11 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
                 "budget_exceeded": candidate_estimated_cost > budget,
             }
         )
+    source_name = (
+        "aws_cur_athena+cost_signal"
+        if source.get("cost_source_type") == "aws_cur_athena"
+        else "cost_signal"
+    )
     result = {
         "eks": eks,
         "network": network,
@@ -52,9 +57,18 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "kubecost_namespace_daily_usd": float(source.get("kubecost_namespace_daily_usd", 0)),
         "event_incremental_budget_usd": budget,
         "candidate_costs": candidate_costs,
-        "source": "aws_cur_athena+cost_signal"
-        if source.get("cost_source_type") == "aws_cur_athena"
-        else "cost_signal",
+        "source": source_name,
+        "evidence": [
+            f"Infra Execution Agent의 target_app_pods={infra['target_app_pods']} 값을 사용했습니다.",
+            f"EKS 추가 비용은 ${eks}입니다.",
+            f"Network 비용은 ${network}입니다.",
+            f"Log 비용은 ${logs}입니다.",
+            f"Push 비용은 ${push}입니다.",
+            f"총 비용 계산식은 {eks} + {network} + {logs} + {push} = ${estimated_cost}입니다.",
+            f"이벤트 증분 예산은 ${budget}입니다.",
+            f"budget_exceeded={budget_exceeded}입니다.",
+            f"비용 데이터 source는 {source_name}입니다.",
+        ],
     }
     return result, f"Estimated incremental cost is ${estimated_cost} for {infra['target_app_pods']} target pods."
 
