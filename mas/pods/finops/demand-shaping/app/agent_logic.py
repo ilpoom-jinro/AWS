@@ -52,6 +52,13 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         ),
         "crm_segment": business.get("crm_segment"),
         "candidates": candidates,
+        "evidence": [
+            f"Business Control Agent의 target_users={control.get('target_users')} 값을 사용했습니다.",
+            f"VIP 발송 방식은 {'immediate' if policy['vip_immediate'] else 'batched'}입니다.",
+            f"일반 사용자는 {delay}분 동안 분산 발송합니다.",
+            f"선택된 후보는 '{candidates[0]['label']}'입니다.",
+            f"예상 peak 감소율은 {reduction}%입니다.",
+        ],
     }
     return result, f"Spread general delivery over {delay} minutes; estimated peak reduction is {reduction}%."
 
