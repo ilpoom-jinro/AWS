@@ -21,6 +21,8 @@ spec:
       namespace: teleport-apps
     - server: https://kubernetes.default.svc
       namespace: kyverno
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
     # Temporal (financial-ops-eks in-cluster)
     - server: https://kubernetes.default.svc
       namespace: temporal

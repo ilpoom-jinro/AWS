@@ -64,6 +64,16 @@ def filter_visible_scenarios(items: Any) -> Any:
     ]
 
 
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
