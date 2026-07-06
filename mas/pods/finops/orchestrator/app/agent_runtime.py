@@ -17,6 +17,7 @@ DEFAULT_CANDIDATE_WEIGHTS = {
 
 
 AGENT_SEQUENCE = [
+    ("cluster_state", "Cluster State Agent"),
     ("business_control", "Business Control Agent"),
     ("demand_shaping", "Demand Shaping Agent"),
     ("traffic_forecast", "Traffic Forecast Agent"),
@@ -467,6 +468,8 @@ def plan_status(plan: dict[str, Any]) -> str:
 
 
 def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
+    cluster_state = get_agent_result_or_empty(context, "cluster_state")
+    business_control = get_agent_result_or_empty(context, "business_control")
     shaping = get_agent_result_or_empty(context, "demand_shaping")
     forecast = get_agent_result_or_empty(context, "traffic_forecast")
     cost = get_agent_result_or_empty(context, "cost")
@@ -524,6 +527,29 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
         "quality_gate_result": quality_gate,
         "data_collection_issues": data_collection_issues,
         "data_sources": data_sources,
+        "cluster_state": {
+            "total_cluster_pods": cluster_state.get("total_cluster_pods"),
+            "total_event_related_pods": cluster_state.get("total_event_related_pods"),
+            "idle_candidate_count": cluster_state.get("idle_candidate_count", 0),
+            "total_reducible_pods": cluster_state.get("total_reducible_pods", 0),
+            "total_estimated_saving_usd": cluster_state.get("total_estimated_saving_usd", 0),
+            "idle_candidates": cluster_state.get("idle_candidates", []),
+        },
+        "event_history": {
+            "historical_event_count": business_control.get("historical_event_count", 0),
+            "historical_avg_peak_rps": business_control.get("baseline_peak_rps")
+            or business_control.get("historical_avg_peak_rps"),
+            "historical_avg_shaped_rps": business_control.get("historical_avg_shaped_rps"),
+            "historical_avg_pods": business_control.get("historical_avg_pods"),
+            "historical_avg_cost_usd": business_control.get("historical_avg_cost_usd"),
+            "historical_avg_p95_ms": business_control.get("historical_avg_p95_ms"),
+            "historical_events": business_control.get("historical_events", []),
+            "this_forecast_peak_rps": forecast.get("peak_rps_after"),
+            "this_forecast_shaped_rps": forecast.get("peak_rps_after"),
+            "forecast_variance_from_history": forecast.get("forecast_variance_from_history"),
+            "this_forecast_pods": infra.get("target_app_pods"),
+            "pod_variance_from_history": infra.get("pod_variance_from_history"),
+        },
         "replan_constraints": context.get("replan_constraints", {}),
         "replan_forbidden": context.get("replan_forbidden", []),
         "replan_from": context.get("replan_from"),
@@ -547,6 +573,29 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
                 "live_command_success_count": "see agent decision payloads",
                 "failed_collectors": "see agent decision payloads",
             },
+            "cluster_state": {
+                "total_cluster_pods": cluster_state.get("total_cluster_pods"),
+                "total_event_related_pods": cluster_state.get("total_event_related_pods"),
+                "idle_candidate_count": cluster_state.get("idle_candidate_count", 0),
+                "total_reducible_pods": cluster_state.get("total_reducible_pods", 0),
+                "total_estimated_saving_usd": cluster_state.get("total_estimated_saving_usd", 0),
+                "idle_candidates": cluster_state.get("idle_candidates", []),
+            },
+            "event_history": {
+                "historical_event_count": business_control.get("historical_event_count", 0),
+                "historical_avg_peak_rps": business_control.get("baseline_peak_rps")
+                or business_control.get("historical_avg_peak_rps"),
+                "historical_avg_shaped_rps": business_control.get("historical_avg_shaped_rps"),
+                "historical_avg_pods": business_control.get("historical_avg_pods"),
+                "historical_avg_cost_usd": business_control.get("historical_avg_cost_usd"),
+                "historical_avg_p95_ms": business_control.get("historical_avg_p95_ms"),
+                "historical_events": business_control.get("historical_events", []),
+                "this_forecast_peak_rps": forecast.get("peak_rps_after"),
+                "this_forecast_shaped_rps": forecast.get("peak_rps_after"),
+                "forecast_variance_from_history": forecast.get("forecast_variance_from_history"),
+                "this_forecast_pods": infra.get("target_app_pods"),
+                "pod_variance_from_history": infra.get("pod_variance_from_history"),
+            },
             "traffic": {
                 "peak_rps_before": forecast.get("peak_rps_before"),
                 "peak_rps_after": forecast.get("peak_rps_after"),
@@ -560,6 +609,9 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
                 "ready_app_pods": infra.get("ready_app_pods"),
                 "bottleneck_status": bottleneck.get("status"),
                 "rds_cpu": bottleneck.get("db_cpu"),
+                "rds_connections": bottleneck.get("rds_connections"),
+                "rds_data_source": bottleneck.get("rds_data_source"),
+                "data_quality": bottleneck.get("data_quality"),
                 "cache_hit_ratio": bottleneck.get("cache_hit_ratio"),
                 "spot_candidates": infra.get("spot_instance_types", []),
                 "spot_placement_scores": infra.get("spot_placement_scores", []),
@@ -568,6 +620,10 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
                 "estimated_event_cost_usd": cost.get("total"),
                 "month_to_date_usd": cost.get("cost_explorer_month_to_date_usd"),
                 "cur_month_to_date_usd": cost.get("cur_month_to_date_usd"),
+                "cur_eks_cost": cost.get("cur_eks_cost"),
+                "cur_ec2_cost": cost.get("cur_ec2_cost"),
+                "cur_rds_cost": cost.get("cur_rds_cost"),
+                "cost_data_source": cost.get("cost_data_source"),
                 "projected_monthly_usd": cost.get("cur_projected_monthly_usd"),
                 "event_budget_usd": cost.get("event_incremental_budget_usd"),
             },

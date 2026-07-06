@@ -64,6 +64,7 @@ class ReplanTests(unittest.TestCase):
         self.assertEqual(
             runtime.agents_before("cost"),
             [
+                "cluster_state",
                 "business_control",
                 "demand_shaping",
                 "traffic_forecast",

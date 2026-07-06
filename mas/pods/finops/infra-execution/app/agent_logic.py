@@ -34,6 +34,20 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "eks_nodegroup_status": infra.get("eks_nodegroup_status"),
         "source": "kubectl+infra_capacity_signal" if live_enabled else "infra_capacity_signal",
     }
+    try:
+        business_control = get_agent_result(context, "business_control")
+    except KeyError:
+        business_control = {}
+    historical_avg_pods = business_control.get("historical_avg_pods")
+    if historical_avg_pods and target:
+        pod_variance = (target - historical_avg_pods) / historical_avg_pods
+        result["historical_avg_pods"] = historical_avg_pods
+        result["pod_variance_from_history"] = round(pod_variance * 100, 1)
+        if pod_variance > 0.3:
+            result.setdefault("warnings", []).append(
+                f"Required pods({target}) are {pod_variance * 100:+.0f}% above "
+                f"historical average({historical_avg_pods}); review capacity plan."
+            )
     return result, f"Plan a dry-run scale-out to {target} pods at T-20m and prewarm at T-15m."
 
 

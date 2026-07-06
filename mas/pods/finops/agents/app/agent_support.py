@@ -16,6 +16,7 @@ LLM_JUDGE_TIMEOUT_SECONDS = 10
 BROKER_REQUEST_TIMEOUT_SECONDS = 15
 
 AGENT_TASK_QUEUES = {
+    "cluster_state": "finops-cluster-state-agent-task-queue",
     "business_control": "finops-business-control-agent-task-queue",
     "demand_shaping": "finops-demand-shaping-agent-task-queue",
     "traffic_forecast": "finops-traffic-forecast-agent-task-queue",
@@ -30,6 +31,7 @@ AGENT_TASK_QUEUES = {
 }
 
 AGENT_NAMES = {
+    "cluster_state": "Cluster State Agent",
     "business_control": "Business Control Agent",
     "demand_shaping": "Demand Shaping Agent",
     "traffic_forecast": "Traffic Forecast Agent",
@@ -44,6 +46,7 @@ AGENT_NAMES = {
 }
 
 AGENT_CONFIDENCE = {
+    "cluster_state": 0.83,
     "business_control": 0.91,
     "demand_shaping": 0.86,
     "traffic_forecast": 0.82,
@@ -58,6 +61,7 @@ AGENT_CONFIDENCE = {
 }
 
 AGENT_DEPENDENCIES = {
+    "cluster_state": [],
     "demand_shaping": [("business_control", "max_delay_minutes")],
     "traffic_forecast": [
         ("demand_shaping", "peak_reduction_percent"),
@@ -80,6 +84,26 @@ AGENT_DEPENDENCIES = {
 }
 
 AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "cluster_state": {
+        "operations": [
+            "get_cluster_state",
+            "get_idle_resources",
+        ],
+        "fields": {
+            "total_cluster_pods": ["result.total_cluster_pods"],
+            "total_event_related_pods": ["result.total_event_related_pods"],
+            "idle_candidates": ["result.idle_candidates"],
+            "idle_candidate_count": ["result.idle_candidate_count"],
+            "total_reducible_pods": ["result.total_reducible_pods"],
+            "total_estimated_saving_usd": ["result.total_estimated_saving_usd"],
+            "spot_price_m5xlarge": ["result.spot_price_m5xlarge"],
+            "rds_metrics": ["result.rds_metrics"],
+            "rds_cpu_percent": ["result.rds_cpu_percent"],
+            "rds_connections": ["result.rds_connections"],
+            "rds_source": ["result.rds_source"],
+            "source": ["result.source"],
+        },
+    },
     "business_control": {
         "operations": [
             "classify_event",
@@ -95,6 +119,14 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "campaign_importance": ["result.campaign_importance"],
             "approval_required": ["result.approval_required"],
             "max_delay_minutes": ["result.max_delay_minutes"],
+            "baseline_peak_rps": ["result.baseline_peak_rps"],
+            "historical_avg_peak_rps": ["result.historical_avg_peak_rps"],
+            "historical_avg_shaped_rps": ["result.historical_avg_shaped_rps"],
+            "historical_avg_pods": ["result.historical_avg_pods"],
+            "historical_avg_cost_usd": ["result.historical_avg_cost_usd"],
+            "historical_avg_p95_ms": ["result.historical_avg_p95_ms"],
+            "historical_event_count": ["result.historical_event_count"],
+            "historical_events": ["result.historical_events"],
             "source": ["result.source"],
         },
     },
@@ -152,6 +184,9 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "pod_scaling_timeline": ["result.pod_scaling_timeline"],
             "risk_assessment": ["result.risk_assessment"],
             "reforecast": ["result.reforecast"],
+            "historical_avg_peak_rps": ["result.historical_avg_peak_rps"],
+            "historical_avg_shaped_rps": ["result.historical_avg_shaped_rps"],
+            "forecast_variance_from_history": ["result.forecast_variance_from_history"],
             "source": ["result.source"],
         },
     },
@@ -163,6 +198,7 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
         "fields": {
             "db_cpu": ["result.db_cpu"],
             "rds_connections": ["result.rds_connections"],
+            "rds_data_source": ["result.rds_data_source"],
             "rds_read_iops": ["result.rds_read_iops"],
             "cache_hit_ratio": ["result.cache_hit_ratio"],
             "alb_status": ["result.alb_status"],
@@ -175,6 +211,7 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "reforecast_applied": ["result.reforecast_applied"],
             "adjusted_capacity_rps": ["result.adjusted_capacity_rps"],
             "pod_scaling_timeline": ["result.pod_scaling_timeline"],
+            "data_quality": ["result.data_quality"],
             "source": ["result.source"],
         },
     },
@@ -197,6 +234,8 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "spot_instance_types": ["result.spot_instance_types"],
             "eks_nodegroup_capacity_type": ["result.eks_nodegroup_capacity_type"],
             "eks_nodegroup_status": ["result.eks_nodegroup_status"],
+            "historical_avg_pods": ["result.historical_avg_pods"],
+            "pod_variance_from_history": ["result.pod_variance_from_history"],
             "source": ["result.source"],
         },
     },
@@ -255,6 +294,14 @@ AGENT_CAPABILITIES: dict[str, dict[str, Any]] = {
             "pod_count": ["result.pod_count"],
             "event_incremental_budget_usd": ["result.event_incremental_budget_usd"],
             "candidate_costs": ["result.candidate_costs"],
+            "idle_resource_saving_usd": ["result.idle_resource_saving_usd"],
+            "net_cost_after_idle_reduction": ["result.net_cost_after_idle_reduction"],
+            "idle_candidates": ["result.idle_candidates"],
+            "cost_explorer_month_to_date_usd": ["result.cost_explorer_month_to_date_usd"],
+            "cur_eks_cost": ["result.cur_eks_cost"],
+            "cur_ec2_cost": ["result.cur_ec2_cost"],
+            "cur_rds_cost": ["result.cur_rds_cost"],
+            "cost_data_source": ["result.cost_data_source"],
             "source": ["result.source"],
         },
     },
@@ -309,6 +356,7 @@ def load_capability_md(agent_key: str) -> str:
         "unit_economics": "unit-economics",
         "policy_guardrail": "policy-guardrail",
         "postmortem_learning": "postmortem-learning",
+        "cluster_state": "cluster-state",
         "business_control": "business-control",
         "demand_shaping": "demand-shaping",
     }

@@ -15,6 +15,7 @@ AGENTS_PATH = str(FINOPS_ROOT / "agents")
 AGENTS_APP = FINOPS_ROOT / "agents" / "app"
 
 EXPECTED_AGENT_KEYS = {
+    "cluster_state",
     "business_control",
     "demand_shaping",
     "traffic_forecast",
@@ -61,7 +62,7 @@ def load_agent_support():
 
 
 class AgentCapabilitiesCompleteTests(unittest.TestCase):
-    def test_all_eleven_agents_are_registered(self) -> None:
+    def test_all_agents_are_registered(self) -> None:
         support = load_agent_support()
 
         self.assertEqual(set(support.AGENT_CAPABILITIES), EXPECTED_AGENT_KEYS)

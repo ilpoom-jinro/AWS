@@ -20,9 +20,17 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     signals = context.get("signals", {})
     traffic = context.get("traffic", {})
     shaping = get_agent_result(context, "demand_shaping")
+    try:
+        business_control = get_agent_result(context, "business_control")
+    except KeyError:
+        business_control = {}
     parameters = context.get("parameters", {})
     broker_data = context.get("broker_results", {}).get("traffic_forecast", {})
-    before = traffic.get("prometheus_rps", signals.get("baseline_peak_rps", 1420))
+    before = (
+        business_control.get("baseline_peak_rps")
+        or context.get("baseline_peak_rps")
+        or 1400
+    )
 
     constraint_keys = {
         "peak_rps_after",
@@ -189,6 +197,16 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "hpa_current_cpu_utilization_percent": traffic.get("hpa_current_cpu_utilization_percent"),
         "source": "kubectl" if live_enabled else "traffic_observability_signal",
     }
+    historical_avg_shaped_rps = business_control.get("historical_avg_shaped_rps")
+    if historical_avg_shaped_rps:
+        variance = (after - historical_avg_shaped_rps) / historical_avg_shaped_rps
+        result["historical_avg_shaped_rps"] = historical_avg_shaped_rps
+        result["forecast_variance_from_history"] = round(variance * 100, 1)
+        if abs(variance) > 0.2:
+            result.setdefault("warnings", []).append(
+                f"Forecast RPS({after}) differs from historical average "
+                f"({historical_avg_shaped_rps}) by {variance * 100:+.0f}%; review recommended."
+            )
     return result, f"Forecast peak RPS changes from {before} to {after}; prepare {pods} app pods."
 
 
