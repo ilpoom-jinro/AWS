@@ -18,6 +18,8 @@ ORCHESTRATOR_URL = os.getenv(
 
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
+VISIBLE_SCENARIOS = {"fomc-briefing"}
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -43,6 +45,16 @@ def call_orchestrator(path: str, method: str = "GET", body: dict[str, Any] | Non
         raise HTTPException(status_code=503, detail=f"orchestrator unavailable: {exc}") from exc
 
 
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -51,7 +63,7 @@ def health() -> dict[str, str]:
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
     workflows = call_orchestrator("/api/workflows")
-    calendar = call_orchestrator("/api/events")
+    calendar = filter_visible_scenarios(call_orchestrator("/api/events"))
     active = workflows[0] if workflows else None
     return {
         "scenario": "finops",
@@ -65,12 +77,12 @@ def dashboard() -> dict[str, Any]:
 
 @app.get("/api/calendar")
 def calendar() -> Any:
-    return call_orchestrator("/api/calendar")
+    return filter_visible_scenarios(call_orchestrator("/api/calendar"))
 
 
 @app.get("/api/events")
 def events() -> Any:
-    return call_orchestrator("/api/events")
+    return filter_visible_scenarios(call_orchestrator("/api/events"))
 
 
 @app.post("/api/workflows/run")

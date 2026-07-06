@@ -791,6 +791,45 @@ def init_db() -> None:
                 )
                 conn.execute(
                     """
+                    create table if not exists event_history (
+                      id serial primary key,
+                      event_type varchar(50),
+                      event_date date,
+                      event_name varchar(200),
+                      target_users integer,
+                      grade varchar(10),
+                      actual_peak_rps integer,
+                      actual_shaped_rps integer,
+                      actual_pods_used integer,
+                      actual_cost_usd numeric(10,2),
+                      actual_p95_ms integer,
+                      actual_duration_minutes integer,
+                      demand_shaping_window_minutes integer,
+                      peak_reduction_percent integer,
+                      created_at timestamptz default now(),
+                      unique (event_type, event_date, event_name)
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    create table if not exists cluster_resource_snapshot (
+                      id serial primary key,
+                      workflow_id varchar(50),
+                      namespace varchar(100),
+                      deployment_name varchar(200),
+                      current_replicas integer,
+                      ready_replicas integer,
+                      hpa_min integer,
+                      hpa_max integer,
+                      reducible_replicas integer default 0,
+                      estimated_saving_usd numeric(10,2) default 0,
+                      created_at timestamptz default now()
+                    )
+                    """
+                )
+                conn.execute(
+                    """
                     create table if not exists agent_decision_log (
                       id serial primary key,
                       workflow_id text not null,
@@ -1306,6 +1345,29 @@ def seed(conn) -> None:
             json.dumps(["disable_hpa", "scale_rds_down_during_event", "delete_warm_pool"]),
             json.dumps(["scale_out", "prewarm", "spread_push", "add_read_replica"]),
         ),
+    )
+    conn.execute(
+        """
+        insert into event_history
+          (event_type, event_date, event_name,
+           target_users, grade,
+           actual_peak_rps, actual_shaped_rps,
+           actual_pods_used, actual_cost_usd,
+           actual_p95_ms, actual_duration_minutes,
+           demand_shaping_window_minutes, peak_reduction_percent)
+        values
+          ('fomc','2025-11-07','FOMC November rate decision',
+           340000,'S',1380,800,26,47.20,181,45,10,42),
+          ('fomc','2025-09-18','FOMC September rate decision',
+           360000,'S',1450,850,31,53.10,195,50,10,40),
+          ('fomc','2025-07-30','FOMC July rate decision',
+           320000,'S',1290,750,23,42.80,172,40,10,45),
+          ('fomc','2025-05-07','FOMC May rate decision',
+           330000,'S',1350,780,25,45.50,178,42,10,43),
+          ('fomc','2025-03-19','FOMC March rate decision',
+           310000,'S',1260,730,22,41.20,168,38,15,48)
+        on conflict (event_type, event_date, event_name) do nothing
+        """
     )
     for definition in TEST_EVENT_SEEDS:
         seed_event(conn, definition)

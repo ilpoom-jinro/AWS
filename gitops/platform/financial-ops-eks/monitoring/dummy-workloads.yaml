@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy-monitoring-agent
+  namespace: monitoring
+  labels:
+    app: dummy-monitoring-agent
+    role: monitoring
+    finops-idle-candidate: "true"
+    purpose: finops-idle-demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dummy-monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: dummy-monitoring-agent
+        role: monitoring
+        finops-idle-candidate: "true"
+        purpose: finops-idle-demo
+    spec:
+      containers:
+        - name: dummy-monitoring-agent
+          image: nginx:alpine
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: dummy-monitoring-agent
+  namespace: monitoring
+  labels:
+    app: dummy-monitoring-agent
+    purpose: finops-idle-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: dummy-monitoring-agent
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy-log-collector
+  namespace: monitoring
+  labels:
+    app: dummy-log-collector
+    role: logging
+    finops-idle-candidate: "true"
+    purpose: finops-idle-demo
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: dummy-log-collector
+  template:
+    metadata:
+      labels:
+        app: dummy-log-collector
+        role: logging
+        finops-idle-candidate: "true"
+        purpose: finops-idle-demo
+    spec:
+      containers:
+        - name: dummy-log-collector
+          image: nginx:alpine
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: dummy-log-collector
+  namespace: monitoring
+  labels:
+    app: dummy-log-collector
+    purpose: finops-idle-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: dummy-log-collector
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dummy-metrics-exporter
+  namespace: monitoring
+  labels:
+    app: dummy-metrics-exporter
+    role: metrics
+    finops-idle-candidate: "true"
+    purpose: finops-idle-demo
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: dummy-metrics-exporter
+  template:
+    metadata:
+      labels:
+        app: dummy-metrics-exporter
+        role: metrics
+        finops-idle-candidate: "true"
+        purpose: finops-idle-demo
+    spec:
+      containers:
+        - name: dummy-metrics-exporter
+          image: nginx:alpine
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: dummy-metrics-exporter
+  namespace: monitoring
+  labels:
+    app: dummy-metrics-exporter
+    purpose: finops-idle-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: dummy-metrics-exporter
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

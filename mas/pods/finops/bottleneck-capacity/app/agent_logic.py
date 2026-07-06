@@ -19,7 +19,23 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
     signals = context.get("signals", {})
     infra = context.get("infra", {})
     forecast = get_agent_result(context, "traffic_forecast")
-    db_cpu = infra.get("rds_cpu_percent", signals.get("db_cpu_percent", 68))
+    try:
+        cluster_state = get_agent_result(context, "cluster_state")
+    except KeyError:
+        cluster_state = {}
+    db_cpu = (
+        cluster_state.get("rds_cpu_percent")
+        or infra.get("rds_cpu_percent")
+        or signals.get("db_cpu_percent")
+        or 68
+    )
+    rds_connections = (
+        cluster_state.get("rds_connections")
+        or infra.get("rds_connections")
+        or signals.get("rds_connections")
+        or 640
+    )
+    rds_source = cluster_state.get("rds_source", "seed")
     cache_hit = infra.get("redis_cache_hit_ratio_percent", signals.get("cache_hit_ratio_percent", 91))
     broker_data = context.get("broker_results", {}).get("traffic_forecast", {})
 
@@ -59,7 +75,8 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
     live_enabled = any(command.get("status") == "ok" for command in live.values())
     result = {
         "db_cpu": f"{db_cpu}%",
-        "rds_connections": infra.get("rds_connections"),
+        "rds_connections": rds_connections,
+        "rds_data_source": rds_source,
         "rds_read_iops": infra.get("rds_read_iops"),
         "cache_hit_ratio": f"{cache_hit}%",
         "alb_status": signals.get("alb_status", "ok"),
@@ -80,6 +97,15 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
             f"데이터 source는 {'kubectl+infra_capacity_signal' if live_enabled else 'infra_capacity_signal'}입니다.",
         ],
     }
+    if rds_source == "cloudwatch":
+        result["data_quality"] = "realtime_cloudwatch"
+    elif rds_source == "cloudwatch_failed":
+        result["data_quality"] = "cloudwatch_failed_seed_fallback"
+        result.setdefault("warnings", []).append(
+            "CloudWatch lookup failed; using seeded RDS capacity data."
+        )
+    else:
+        result["data_quality"] = "seed"
     message = f"Validated {effective_rps} RPS against DB, cache, ALB, and pod capacity."
 
     if broker_data.get("_broker_status") == "failed":

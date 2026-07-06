@@ -22,6 +22,9 @@ images:
   - name: finops-orchestrator-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/orchestrator
     newTag: latest
+  - name: finops-cluster-state-agent-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/cluster-state-agent
+    newTag: latest
   - name: finops-business-control-agent-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/finops/business-control-agent
     newTag: latest

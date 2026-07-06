@@ -80,7 +80,8 @@ resource "aws_cloudwatch_event_rule" "breakglass_assume_role_use1" {
 # root-activity-alert 와 동일 이유. CMK는 MAS에서 일괄 적용 예정.
 # =============================================
 resource "aws_sns_topic" "breakglass_activity_alert" {
-  name = "breakglass-activity-alert"
+  name              = "breakglass-activity-alert"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"
@@ -92,8 +93,9 @@ resource "aws_sns_topic" "breakglass_activity_alert" {
 }
 
 resource "aws_sns_topic" "breakglass_activity_alert_use1" {
-  provider = aws.us_east_1
-  name     = "breakglass-activity-alert-use1"
+  provider          = aws.us_east_1
+  name              = "breakglass-activity-alert-use1"
+  kms_master_key_id = var.key_sns_arn
 
   tags = {
     Project     = "ilpumjinro"

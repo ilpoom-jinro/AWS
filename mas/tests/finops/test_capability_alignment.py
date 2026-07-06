@@ -17,6 +17,7 @@ AGENTS_PATH = str(FINOPS_ROOT / "agents")
 
 
 EXPECTED_AGENT_KEYS = {
+    "cluster_state",
     "business_control",
     "demand_shaping",
     "traffic_forecast",

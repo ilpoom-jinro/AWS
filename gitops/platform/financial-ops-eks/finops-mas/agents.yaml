@@ -374,6 +374,12 @@ spec:
               value: finops-cur
             - name: FINOPS_ATHENA_TIMEOUT_SECONDS
               value: "10"
+            - name: ATHENA_CUR_DATABASE
+              value: financial_ops_cur
+            - name: ATHENA_CUR_TABLE
+              value: financial_ops_cur
+            - name: ATHENA_OUTPUT_LOCATION
+              value: s3://financial-ops-cur-609540154179-ap-northeast-2/athena-results/
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL
@@ -487,6 +493,87 @@ spec:
   type: ClusterIP
   selector:
     app.kubernetes.io/name: finops-policy-guardrail-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finops-cluster-state-agent
+  namespace: finops-mas
+  labels:
+    app.kubernetes.io/name: finops-cluster-state-agent
+    app.kubernetes.io/part-of: finops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: finops-cluster-state-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: finops-cluster-state-agent
+        app.kubernetes.io/part-of: finops-mas
+    spec:
+      serviceAccountName: finops-agent
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: monitoring
+          effect: NoSchedule
+      containers:
+        - name: agent
+          image: finops-cluster-state-agent-image
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AGENT_KEY
+              value: cluster_state
+            - name: AGENT_NAME
+              value: Cluster State Agent
+            - name: AGENT_TASK_QUEUE
+              value: finops-cluster-state-agent-task-queue
+            - name: TEMPORAL_ADDRESS
+              value: finops-temporal.finops-mas.svc.cluster.local:7233
+            - name: DATABASE_URL
+              value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
+            - name: AWS_REGION
+              value: ap-northeast-2
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+            - name: FINOPS_SPOT_INSTANCE_TYPES
+              value: m7i-flex.large,m7i.large,m6i.large
+            - name: BEDROCK_MODEL
+              value: global.anthropic.claude-haiku-4-5-20251001-v1:0
+            - name: BEDROCK_REGION
+              value: ap-northeast-2
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finops-cluster-state-agent
+  namespace: finops-mas
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: finops-cluster-state-agent
   ports:
     - name: http
       port: 80
