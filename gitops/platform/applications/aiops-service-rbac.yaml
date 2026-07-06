@@ -1,0 +1,24 @@
+# gitops/platform/applications/aiops-service-rbac.yaml
+# ops의 aiops-orchestrator가 service 클러스터를 원격 조회할 수 있도록
+# service 클러스터에 RBAC를 배포한다. (istio/kyverno-policies-service 패턴 준용)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aiops-service-rbac
+  namespace: argocd
+spec:
+  project: ops-infra-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: financial-service-eks/aiops-service-rbac
+    kustomize: {}
+  destination:
+    name: financial-service-eks
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

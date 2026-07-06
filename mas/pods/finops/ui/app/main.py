@@ -15,6 +15,7 @@ ORCHESTRATOR_URL = os.getenv(
     "ORCHESTRATOR_URL",
     "http://finops-orchestrator.finops-mas.svc.cluster.local",
 )
+ORCHESTRATOR_TIMEOUT_SECONDS = int(os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS", "60"))
 
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
@@ -39,10 +40,68 @@ def call_orchestrator(path: str, method: str = "GET", body: dict[str, Any] | Non
         data = json.dumps(body).encode("utf-8")
     request = Request(f"{ORCHESTRATOR_URL}{path}", data=data, headers=headers, method=method)
     try:
-        with urlopen(request, timeout=5) as response:
+        with urlopen(request, timeout=ORCHESTRATOR_TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=f"orchestrator timeout: {exc}",
+        ) from exc
     except URLError as exc:
-        raise HTTPException(status_code=503, detail=f"orchestrator unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail=f"orchestrator unavailable: {exc}",
+        ) from exc
+
+
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
+
+
+def filter_visible_scenarios(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    return [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
+    ]
 
 
 def filter_visible_scenarios(items: Any) -> Any:
