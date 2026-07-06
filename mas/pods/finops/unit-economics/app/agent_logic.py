@@ -96,20 +96,32 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         estimated_cost_usd,
         expected_value,
     )
+    roi_validation = validate_roi(cost_efficiency_score)
+    business_impact = assess_business_impact(grade, target_users)
+    final_approval = recommend_final_approval(
+        estimated_cost_usd,
+        approval_threshold,
+        ready_pods,
+        required_pods,
+    )
     result = {
         "expected_value_usd": expected_value,
         "cost_ratio": f"{ratio}%",
         "override": ratio > 5,
         "estimated_cost_usd": estimated_cost_usd,
         "cost_efficiency_score": cost_efficiency_score,
-        "roi_validation": validate_roi(cost_efficiency_score),
-        "business_impact_assessment": assess_business_impact(grade, target_users),
-        "final_approval_recommendation": recommend_final_approval(
-            estimated_cost_usd,
-            approval_threshold,
-            ready_pods,
-            required_pods,
-        ),
+         "roi_validation": roi_validation,
+        "business_impact_assessment": business_impact,
+        "final_approval_recommendation": final_approval,
+        "evidence": [
+            f"Cost Agent의 total=${cost['total']} 값을 사용했습니다.",
+            f"예상 비즈니스 가치는 ${expected_value}입니다.",
+            f"비용 비율 계산식은 {cost['total']} / {expected_value} * 100 = {ratio}%입니다.",
+            f"cost_efficiency_score={cost_efficiency_score}입니다.",
+            f"ROI 판단은 {roi_validation}입니다.",
+            f"비즈니스 영향 평가는 {business_impact}입니다.",
+            f"최종 승인 추천은 {final_approval}입니다.",
+        ],
     }
     return result, f"Incremental cost is {ratio}% of the expected business value."
 
