@@ -9,7 +9,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-monitoring-agent
@@ -66,7 +66,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 5
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-log-collector
@@ -102,7 +102,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: dummy-log-collector
-  minReplicas: 2
+  minReplicas: 1
   maxReplicas: 8
   metrics:
     - type: Resource
@@ -123,7 +123,7 @@ metadata:
     finops-idle-candidate: "true"
     purpose: finops-idle-demo
 spec:
-  replicas: 4
+  replicas: 2
   selector:
     matchLabels:
       app: dummy-metrics-exporter
