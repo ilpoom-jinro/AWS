@@ -874,7 +874,23 @@ null 을 반환하세요.
         )
         return None
     return parsed
+def _normalize_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    return [str(value)]
 
+
+def _dedupe_texts(values: list[str]) -> list[str]:
+    deduped = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in deduped:
+            deduped.append(text)
+    return deduped
 
 def standard_response(
     agent_key: str,
@@ -895,11 +911,13 @@ def standard_response(
         else:
             warnings.append(f"Upstream result {dependency} was not available")
 
+    result_evidence = result.get("evidence")
+    evidence.extend(_normalize_text_list(result_evidence))
+    evidence = _dedupe_texts(evidence)
+
     result_warnings = result.get("warnings")
-    if isinstance(result_warnings, list):
-        warnings.extend(str(item) for item in result_warnings)
-    elif isinstance(result_warnings, str):
-        warnings.append(result_warnings)
+    warnings.extend(_normalize_text_list(result_warnings))
+    warnings = _dedupe_texts(warnings)
 
     response = AgentResponse(
         status=AgentStatus.COMPLETED,
