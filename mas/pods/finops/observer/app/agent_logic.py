@@ -47,7 +47,12 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
             agent_name=AGENT_NAME,
             result=result,
             message=message,
-            evidence=["Used Traffic Forecast Agent forecast for observer thresholds"],
+            evidence=[
+                "Used Traffic Forecast Agent forecast for observer thresholds",
+                f"forecast_peak_rps={forecast_peak_rps}",
+                f"scale_down_rps_threshold={scale_down_rps_threshold or threshold}",
+                f"alert_rps_threshold={alert_rps_threshold}",
+            ],
             data_requests=[],
             confidence=0.76,
             warnings=warnings,
@@ -66,6 +71,13 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
         "scale_down_rps_threshold": scale_down_rps_threshold or threshold,
         "alert_rps_threshold": alert_rps_threshold,
         "monitoring_interval_seconds": 30,
+        "evidence": [
+            f"Traffic Forecast Agent의 peak_rps_after={forecast_peak_rps} 값을 사용했습니다.",
+            f"Policy Guardrail Agent의 approval_required={policy.get('approval_required')} 값을 사용했습니다.",
+            f"Scale-down 기준은 forecast_peak_rps * 0.7 = {scale_down_rps_threshold or threshold} RPS입니다.",
+            f"Alert 기준은 forecast_peak_rps * 1.2 = {alert_rps_threshold} RPS입니다.",
+            "관측 대상은 rps, latency, db_cpu, cost_burn입니다.",
+        ],
     }
     return result, f"Monitor runtime signals and recommend scale-down below {threshold} actual RPS."
 

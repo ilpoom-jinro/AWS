@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from app.chat_tools import (
     get_agent_result,
+    get_all_agent_results,
     get_broker_log,
     get_data_collection_issues,
     get_final_report,
@@ -27,6 +28,9 @@ CHAT_SYSTEM_PROMPT = """
 - Tool 조회 결과에 없는 내용을 만들어내지 마세요.
 - 수치 질문에는 저장된 결과를 그대로 사용하세요.
 - 답변에 사용한 데이터 출처(Agent 이름)를 명시하세요.
+- Agent 결과에 evidence가 있으면 evidence를 우선 근거로 사용하세요.
+- 수치 답변은 가능하면 계산식을 함께 설명하세요.
+- source가 fallback 또는 *_signal이면 실시간 수집값이 아닐 수 있음을 구분해서 말하세요.
 - Workflow를 변경하거나 실행 명령을 내리지 마세요.
 - 한국어로 답변하세요.
 """
@@ -127,6 +131,8 @@ Tool을 사용해서 현재 보고서와 Agent 결과를 조회하고 다음을 
 - 왜 이 결과가 나왔는지
 - 문제가 있다면 어디서 발생했는지
 - 해결 방법은 무엇인지
+- 설명할 때 Agent 이름, evidence, reasoning_source를 함께 언급하세요.
+- evidence가 부족하면 저장된 근거가 부족하다고 명확히 말하세요.
 
 없는 내용을 만들어내지 마세요.
 Tool 조회 결과에만 근거해서 설명하세요.
@@ -136,6 +142,7 @@ Tool 조회 결과에만 근거해서 설명하세요.
 TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "get_final_report": get_final_report,
     "get_agent_result": get_agent_result,
+    "get_all_agent_results": get_all_agent_results,
     "get_plan_candidates": get_plan_candidates,
     "get_recommended_candidate": get_recommended_candidate,
     "get_quality_gate_result": get_quality_gate_result,
@@ -165,6 +172,19 @@ CHAT_TOOLS = [
                         }
                     },
                     "required": ["agent_key"],
+                }
+            },
+        }
+    },
+    {
+        "toolSpec": {
+            "name": "get_all_agent_results",
+            "description": "Return result, evidence, warnings, confidence, and reasoning source for all FinOps agents in the current workflow.",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
                 }
             },
         }
@@ -436,6 +456,8 @@ async def run_report_chat(
                 append_unique(tools_used, name)
                 if name == "get_agent_result":
                     append_unique(sources, args.get("agent_key"))
+                elif name == "get_all_agent_results":
+                    append_unique(sources, "all_agents")
                 result = _invoke_tool(conn, workflow_id, name, args)
                 tool_results.append(
                     {
@@ -510,6 +532,8 @@ async def run_explain_llm(
                 append_unique(tools_used, name)
                 if name == "get_agent_result":
                     append_unique(sources, args.get("agent_key"))
+                elif name == "get_all_agent_results":
+                    append_unique(sources, "all_agents")
                 result = _invoke_tool(conn, workflow_id, name, args)
                 tool_results.append(
                     {
