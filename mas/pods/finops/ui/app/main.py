@@ -540,6 +540,7 @@ def index() -> str:
     <script>
       let currentWorkflow = null;
       let calendarItems = [];
+      const VISIBLE_SCENARIOS = new Set(["fomc-briefing"]);
       let workflowPoller = null;
       let agentDetails = {};
       let conversationHistory = [];
@@ -577,6 +578,11 @@ def index() -> str:
         return String(value || "").replace(/\\s*KST\\s*/i, "").trim();
       }
 
+      function filterVisibleScenarios(items) {
+        if (!Array.isArray(items)) return [];
+        return items.filter(item => item && VISIBLE_SCENARIOS.has(item.event_id));
+      }
+
       function scenarioLabel(item) {
         const time = cleanScheduledAt(item.scheduled_at);
         const users = Number(item.target_users || 0).toLocaleString();
@@ -590,7 +596,7 @@ def index() -> str:
       async function loadDashboard() {
         try {
           const data = await api("/api/dashboard");
-          calendarItems = data.calendar || [];
+          calendarItems = filterVisibleScenarios(data.calendar || []);
           const select = document.getElementById("event-select");
           select.innerHTML = calendarItems.map(item => `
             <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
@@ -614,6 +620,7 @@ def index() -> str:
       }
 
       function renderCalendar(items) {
+        items = filterVisibleScenarios(items);
         const el = document.getElementById("calendar");
         const now = new Date();
         const year = now.getFullYear();
@@ -1430,7 +1437,8 @@ def index() -> str:
           syncAgentDetails([]);
           renderBrokerLog([]);
           renderCallingConversation();
-          const eventId = document.getElementById("event-select").value || "fomc-briefing";
+          const selectedEventId = document.getElementById("event-select").value || "fomc-briefing";
+          const eventId = VISIBLE_SCENARIOS.has(selectedEventId) ? selectedEventId : "fomc-briefing";
           const result = await api(`/api/workflows/run?event_id=${encodeURIComponent(eventId)}`, {method: "POST"});
           currentWorkflow = result.workflow_id;
           await loadWorkflow(currentWorkflow);
