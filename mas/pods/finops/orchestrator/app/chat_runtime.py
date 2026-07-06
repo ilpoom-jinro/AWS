@@ -530,6 +530,8 @@ async def run_explain_llm(
                 append_unique(tools_used, name)
                 if name == "get_agent_result":
                     append_unique(sources, args.get("agent_key"))
+                elif name == "get_all_agent_results":
+                    append_unique(sources, "all_agents")
                 result = _invoke_tool(conn, workflow_id, name, args)
                 tool_results.append(
                     {
