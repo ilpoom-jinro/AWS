@@ -97,6 +97,8 @@ env:
   TF_MOVED_RESOURCE_TARGETS: >-
     -target=module.iam.aws_iam_group_policy_attachment.platform_deny_destructive
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
+    -target=module.vpc2.aws_eks_pod_identity_association.mas_orchestrator_secops
+    -target=module.vpc2.aws_eks_pod_identity_association.secops_orchestrator
   ANSIBLE_CODEBUILD_REPOSITORY: financial/ansible-codebuild
   INTERNAL_GIT_REPOSITORY: financial/internal-git
   INTERNAL_GIT_SOURCE_IMAGE: gitea/gitea:1.22-rootless
