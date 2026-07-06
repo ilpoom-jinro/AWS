@@ -874,6 +874,8 @@ null 을 반환하세요.
         )
         return None
     return parsed
+
+
 def _normalize_text_list(value: Any) -> list[str]:
     if value is None:
         return []
