@@ -1,0 +1,9 @@
+# audit_logs 테이블 초기화 패키지
+# temporal-db-init과 동일 패턴: sync-wave로 순서 보장 (hook 미사용)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: audit-db-init
+resources:
+  - external-secret.yaml
+  - configmap.yaml
+  - job.yaml
