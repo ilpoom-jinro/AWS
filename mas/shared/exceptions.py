@@ -86,3 +86,19 @@ class AuditLogError(SDKError):
     """
 
     pass
+
+
+class ReportError(SDKError):
+    """
+    규제 보고서(ComplianceReport) 저장 과정에서 발생한 예외
+
+    발생 예시:
+        - Database 연결 실패
+        - SQLAlchemy Engine 초기화 실패
+        - INSERT 실패
+
+    ComplianceReport 저장 실패 시 원인 예외를 유지하여
+    raise ReportError(...) from e 형태로 사용합니다
+    """
+
+    pass

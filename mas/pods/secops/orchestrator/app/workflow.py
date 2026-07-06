@@ -56,6 +56,7 @@ with workflow.unsafe.imports_passed_through():
         generate_compliance_report,
         map_regulation,
         record_audit_log,
+        record_compliance_report,
         send_approval_request,
     )
 
@@ -208,6 +209,11 @@ class SecOpsWorkflow:
             generate_compliance_report,
             GenerateComplianceReportInput(event=event, mapping=mapping, result=result),
             **get_activity_options(ActivityName.GENERATE_COMPLIANCE_REPORT),
+        )
+        # 보고서 영구 저장 (RDS) — 감사로그와 동일하게 activity 경유
+        await workflow.execute_activity(
+            record_compliance_report, report,
+            **get_activity_options(ActivityName.RECORD_COMPLIANCE_REPORT),
         )
         await self._audit(event.workflow_id, "workflow_completed", "워크플로우 완료",
                           {"summary": f"{result.action_taken} (격리 적용: {report.isolation_applied})"})
