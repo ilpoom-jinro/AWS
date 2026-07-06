@@ -47,7 +47,12 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
             agent_name=AGENT_NAME,
             result=result,
             message=message,
-            evidence=["Used Traffic Forecast Agent forecast for observer thresholds"],
+            evidence=[
+                "Used Traffic Forecast Agent forecast for observer thresholds",
+                f"forecast_peak_rps={forecast_peak_rps}",
+                f"scale_down_rps_threshold={scale_down_rps_threshold or threshold}",
+                f"alert_rps_threshold={alert_rps_threshold}",
+            ],
             data_requests=[],
             confidence=0.76,
             warnings=warnings,
