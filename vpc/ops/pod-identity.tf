@@ -227,14 +227,9 @@ resource "aws_eks_pod_identity_association" "mas_orchestrator_aiops" {
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
 
-resource "aws_eks_pod_identity_association" "mas_orchestrator_secops" {
-  cluster_name    = aws_eks_cluster.ops.name
-  namespace       = "secops-mas"
-  service_account = "secops-orchestrator"
-  role_arn        = aws_iam_role.mas_orchestrator.arn
-
-  depends_on = [aws_eks_addon.pod_identity_agent]
-}
+# NOTE: secops-mas의 Pod Identity association은 SecOps 전용 역할로 전환됨.
+#   secops-role.tf의 aws_eks_pod_identity_association.secops_orchestrator가 대체한다.
+#   (한 service_account에 두 association이 있으면 충돌하므로 여기 옛 association 제거)
 
 # ── MAS Agent ─────────────────────────────────────────────────────────────────
 
