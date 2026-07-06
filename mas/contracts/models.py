@@ -584,6 +584,9 @@ class DetectThreatInput(ContractVersionMixin):
     """
     cluster_name: str
     vpc_id: str
+    # 트리거 SQS 메시지 원본(raw). poller가 실어 보내면 detect_threat가 파싱·보강한다.
+    # 비어 있으면(run_demo/수동 실행) 더미 이벤트를 생성한다.
+    trigger_message: str = ""
  
  
 class GenerateComplianceReportInput(ContractVersionMixin):
