@@ -17,13 +17,25 @@ from kubernetes import client, config as k8s_config
 from kubernetes.client.exceptions import ApiException
 
 
+def _make_api_client(context: str) -> client.ApiClient:
+    """in-cluster 설정 우선, 실패 시 kubeconfig context 폴백.
+
+    EKS Pod 내부: load_incluster_config() 성공 → ServiceAccount 토큰 사용.
+    로컬 개발:    ConfigException → new_client_from_config(context=context) 폴백.
+    """
+    try:
+        k8s_config.load_incluster_config()
+        return client.ApiClient()
+    except k8s_config.ConfigException:
+        return k8s_config.new_client_from_config(context=context)
+
+
 class K8sCollector:
     """컨텍스트별 읽기 전용 Kubernetes 수집기"""
 
     def __init__(self, context: str) -> None:
         self.context = context
-        # kubeconfig 기반 독립 ApiClient (전역 설정 공유 방지)
-        api_client = k8s_config.new_client_from_config(context=context)
+        api_client = _make_api_client(context)
         self._core = client.CoreV1Api(api_client)
         self._apps = client.AppsV1Api(api_client)
 
