@@ -542,6 +542,19 @@ jobs:
           -target=aws_ssm_parameter.service_alb_waf_acl_arn
           $TF_MOVED_RESOURCE_TARGETS
 
+      # 루트 레벨 secops-trigger.tf 리소스. 타겟 apply 구조라 명시하지 않으면 누락됨
+      # (waf.tf/route53와 동일 갭). SNS 토픽은 module.security/flowlogs가 선행 apply되어
+      # 이미 존재하므로 구독/큐만 타겟하면 됨. SQS VPC 엔드포인트는 module.vpc2 스텝에서 적용.
+      - name: Apply SecOps trigger
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_sqs_queue.secops_trigger_dlq
+          -target=aws_sqs_queue.secops_trigger
+          -target=aws_sqs_queue_policy.secops_trigger
+          -target=aws_sns_topic_subscription.secops_trigger
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Re-apply changed infrastructure
         if: inputs.action == 'reapply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m
