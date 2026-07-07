@@ -560,6 +560,19 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
             """,
             (event_id,),
         ).fetchone()
+        history_rows = conn.execute(
+            """
+            select event_date, event_name,
+                   actual_peak_rps, actual_shaped_rps,
+                   actual_pods_used, actual_cost_usd,
+                   actual_p95_ms
+            from event_history
+            where event_type = %s
+            order by event_date desc
+            limit 5
+            """,
+            (_event_history_type(event_id),),
+        ).fetchall()
     if not event or not policy or not signals:
         raise ValueError(f"event context not found: {event_id}")
     business = {
@@ -612,6 +625,18 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "allowed_actions": policy_source[4],
         "policy_version": policy_source[5],
     } if policy_source else {}
+    event_history = [
+        {
+            "event_date": str(row[0]),
+            "event_name": row[1],
+            "actual_peak_rps": row[2],
+            "actual_shaped_rps": row[3],
+            "actual_pods_used": row[4],
+            "actual_cost_usd": float(row[5]),
+            "actual_p95_ms": row[6],
+        }
+        for row in history_rows
+    ]
     return {
         "event": {
             "event_id": event[0],
@@ -647,9 +672,16 @@ def fetch_event_context(event_id: str) -> dict[str, Any]:
         "infra": infra,
         "cost_source": cost,
         "policy_source": policy_detail,
+        "event_history": event_history,
         "live": {},
         "agent_results": {},
     }
+
+
+def _event_history_type(event_id: str) -> str:
+    if "fomc" in event_id:
+        return "fomc"
+    return event_id
 
 
 def enrich_local_agent_context(agent_key: str, context: dict[str, Any]) -> dict[str, Any]:

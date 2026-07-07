@@ -18,28 +18,44 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     source = context.get("cost_source", {})
     infra = get_agent_result(context, "infra_execution")
     forecast = get_agent_result(context, "traffic_forecast")
+
     eks = float(signals.get("eks_cost_usd", 31.2))
     network = float(signals.get("network_cost_usd", 8.1))
     logs = float(signals.get("log_cost_usd", 3.4))
     push = float(signals.get("push_cost_usd", 7.6))
     budget = float(source.get("event_incremental_budget_usd", eks + network + logs + push))
-    estimated_cost = round(eks + network + logs + push, 2)
+    reference_pods = max(
+        1,
+        int(
+            signals.get("required_app_pods")
+            or infra.get("cost_reference_pods")
+            or infra.get("current_app_pods")
+            or 29
+        ),
+    )
+    target_pods = int(infra["target_app_pods"])
+    idle_saving = _idle_saving(context, infra, source)
+    estimated_cost = _estimate_total_cost(
+        eks=eks,
+        network=network,
+        logs=logs,
+        push=push,
+        pods=target_pods,
+        reference_pods=reference_pods,
+    )
+    net_cost = round(estimated_cost - idle_saving, 2)
     budget_exceeded = estimated_cost > budget
-    base_pods = max(1, int(infra["target_app_pods"]))
-    candidate_costs = []
-    for candidate in forecast.get("candidate_forecasts", []):
-        candidate_eks_cost = eks * candidate["required_app_pods"] / base_pods
-        candidate_estimated_cost = round(
-            candidate_eks_cost + network + logs + push,
-            2,
-        )
-        candidate_costs.append(
-            {
-                "label": candidate["label"],
-                "estimated_cost_usd": candidate_estimated_cost,
-                "budget_exceeded": candidate_estimated_cost > budget,
-            }
-        )
+    candidate_costs = _build_candidate_costs(
+        forecast=forecast,
+        infra=infra,
+        eks=eks,
+        network=network,
+        logs=logs,
+        push=push,
+        reference_pods=reference_pods,
+        idle_saving=idle_saving,
+        budget=budget,
+    )
     source_name = (
         "aws_cur_athena+cost_signal"
         if source.get("cost_source_type") == "aws_cur_athena"
@@ -52,39 +68,45 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "push": push,
         "total": estimated_cost,
         "estimated_cost_usd": estimated_cost,
+        "gross_estimated_cost_usd": estimated_cost,
+        "idle_resource_saving_usd": idle_saving,
+        "net_cost_after_idle_reduction": net_cost,
         "budget_exceeded": budget_exceeded,
-        "pod_count": infra["target_app_pods"],
-        "cost_explorer_month_to_date_usd": source.get("cur_month_to_date_usd", source.get("cost_explorer_month_to_date_usd")),
+        "net_budget_exceeded": net_cost > budget,
+        "pod_count": target_pods,
+        "reference_pods": reference_pods,
+        "cost_explorer_month_to_date_usd": source.get(
+            "cur_month_to_date_usd",
+            source.get("cost_explorer_month_to_date_usd"),
+        ),
         "cur_month_to_date_usd": source.get("cur_month_to_date_usd"),
         "cur_projected_monthly_usd": source.get("cur_projected_monthly_usd"),
         "kubecost_namespace_daily_usd": float(source.get("kubecost_namespace_daily_usd", 0)),
         "event_incremental_budget_usd": budget,
         "candidate_costs": candidate_costs,
+        "cost_optimization_summary": {
+            "idle_resource_saving_usd": idle_saving,
+            "candidate_count": len(candidate_costs),
+            "source_plan": "infra_execution.candidate_capacity_plans",
+        },
         "source": source_name,
         "evidence": [
-            f"Infra Execution Agent의 target_app_pods={infra['target_app_pods']} 값을 사용했습니다.",
-            f"EKS 추가 비용은 ${eks}입니다.",
+            f"Infra Capacity Plan target_app_pods={target_pods}를 사용했습니다.",
+            f"비용 기준 Pod 수는 {reference_pods}개입니다.",
+            f"EKS 기준 비용은 ${eks}입니다.",
             f"Network 비용은 ${network}입니다.",
             f"Log 비용은 ${logs}입니다.",
             f"Push 비용은 ${push}입니다.",
-            f"총 비용 계산식은 {eks} + {network} + {logs} + {push} = ${estimated_cost}입니다.",
+            f"유휴 자원 절감 가능액은 ${idle_saving}입니다.",
+            f"총 비용은 ${estimated_cost}, 절감 반영 순비용은 ${net_cost}입니다.",
             f"이벤트 증분 예산은 ${budget}입니다.",
             f"budget_exceeded={budget_exceeded}입니다.",
             f"비용 데이터 source는 {source_name}입니다.",
         ],
     }
-    try:
-        cluster_state = get_agent_result(context, "cluster_state")
-    except KeyError:
-        cluster_state = {}
-    idle_saving = float(cluster_state.get("total_estimated_saving_usd", 0) or 0)
-    if idle_saving > 0:
-        result["idle_resource_saving_usd"] = idle_saving
-        result["net_cost_after_idle_reduction"] = round(
-            result.get("estimated_cost_usd", 0) - idle_saving,
-            2,
-        )
-        result["idle_candidates"] = cluster_state.get("idle_candidates", [])
+    if infra.get("idle_resource_plan"):
+        result["idle_resource_plan"] = infra.get("idle_resource_plan", [])
+
     now = datetime.now(timezone.utc)
     cur_data = query_cur_via_athena(year=str(now.year), month=str(now.month))
     if cur_data:
@@ -102,7 +124,93 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         result.setdefault("warnings", []).append(
             "CUR Athena lookup failed; using seeded cost data."
         )
-    return result, f"Estimated incremental cost is ${estimated_cost} for {infra['target_app_pods']} target pods."
+
+    return (
+        result,
+        (
+            f"Estimated gross cost is ${estimated_cost}; "
+            f"net cost after idle reduction is ${net_cost} "
+            f"for {target_pods} target pods."
+        ),
+    )
+
+
+def _build_candidate_costs(
+    *,
+    forecast: dict[str, Any],
+    infra: dict[str, Any],
+    eks: float,
+    network: float,
+    logs: float,
+    push: float,
+    reference_pods: int,
+    idle_saving: float,
+    budget: float,
+) -> list[dict[str, Any]]:
+    candidate_capacity_by_label = {
+        item.get("label"): item for item in infra.get("candidate_capacity_plans", [])
+    }
+    current_pods = int(infra.get("current_app_pods") or 0)
+    candidate_costs = []
+    for candidate in forecast.get("candidate_forecasts", []):
+        label = candidate["label"]
+        capacity_plan = candidate_capacity_by_label.get(label, {})
+        pods = int(candidate["required_app_pods"])
+        gross_cost = _estimate_total_cost(
+            eks=eks,
+            network=network,
+            logs=logs,
+            push=push,
+            pods=pods,
+            reference_pods=reference_pods,
+        )
+        net_cost = round(gross_cost - idle_saving, 2)
+        candidate_costs.append(
+            {
+                "label": label,
+                "estimated_cost_usd": gross_cost,
+                "gross_cost_usd": gross_cost,
+                "idle_resource_saving_usd": idle_saving,
+                "net_cost_after_idle_reduction": net_cost,
+                "budget_exceeded": gross_cost > budget,
+                "net_budget_exceeded": net_cost > budget,
+                "required_app_pods": pods,
+                "scale_out_pods": capacity_plan.get(
+                    "scale_out_pods",
+                    max(0, pods - current_pods),
+                ),
+                "additional_nodes_required": capacity_plan.get("additional_nodes_required"),
+            }
+        )
+    return candidate_costs
+
+
+def _idle_saving(context: dict[str, Any], infra: dict[str, Any], source: dict[str, Any]) -> float:
+    idle_saving = float(
+        infra.get("idle_resource_saving_usd")
+        or source.get("idle_resource_saving_usd")
+        or 0
+    )
+    if idle_saving > 0:
+        return idle_saving
+    try:
+        cluster_state = get_agent_result(context, "cluster_state")
+    except KeyError:
+        cluster_state = {}
+    return float(cluster_state.get("total_estimated_saving_usd", 0) or 0)
+
+
+def _estimate_total_cost(
+    *,
+    eks: float,
+    network: float,
+    logs: float,
+    push: float,
+    pods: int,
+    reference_pods: int,
+) -> float:
+    scaled_eks = eks * max(1, pods) / max(1, reference_pods)
+    return round(scaled_eks + network + logs + push, 2)
 
 
 def query_cur_via_athena(year: str, month: str) -> dict[str, float | str] | None:

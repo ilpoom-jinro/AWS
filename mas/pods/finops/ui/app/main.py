@@ -555,12 +555,10 @@ def index() -> str:
         ["demand_shaping", "Demand Shaping Agent"],
         ["traffic_forecast", "Traffic Forecast Agent"],
         ["bottleneck_capacity", "Bottleneck Capacity Agent"],
-        ["infra_execution", "Infra Execution Planner"],
+        ["infra_execution", "Infra Capacity Planning Agent"],
         ["cost", "Cost Agent"],
         ["unit_economics", "Unit Economics Agent"],
-        ["policy_guardrail", "Policy Guardrail Agent"],
-        ["observer", "Observer Agent"],
-        ["fallback", "Fallback Planner"],
+        ["policy_guardrail", "Policy & Fallback Guardrail Agent"],
         ["postmortem_learning", "Postmortem Learning Agent"]
       ];
 
@@ -841,13 +839,13 @@ def index() -> str:
             return `평탄화 전 예상 피크는 ${r.peak_rps_before || "-"} rps이고, 평탄화 후에는 ${r.peak_rps_after || "-"} rps입니다. 앱 계층은 ${r.required_app_pods || "-"}개 pod를 준비해야 합니다.`;
           case "Bottleneck Capacity Agent":
             return `병목을 확인했습니다. DB CPU는 약 ${r.db_cpu || "-"}, 캐시 hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
-          case "Infra Execution Planner":
+          case "Infra Capacity Planning Agent":
             return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실제 관측 트래픽"} 기준으로 진행합니다.`;
           case "Cost Agent":
             return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
           case "Unit Economics Agent":
             return `예상 비즈니스 가치는 약 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
-          case "Policy Guardrail Agent":
+          case "Policy & Fallback Guardrail Agent":
             return `정책상 ${(r.allowed || []).join(", ") || "제안 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
           case "Final Plan":
             return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
@@ -1004,12 +1002,10 @@ def index() -> str:
           "Demand Shaping Agent": "수요 분산 Agent",
           "Traffic Forecast Agent": "트래픽 예측 Agent",
           "Bottleneck Capacity Agent": "병목 분석 Agent",
-          "Infra Execution Planner": "인프라 실행 Agent",
+          "Infra Capacity Planning Agent": "인프라 용량 계획 Agent",
           "Cost Agent": "비용 분석 Agent",
           "Unit Economics Agent": "단위 경제성 Agent",
-          "Policy Guardrail Agent": "정책 검증 Agent",
-          "Observer Agent": "관측 Agent",
-          "Fallback Planner": "Fallback Agent",
+          "Policy & Fallback Guardrail Agent": "정책/비상 대응 Agent",
           "Postmortem Learning Agent": "사후 학습 Agent",
           "Orchestrator": "Orchestrator"
         };
@@ -1117,13 +1113,13 @@ def index() -> str:
             return `평탄화 전 peak는 ${r.peak_rps_before || "-"} rps, 평탄화 후 peak는 ${r.peak_rps_after || "-"} rps입니다. 필요한 app pod는 ${r.required_app_pods || "-"}개입니다.`;
           case "Bottleneck Capacity Agent":
             return `병목을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}, cache hit ratio는 ${r.cache_hit_ratio || "-"}이고 상태는 ${r.status || "unknown"}입니다.`;
-          case "Infra Execution Planner":
+          case "Infra Capacity Planning Agent":
             return `${r.scale_out_at || "-"}에 scale-out, ${r.prewarm_at || "-"}에 pre-warm을 권장합니다. scale-down은 ${r.scale_down || "실측 트래픽"} 기준으로 진행합니다.`;
           case "Cost Agent":
             return `예상 이벤트 비용은 총 $${r.total || "-"}입니다. EKS $${r.eks || "-"}, 네트워크 $${r.network || "-"}, 로그 $${r.logs || "-"}, push $${r.push || "-"}를 포함합니다.`;
           case "Unit Economics Agent":
             return `예상 비즈니스 가치는 $${r.expected_value_usd || "-"}이고 비용 비율은 ${r.cost_ratio || "-"}입니다. override는 ${r.override ? "검토가 필요합니다" : "권장하지 않습니다"}.`;
-          case "Policy Guardrail Agent":
+          case "Policy & Fallback Guardrail Agent":
             return `정책상 ${(r.allowed || []).join(", ") || "필요 액션"}은 허용됩니다. 운영자 승인은 ${r.approval_required ? "필요합니다" : "필요하지 않습니다"}.`;
           case "Final Plan":
             return `권고사항을 최종 계획으로 정리했고 workflow 상태를 ${r.status || "waiting"}로 설정했습니다.`;
@@ -1208,12 +1204,10 @@ def index() -> str:
           "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
           "Traffic Forecast Agent": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
           "Bottleneck Capacity Agent": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
-          "Infra Execution Planner": `인프라 실행 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
+          "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
           "Cost Agent": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
           "Unit Economics Agent": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
-          "Policy Guardrail Agent": `정책 가드레일을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
-          "Observer Agent": r.recommendation || "이벤트 중 관측 기준과 알림 기준을 준비했습니다.",
-          "Fallback Planner": "실행이 불안정할 때 사용할 fallback 대응안을 준비했습니다.",
+          "Policy & Fallback Guardrail Agent": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
           "Postmortem Learning Agent": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
           "Dry-run Execution": "승인된 실행 계획을 실제 변경 없이 dry-run으로 검증했습니다."
         };

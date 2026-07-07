@@ -18,6 +18,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     hpa_map = collect_hpa_info()
     spot_prices = collect_spot_prices()
     rds_metrics = collect_rds_metrics()
+    scale_target = collect_scale_target_pods()
 
     idle_candidates: list[dict[str, Any]] = []
     total_saving = 0.0
@@ -67,6 +68,12 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "total_estimated_saving_usd": round(total_saving, 2),
         "spot_price_m5xlarge": float(spot_prices.get("m5.xlarge", 0.15)),
         "source": "kubectl+aws_api",
+        "scale_target": scale_target,
+        "scale_target_current_pods": (
+            scale_target.get("current_replicas")
+            or event_pods
+            or 27
+        ),
     }
     primary_db = rds_metrics.get("financial-service-db", {})
     result["rds_metrics"] = rds_metrics
@@ -79,6 +86,48 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         f"estimated saving ${total_saving:.2f}."
     )
     return result, message
+
+
+def collect_scale_target_pods() -> dict[str, Any]:
+    namespace = os.getenv("SCALE_TARGET_NAMESPACE", "finops-mas")
+    deployment = os.getenv("SCALE_TARGET_DEPLOYMENT", "finops-orchestrator")
+
+    try:
+        completed = subprocess.run(
+            ["kubectl", "get", "deployment", deployment, "-n", namespace, "-o", "json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if completed.returncode != 0:
+            return {
+                "namespace": namespace,
+                "deployment": deployment,
+                "current_replicas": None,
+                "ready_replicas": None,
+                "source": "kubectl_failed",
+            }
+
+        data = json.loads(completed.stdout or "{}")
+        spec = data.get("spec", {})
+        status = data.get("status", {})
+        return {
+            "namespace": namespace,
+            "deployment": deployment,
+            "current_replicas": spec.get("replicas", 0),
+            "ready_replicas": status.get("readyReplicas", 0),
+            "source": "kubectl",
+        }
+    except Exception as exc:
+        return {
+            "namespace": namespace,
+            "deployment": deployment,
+            "current_replicas": None,
+            "ready_replicas": None,
+            "source": "kubectl_failed",
+            "error": str(exc),
+        }
 
 
 def collect_all_deployments() -> list[dict[str, Any]]:

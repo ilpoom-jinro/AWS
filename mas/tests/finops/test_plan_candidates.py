@@ -163,17 +163,18 @@ class PlanCandidateTests(unittest.TestCase):
         result, _ = load_agent("demand-shaping").evaluate(shaping_context())
         first = result["candidates"][0]
         self.assertEqual(result["send_window_minutes"], first["push_window_minutes"])
-        self.assertEqual(
-            result["peak_reduction_percent"], first["peak_reduction_percent"]
-        )
+        self.assertEqual(result["per_minute_general"], first["per_minute_general"])
+        self.assertEqual(result["per_second_general"], first["per_second_general"])
+        self.assertNotIn("peak_reduction_percent", result)
 
     def test_03_traffic_calculates_candidate_forecasts(self) -> None:
         _, forecast, _ = candidate_pipeline()
         candidates = forecast["candidate_forecasts"]
-        self.assertEqual([item["peak_rps_after"] for item in candidates], [812, 560, 560])
-        self.assertEqual(candidates[0]["required_app_pods"], 29)
-        self.assertLess(candidates[1]["required_app_pods"], 29)
-        self.assertLess(candidates[1]["estimated_p95_ms"], candidates[0]["estimated_p95_ms"])
+        self.assertEqual([item["peak_rps_after"] for item in candidates], [1932, 1778, 1701])
+        self.assertEqual(candidates[0]["vip_peak_rps"], 1470)
+        self.assertEqual(candidates[0]["general_peak_rps"], 462)
+        self.assertEqual(candidates[0]["required_app_pods"], 69)
+        self.assertLess(candidates[1]["required_app_pods"], candidates[0]["required_app_pods"])
 
     def test_04_cost_does_not_hide_budget_overrun(self) -> None:
         _, forecast, _ = candidate_pipeline()
@@ -205,7 +206,7 @@ class PlanCandidateTests(unittest.TestCase):
     def test_05_cost_calculates_each_candidate(self) -> None:
         _, _, cost = candidate_pipeline()
         self.assertEqual(len(cost["candidate_costs"]), 3)
-        self.assertEqual(cost["candidate_costs"][0]["estimated_cost_usd"], 50.3)
+        self.assertEqual(cost["candidate_costs"][0]["estimated_cost_usd"], 93.33)
         self.assertLess(
             cost["candidate_costs"][1]["estimated_cost_usd"],
             cost["candidate_costs"][0]["estimated_cost_usd"],
@@ -298,11 +299,11 @@ class PlanCandidateTests(unittest.TestCase):
 
     def test_10_blocked_failed_and_low_confidence_are_reported(self) -> None:
         context = complete_quality_context()
-        context["agent_results"]["observer"] = response_payload(
-            "observer", {"ok": True}, status=AgentStatus.BLOCKED
+        context["agent_results"]["policy_guardrail"] = response_payload(
+            "policy_guardrail", {"ok": True}, status=AgentStatus.BLOCKED
         )
-        context["agent_results"]["fallback"] = response_payload(
-            "fallback", {"ok": True}, status=AgentStatus.FAILED
+        context["agent_results"]["postmortem_learning"] = response_payload(
+            "postmortem_learning", {"ok": True}, status=AgentStatus.FAILED
         )
         for key in ["business_control", "demand_shaping", "traffic_forecast"]:
             context["agent_results"][key] = response_payload(
@@ -317,7 +318,7 @@ class PlanCandidateTests(unittest.TestCase):
         self.assertTrue(any(issue.startswith("has_blocked_agents:") for issue in gate["issues"]))
         self.assertTrue(any(issue.startswith("has_failed_agents:") for issue in gate["issues"]))
         self.assertTrue(any(issue.startswith("low_confidence:") for issue in gate["issues"]))
-        self.assertEqual(failed, ["fallback"])
+        self.assertEqual(failed, ["postmortem_learning"])
 
     def test_11_no_valid_candidate_fails_gate(self) -> None:
         context = complete_quality_context()
@@ -353,7 +354,14 @@ class PlanCandidateTests(unittest.TestCase):
             "requires_review",
         )
 
-    def test_14_static_eleven_agent_scenario_regression(self) -> None:
+    def test_14_observer_and_fallback_are_not_required_workflow_agents(self) -> None:
+        sequence = [key for key, _ in runtime.AGENT_SEQUENCE]
+
+        self.assertNotIn("observer", sequence)
+        self.assertNotIn("fallback", sequence)
+        self.assertIn("policy_guardrail", sequence)
+
+    def test_15_static_agent_scenario_regression(self) -> None:
         sequence = [key for key, _ in runtime.AGENT_SEQUENCE]
         context = {
             "event": {
@@ -406,9 +414,10 @@ class PlanCandidateTests(unittest.TestCase):
             context["agent_results"][key] = response.model_dump(mode="json")
 
         plan = runtime.build_final_plan(context)
-        self.assertEqual(plan["peak_rps_after"], 812)
-        self.assertEqual(plan["required_app_pods"], 29)
+        self.assertEqual(plan["peak_rps_after"], 1932)
+        self.assertEqual(plan["required_app_pods"], 69)
         self.assertEqual(len(plan["plan_candidates"]), 3)
+        self.assertTrue(plan["report"]["operations"]["fallback"]["vip_only"])
         self.assertTrue(plan["quality_gate_result"]["passed"])
         self.assertEqual(runtime.plan_status(plan), "plan_ready")
 

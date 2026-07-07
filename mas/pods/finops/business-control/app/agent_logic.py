@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 
@@ -39,7 +38,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
             f"데이터 source는 {business.get('calendar_source', 'business_calendar')}입니다.",
         ],
     }
-    history = _query_event_history(context, event_type="fomc", limit=5)
+    history = context.get("event_history", [])
     if history:
         avg_peak_rps = sum(item["actual_peak_rps"] for item in history) / len(history)
         avg_shaped_rps = sum(
@@ -81,37 +80,6 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         f"{policy['max_general_delay_minutes']} minutes."
     )
     return result, message
-
-
-def _query_event_history(context: dict[str, Any], event_type: str, limit: int) -> list[dict[str, Any]]:
-    try:
-        import psycopg
-
-        with psycopg.connect(
-            host=os.getenv("DB_HOST", "finops-db"),
-            port=os.getenv("DB_PORT", "5432"),
-            dbname=os.getenv("DB_NAME", "finops"),
-            user=os.getenv("DB_USER", "finops"),
-            password=os.getenv("DB_PASSWORD", "finops"),
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select event_date, event_name,
-                           actual_peak_rps, actual_shaped_rps,
-                           actual_pods_used, actual_cost_usd,
-                           actual_p95_ms
-                    from event_history
-                    where event_type = %s
-                    order by event_date desc
-                    limit %s
-                    """,
-                    (event_type, limit),
-                )
-                columns = [description[0] for description in cur.description]
-                return [dict(zip(columns, row)) for row in cur.fetchall()]
-    except Exception:
-        return []
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:

@@ -65,10 +65,10 @@ class HistoryBaselineTests(unittest.TestCase):
             "event": {"event_id": "fomc-briefing", "title": "FOMC", "grade": "S", "target_users": 350000},
             "policy": {"approval_required": True, "max_general_delay_minutes": 10},
             "business": {},
+            "event_history": history,
         }
 
-        with patch.object(logic, "_query_event_history", return_value=history):
-            result, _ = logic.evaluate(context)
+        result, _ = logic.evaluate(context)
 
         self.assertEqual(result["baseline_peak_rps"], 1346)
         self.assertEqual(result["historical_avg_shaped_rps"], 782)
@@ -80,10 +80,10 @@ class HistoryBaselineTests(unittest.TestCase):
             "event": {"event_id": "fomc-briefing", "title": "FOMC", "grade": "S", "target_users": 350000},
             "policy": {"approval_required": True, "max_general_delay_minutes": 10},
             "business": {},
+            "event_history": [],
         }
 
-        with patch.object(logic, "_query_event_history", return_value=[]):
-            result, _ = logic.evaluate(context)
+        result, _ = logic.evaluate(context)
 
         self.assertEqual(result["baseline_peak_rps"], 1400)
         self.assertEqual(result["historical_event_count"], 0)

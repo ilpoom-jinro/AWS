@@ -227,8 +227,8 @@ class CapabilityAlignmentTests(unittest.TestCase):
             context["agent_results"][agent_key] = response
 
         self.assertIn("scale_down_rps_threshold", context["agent_results"]["observer"]["result"])
-        self.assertEqual(context["agent_results"]["traffic_forecast"]["result"]["required_app_pods"], 29)
-        self.assertEqual(context["agent_results"]["cost"]["result"]["estimated_cost_usd"], 50.3)
+        self.assertEqual(context["agent_results"]["traffic_forecast"]["result"]["required_app_pods"], 69)
+        self.assertEqual(context["agent_results"]["cost"]["result"]["estimated_cost_usd"], 93.33)
 
 
 if __name__ == "__main__":

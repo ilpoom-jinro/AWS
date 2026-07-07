@@ -22,12 +22,10 @@ AGENT_SEQUENCE = [
     ("demand_shaping", "Demand Shaping Agent"),
     ("traffic_forecast", "Traffic Forecast Agent"),
     ("bottleneck_capacity", "Bottleneck Capacity Agent"),
-    ("infra_execution", "Infra Execution Planner"),
+    ("infra_execution", "Infra Capacity Planning Agent"),
     ("cost", "Cost Agent"),
     ("unit_economics", "Unit Economics Agent"),
-    ("policy_guardrail", "Policy Guardrail Agent"),
-    ("observer", "Observer Agent"),
-    ("fallback", "Fallback Planner"),
+    ("policy_guardrail", "Policy & Fallback Guardrail Agent"),
     ("postmortem_learning", "Postmortem Learning Agent"),
 ]
 
@@ -201,13 +199,6 @@ AGENT_DATA_REQUESTS = {
     ],
     "policy_guardrail": [
         _request("unit_economics", "cost_ratio", "cost-to-value ratio", "Validate policy and approval."),
-    ],
-    "observer": [
-        _request("traffic_forecast", "peak_rps_after", "forecast RPS", "Set monitoring thresholds."),
-        _request("policy_guardrail", "approval_required", "approval requirement", "Gate operations."),
-    ],
-    "fallback": [
-        _request("policy_guardrail", "allowed", "allowed actions", "Exclude prohibited fallback actions."),
     ],
     "postmortem_learning": [
         _request("traffic_forecast", "peak_rps_before", "forecast baseline", "Compare forecast and actual."),
@@ -476,8 +467,7 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
     policy = get_agent_result_or_empty(context, "policy_guardrail")
     infra = get_agent_result_or_empty(context, "infra_execution")
     bottleneck = get_agent_result_or_empty(context, "bottleneck_capacity")
-    observer = get_agent_result_or_empty(context, "observer")
-    fallback = get_agent_result_or_empty(context, "fallback")
+    fallback = policy.get("fallback_plan", {})
     postmortem = get_agent_result_or_empty(context, "postmortem_learning")
     data_sources = {
         "business": context.get("business", {}).get("calendar_source", "business_calendar"),
@@ -637,7 +627,7 @@ def build_final_plan(context: dict[str, Any]) -> dict[str, Any]:
                 "scale_out_at": infra.get("scale_out_at"),
                 "prewarm_at": infra.get("prewarm_at"),
                 "scale_down": infra.get("scale_down"),
-                "observer_recommendation": observer.get("recommendation"),
+                "observer_recommendation": infra.get("scale_down"),
                 "fallback": fallback,
                 "postmortem": postmortem,
             },
