@@ -15,8 +15,8 @@ import os
 import time
 
 REGION = os.getenv("AWS_REGION", "ap-northeast-2")
-# Flow Logs가 나가는 CloudWatch Logs 그룹 (vpc별). 실제 그룹명은 인프라와 합의.
-FLOW_LOG_GROUP = os.getenv("SECOPS_FLOWLOG_GROUP", "/vpc/ops/flowlogs")
+# Flow Logs가 나가는 CloudWatch Logs 그룹 (configmap SECOPS_FLOWLOG_GROUP로 주입).
+FLOW_LOG_GROUP = os.getenv("SECOPS_FLOWLOG_GROUP", "/aws/vpc/flowlogs/vpc1")
 
 
 def enrich_flow_logs(parsed: dict, lookback_min: int = 10, limit: int = 5) -> dict:
