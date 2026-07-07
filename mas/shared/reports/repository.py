@@ -1,10 +1,9 @@
 """
-save_compliance_report() 구현 및 DB 연결 관리
+save_compliance_report() 구현
 
-설계 결정 (shared/audit/repository.py 패턴 그대로 미러링):
-    SQLAlchemy 2.x async + asyncpg 드라이버 사용
-    AsyncEngine은 process-global Singleton (event loop 종속)
-    첫 호출 시점에 engine 초기화 (lazy init)
+설계 결정:
+    SQLAlchemy 2.x async + asyncpg. DB 엔진은 shared/db/engine.py의 공통 싱글톤을
+    사용한다(audit/reports/postmortem/monthly 공유 — 엔진 보일러플레이트 통합).
     contracts.models.ComplianceReport → model_dump() → Core insert() → RDS
     ORM 인스턴스 생성 없이 Core insert() 사용 (오버헤드 최소화)
 
@@ -23,49 +22,13 @@ import logging
 
 from sqlalchemy import insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from contracts.models import ComplianceReport
-from shared.config import get_settings
+from shared.db.engine import dispose_engine, get_engine
 from shared.exceptions import ReportError
 from shared.reports.models import ComplianceReportTable
 
 logger = logging.getLogger(__name__)
-
-_engine: AsyncEngine | None = None
-
-
-def _get_engine() -> AsyncEngine:
-    """
-    AsyncEngine 싱글톤 반환. 첫 호출 시 생성
-    """
-    global _engine
-
-    if _engine is None:
-        settings = get_settings()
-
-        try:
-            _engine = create_async_engine(
-                settings.database_url,
-                pool_size=settings.db_pool_size,
-                max_overflow=settings.db_max_overflow,
-                pool_timeout=settings.db_pool_timeout,
-                pool_recycle=settings.db_pool_recycle,
-                pool_pre_ping=settings.db_pool_pre_ping,
-                echo=False,
-            )
-        except Exception as e:
-            raise ReportError(f"DB 엔진 생성 실패: {e}") from e
-
-        logger.info(
-            "report_engine_initialized",
-            extra={
-                "pool_size": settings.db_pool_size,
-                "max_overflow": settings.db_max_overflow,
-            },
-        )
-
-    return _engine
 
 
 # 공개 API
@@ -75,7 +38,10 @@ async def save_compliance_report(report: ComplianceReport) -> None:
     contracts.models.ComplianceReport를 RDS PostgreSQL에 저장
     """
 
-    engine = _get_engine()
+    try:
+        engine = get_engine()
+    except Exception as e:
+        raise ReportError(f"DB 엔진 생성 실패: {e}") from e
 
     try:
         row = report.model_dump()
@@ -123,15 +89,8 @@ async def save_compliance_report(report: ComplianceReport) -> None:
         ) from e
 
 
-# 내부 유틸
+# 내부 유틸 (하위호환) — 공통 엔진 dispose로 위임
 
 async def _reset_engine() -> None:
-    """
-    Engine 강제 초기화 (Temporal Worker 재시작 / event loop 교체 / 테스트 격리)
-    """
-    global _engine
-
-    if _engine is not None:
-        await _engine.dispose()
-        _engine = None
-        logger.info("report_engine_disposed")
+    """Engine 강제 초기화. shared/db 공통 엔진 dispose로 위임."""
+    await dispose_engine()
