@@ -92,3 +92,15 @@ class ComplianceReportTable(Base):
         JSONB,
         nullable=False,
     )
+
+    blast_radius_safe: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+
+    blast_radius_detail: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )

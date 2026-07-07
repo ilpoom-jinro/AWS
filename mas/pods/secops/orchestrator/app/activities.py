@@ -447,6 +447,8 @@ async def generate_compliance_report(input: GenerateComplianceReportInput) -> Co
         workflow_id=e.workflow_id,
         severity=m.severity,
         violated_regulations=m.violated_regulations,
+        blast_radius_safe=m.blast_radius_safe,
+        blast_radius_detail=m.blast_radius_detail,
         threat_summary=f"{e.threat_type} from {e.source_pod}",
         action_taken=r.action_taken,
         isolation_applied=r.success,
