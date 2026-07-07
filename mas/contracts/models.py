@@ -365,6 +365,8 @@ class ComplianceReport(WorkflowDerivedMixin):
     generated_at: datetime = Field(default_factory=utc_now)
     severity: SeverityType
     violated_regulations: list[str]
+    blast_radius_safe: bool = False
+    blast_radius_detail: str = ""
     threat_summary: str
     action_taken: str
     isolation_applied: bool

@@ -20,7 +20,12 @@ data:
         action_taken         TEXT             NOT NULL,
         isolation_applied    BOOLEAN          NOT NULL,
         confidence           DOUBLE PRECISION NOT NULL,
-        evidence             JSONB            NOT NULL
+        evidence             JSONB            NOT NULL,
+        blast_radius_safe    BOOLEAN          NOT NULL DEFAULT false,
+        blast_radius_detail  TEXT             NOT NULL DEFAULT ''
     );
+    -- 기존 배포 테이블(재구축으로 이미 생성됨) 대응: 멱등 컬럼 추가
+    ALTER TABLE compliance_reports ADD COLUMN IF NOT EXISTS blast_radius_safe   BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE compliance_reports ADD COLUMN IF NOT EXISTS blast_radius_detail TEXT    NOT NULL DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_compliance_reports_workflow_generated
         ON compliance_reports (workflow_id, generated_at);
