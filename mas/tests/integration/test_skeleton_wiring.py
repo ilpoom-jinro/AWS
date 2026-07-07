@@ -40,7 +40,7 @@ TEMPORALIO_AVAILABLE = importlib.util.find_spec("temporalio") is not None
 AIOPS_WORKFLOW_PATH = MAS_ROOT / "pods" / "aiops" / "orchestrator" / "app" / "workflow.py"
 SECOPS_WORKFLOW_PATH = MAS_ROOT / "pods" / "secops" / "orchestrator" / "app" / "workflow.py"
 FINOPS_WORKFLOW_PATH = MAS_ROOT / "pods" / "finops" / "orchestrator" / "app" / "workflows.py"
-BOT_PATH = MAS_ROOT / "slack-hitl" / "bot.py"
+BOT_PATH = MAS_ROOT / "pods" / "platform" / "slack-hitl" / "bot.py"
 ACTIVITY_OPTIONS_PATH = MAS_ROOT / "workflows" / "activity_options.py"
 
 
