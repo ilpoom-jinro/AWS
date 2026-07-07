@@ -4,9 +4,11 @@ FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
 
+# slack_sdk는 slack_bolt 1.28.0 요구사항(>=3.38.0,<4)에 맞춰 3.38.0으로 상향.
+# 3.35.0은 미달로 pip ResolutionImpossible 빌드 실패했음.
 RUN pip install --no-cache-dir \
     "slack_bolt==1.28.0" \
-    "slack_sdk==3.35.0" \
+    "slack_sdk==3.38.0" \
     "aiohttp==3.14.1" \
     "temporalio==1.27.2" \
     "pydantic==2.10.4"
