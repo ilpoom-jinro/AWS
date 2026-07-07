@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-mas
+  labels:
+    # 특정 시나리오(secops/aiops) 소유가 아닌 공용 플랫폼 컴포넌트용 네임스페이스
+    # slack-hitl 봇은 AIOps/SecOps 워크플로우가 공용으로 signal 주입
+    mas.platform/shared: "true"

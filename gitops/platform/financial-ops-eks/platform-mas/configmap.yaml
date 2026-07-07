@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slack-hitl-config
+  namespace: platform-mas
+data:
+  # Temporal 서버 주소 — secops-mas/configmap.yaml의 TEMPORAL_ADDRESS와 동일 값 사용
+  TEMPORAL_ADDRESS: "temporal-frontend.temporal.svc.cluster.local:7233"
+  # HITL 전용 큐 — 봇/워크플로우 기본값(hitl-approval-queue)과 반드시 일치
+  HITL_TASK_QUEUE: "hitl-approval-queue"
