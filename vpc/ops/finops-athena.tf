@@ -48,9 +48,10 @@ resource "aws_glue_catalog_database" "finops_cur" {
 }
 
 resource "aws_athena_workgroup" "finops_cur" {
-  name        = "finops-cur"
-  description = "Private Athena workgroup used by the FinOps Cost Agent"
-  state       = "ENABLED"
+  name          = "finops-cur"
+  description   = "Private Athena workgroup used by the FinOps Cost Agent"
+  state         = "ENABLED"
+  force_destroy = true
 
   configuration {
     enforce_workgroup_configuration    = true
