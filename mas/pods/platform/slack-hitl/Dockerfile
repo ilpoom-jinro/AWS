@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir \
     "pydantic==2.10.4"
 
 # contracts 만 필요 — shared/audit 등 다른 모듈 불필요
-COPY slack-hitl/bot.py ./bot.py
+COPY pods/platform/slack-hitl/bot.py ./bot.py
 COPY contracts ./contracts
 
 # SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID,

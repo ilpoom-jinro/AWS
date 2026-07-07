@@ -3,8 +3,9 @@ scenario: platform
 role: hitl-bot
 image_repository: financial/mas/platform/slack-hitl
 base_image_repository: financial/mas/base
-dockerfile: mas/slack-hitl/Dockerfile
+dockerfile: mas/pods/platform/slack-hitl/Dockerfile
 build_context: mas
+manifest_path: financial-ops-eks/platform-mas/kustomization.yaml
 # scenario: platform 과 일치하는 공용 네임스페이스. 봇은 AIOps/SecOps 공용이라
 # 특정 시나리오(finops/secops) 네임스페이스가 아닌 독립 platform-mas에 배포.
 namespace: platform-mas
