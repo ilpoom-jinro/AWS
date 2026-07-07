@@ -283,6 +283,8 @@ class RemediationPlan(WorkflowDerivedMixin):
     # pod_name 으로 Platform Core가 kubectl을 통해 Deployment를 추론한다.
     # (요청서 §2: "pod_name에서 Deployment를 추론")
     pod_name: str = ""
+    cluster_name: str = ""
+    kube_context: str = ""
 
     # scale_out rollback 전용: execute_remediation 이 HPA 패치 직전 maxReplicas 를
     # ExecutionResult.output 으로 반환하면, AIOps Workflow가 이 필드에 저장한 뒤

@@ -9,6 +9,7 @@ data:
   SERVICE_KUBE_CONTEXT:      "financial-service-eks"
   OPS_EKS_CLUSTER_NAME:      "financial-ops-eks"
   SERVICE_EKS_CLUSTER_NAME:  "financial-service-eks"
+  AWS_REGION:                "ap-northeast-2"
   THANOS_QUERY_URL:          "http://observability-thanos-query.observability.svc.cluster.local:9090"
   VERIFY_WAIT_SEC:           "300"
   RCA_CONFIDENCE_MIN:        "0.7"
