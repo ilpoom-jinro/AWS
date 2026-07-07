@@ -316,8 +316,17 @@ spec:
 # =====================================================================
 @activity.defn(name="detect_threat")
 async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
-    """VPC Flow Logs/CloudTrail 탐지. 여기선 외부 유출 더미 이벤트 생성."""
-    # TODO(실제): boto3로 VPC Flow Logs 조회. 지금은 탐지됐다고 가정.
+    """트리거 메시지가 있으면 파싱·보강, 없으면(run_demo/수동) 더미 이벤트 생성."""
+    if input.trigger_message:
+        from .detection import message_to_event
+        from .telemetry import enrich_flow_logs
+        event = message_to_event(input.trigger_message, input.cluster_name, enrich_flow_logs)
+        if event is not None:
+            activity.logger.info("threat parsed from trigger: workflow_id=%s source=%s",
+                                 event.workflow_id, event.event_source)
+            return event
+        activity.logger.warning("trigger 파싱 실패 → 더미로 폴백")
+    # 폴백/데모: 외부 유출 더미 이벤트
     event = SecurityEvent(
         cluster_name=input.cluster_name,         # SecurityEvent가 workflow_id 최초 생성
         namespace="financial-api",
@@ -330,7 +339,7 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
         threat_type="abnormal_outbound",
         raw_log="[flowlog] 10.0.12.34 -> 104.18.0.1:8443 ACCEPT 1.2MB/5s",
     )
-    activity.logger.info("threat detected: workflow_id=%s", event.workflow_id)
+    activity.logger.info("threat detected (dummy): workflow_id=%s", event.workflow_id)
     return event
 
 
@@ -340,8 +349,9 @@ async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     chunks = retrieve_regulations(event)
     analysis = analyze_violation(event, chunks)
     safe, detail, blast_evidence = check_blast_radius(event)
-    # 분석 evidence + blast radius 근거 병합 (계약 필드 변경 없이 근거를 데이터로 남김)
-    evidence = {**analysis.get("evidence", {}), **blast_evidence}
+    # 분석 evidence + blast radius + 트리거 증적(raw_log에 실려온 CloudTrail Event ID 등) 병합
+    from .detection import extract_evidence
+    evidence = {**analysis.get("evidence", {}), **blast_evidence, **extract_evidence(event)}
     return RegulationMapping(
         workflow_id=event.workflow_id,
         violated_regulations=analysis["violated_regulations"],

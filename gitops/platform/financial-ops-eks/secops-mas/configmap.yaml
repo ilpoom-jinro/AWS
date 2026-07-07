@@ -20,4 +20,8 @@ data:
   # URL은 결정적(리전+계정+큐명) → REPLACE_WITH_ACCOUNT_ID를 gitops seed가 치환.
   # 격리 ops VPC에서 SQS 도달은 vpc/ops/endpoints.tf의 SQS VPC 엔드포인트 경유.
   SECOPS_TRIGGER_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-secops-trigger"
+  # poller가 워크플로 기동 시 넣는 vpc_id. gitops seed가 배포 시점에 실제 ops vpc_id로 치환.
+  SECOPS_VPC_ID:           "REPLACE_WITH_OPS_VPC_ID"
+  # CloudWatch Alarm(신호)만 오면 워커가 이 Flow Logs 그룹을 재조회해 실제 REJECT 레코드로 보강.
+  SECOPS_FLOWLOG_GROUP:    "/aws/vpc/flowlogs/vpc1"
   # DATABASE_URL → ExternalSecret(secops-orchestrator-secrets)에서 주입 (평문 금지)
