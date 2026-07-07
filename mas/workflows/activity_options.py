@@ -104,6 +104,7 @@ class ActivityName(StrEnum):
     SEND_APPROVAL_REQUEST = "send_approval_request"
     SEND_REMINDER = "send_reminder"
     RECORD_AUDIT_LOG = "record_audit_log"
+    RECORD_COMPLIANCE_REPORT = "record_compliance_report"
 
 
 # ---
@@ -220,6 +221,10 @@ ACTIVITY_TIMEOUTS: dict[
     },
 
     ActivityName.RECORD_AUDIT_LOG: {
+        "start_to_close_timeout": timedelta(seconds=30),
+        "schedule_to_close_timeout": timedelta(minutes=2),
+    },
+    ActivityName.RECORD_COMPLIANCE_REPORT: {
         "start_to_close_timeout": timedelta(seconds=30),
         "schedule_to_close_timeout": timedelta(minutes=2),
     },

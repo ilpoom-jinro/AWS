@@ -310,3 +310,20 @@ resource "aws_vpc_endpoint" "bedrock" {
     Name = "financial-vpc2-endpoint-bedrock"
   }
 }
+
+# ── SQS Interface Endpoint ────────────────────────────────────────────────────
+# SecOps 워커(in-cluster poller)가 격리망에서 트리거 SQS 큐를 폴링하기 위함.
+# (secops-trigger.tf: GuardDuty→EventBridge→SQS→워커). 엔드포인트가 없으면
+# 워커의 SQS 호출이 connect timeout — wafv2 때와 동일 격리망 제약.
+resource "aws_vpc_endpoint" "sqs" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.sqs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-sqs"
+  }
+}

@@ -221,11 +221,76 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     }
 
 
-def check_blast_radius(event: SecurityEvent) -> tuple[bool, str]:
-    safe = event.namespace != "kube-system"
-    detail = ("단일 worker pod 격리, 동일 서비스 다른 replica가 처리 가능 → 안전"
-              if safe else "시스템 네임스페이스(kube-system) 영향 → 위험")
-    return safe, detail
+SENSITIVE_NAMESPACES = {"kube-system", "istio-system", "kube-public", "kube-node-lease"}
+
+# 단일 pod 격리로 흡수 불가한(공유·인프라·상태ful) 컴포넌트 힌트 — pod 이름 부분매칭
+SHARED_COMPONENT_HINTS = (
+    "db", "database", "postgres", "mysql", "redis", "cache", "kafka", "queue",
+    "gateway", "ingress", "proxy", "lb", "loadbalancer", "auth", "identity",
+)
+
+
+def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
+    """
+    다요인 blast radius 판정.
+    반환: (safe, detail 서술, evidence dict — 판정 근거 구조화)
+
+    요인별 위험 가중치를 합산해 score(0~1)를 내고, 임계치로 safe/level을 정한다.
+    (계약 필드는 그대로 — 근거는 evidence["blast_radius"]에 담아 보고서/감사로그에 활용)
+    """
+    factors: list[dict] = []
+    score = 0.0
+
+    # 1) 민감/시스템 네임스페이스 — 격리 시 클러스터 전반 영향
+    ns = event.namespace
+    if ns in SENSITIVE_NAMESPACES:
+        factors.append({"factor": "sensitive_namespace", "value": ns, "weight": 0.7})
+        score += 0.7
+    elif ns.endswith("-system") or ns.endswith("-infra"):
+        factors.append({"factor": "infra_namespace", "value": ns, "weight": 0.5})
+        score += 0.5
+
+    # 2) 대상 pod가 공유/상태ful 컴포넌트 — 다른 replica가 흡수 못 함 (단일 요인으로도 위험)
+    pod_l = event.source_pod.lower()
+    hit = next((h for h in SHARED_COMPONENT_HINTS if h in pod_l), None)
+    if hit:
+        factors.append({"factor": "shared_component", "value": f"'{hit}' in {event.source_pod}", "weight": 0.5})
+        score += 0.5
+
+    # 3) inbound 위협 — 격리해도 외부 유입 경로가 남을 수 있어 영향 판단 가중
+    if event.direction == "inbound":
+        factors.append({"factor": "inbound_direction", "value": "inbound", "weight": 0.3})
+        score += 0.3
+
+    # 4) 위협 유형 가중 (port_scan/policy_violation은 단일 격리로 충분치 않을 수 있음)
+    if event.threat_type in ("port_scan", "policy_violation"):
+        factors.append({"factor": "threat_type", "value": event.threat_type, "weight": 0.3})
+        score += 0.3
+
+    score = round(min(score, 1.0), 2)
+    # 위험 요인 점수 합이 임계치 미만이면 "단일 pod 격리로 흡수 가능 → 안전"
+    safe = score < 0.5
+    level = "low" if score < 0.5 else ("high" if score >= 0.8 else "medium")
+
+    if safe:
+        detail = (f"단일 worker pod({event.source_pod}) 격리, 동일 서비스 다른 replica가 처리 가능 "
+                  f"→ 안전 (blast score={score})")
+    else:
+        reasons = ", ".join(f["factor"] for f in factors) or "복합 요인"
+        detail = (f"격리 영향 범위 위험 (blast score={score}, level={level}) — {reasons}. "
+                  f"자동 격리 전 검토 필요")
+
+    evidence = {
+        "blast_radius": {
+            "score": score,
+            "level": level,
+            "safe": safe,
+            "factors": factors,
+            "namespace": ns,
+            "source_pod": event.source_pod,
+        }
+    }
+    return safe, detail, evidence
 
 
 def build_isolation_policy(event: SecurityEvent) -> str:
@@ -251,8 +316,17 @@ spec:
 # =====================================================================
 @activity.defn(name="detect_threat")
 async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
-    """VPC Flow Logs/CloudTrail 탐지. 여기선 외부 유출 더미 이벤트 생성."""
-    # TODO(실제): boto3로 VPC Flow Logs 조회. 지금은 탐지됐다고 가정.
+    """트리거 메시지가 있으면 파싱·보강, 없으면(run_demo/수동) 더미 이벤트 생성."""
+    if input.trigger_message:
+        from .detection import message_to_event
+        from .telemetry import enrich_flow_logs
+        event = message_to_event(input.trigger_message, input.cluster_name, enrich_flow_logs)
+        if event is not None:
+            activity.logger.info("threat parsed from trigger: workflow_id=%s source=%s",
+                                 event.workflow_id, event.event_source)
+            return event
+        activity.logger.warning("trigger 파싱 실패 → 더미로 폴백")
+    # 폴백/데모: 외부 유출 더미 이벤트
     event = SecurityEvent(
         cluster_name=input.cluster_name,         # SecurityEvent가 workflow_id 최초 생성
         namespace="financial-api",
@@ -265,7 +339,7 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
         threat_type="abnormal_outbound",
         raw_log="[flowlog] 10.0.12.34 -> 104.18.0.1:8443 ACCEPT 1.2MB/5s",
     )
-    activity.logger.info("threat detected: workflow_id=%s", event.workflow_id)
+    activity.logger.info("threat detected (dummy): workflow_id=%s", event.workflow_id)
     return event
 
 
@@ -274,7 +348,10 @@ async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     """RAG 규정 조회 + 2단계 Bedrock 판단(Nova→Sonnet) + Blast Radius + 격리 정책 생성."""
     chunks = retrieve_regulations(event)
     analysis = analyze_violation(event, chunks)
-    safe, detail = check_blast_radius(event)
+    safe, detail, blast_evidence = check_blast_radius(event)
+    # 분석 evidence + blast radius + 트리거 증적(raw_log에 실려온 CloudTrail Event ID 등) 병합
+    from .detection import extract_evidence
+    evidence = {**analysis.get("evidence", {}), **blast_evidence, **extract_evidence(event)}
     return RegulationMapping(
         workflow_id=event.workflow_id,
         violated_regulations=analysis["violated_regulations"],
@@ -284,7 +361,7 @@ async def map_regulation(event: SecurityEvent) -> RegulationMapping:
         isolation_policy_yaml=build_isolation_policy(event),
         confidence=analysis.get("confidence", 0.0),
         severity=analysis.get("severity", "low"),
-        evidence=analysis.get("evidence", {}),
+        evidence=evidence,
     )
 
 
@@ -375,6 +452,18 @@ async def generate_compliance_report(input: GenerateComplianceReportInput) -> Co
         isolation_applied=r.success,
         confidence=m.confidence,
         evidence=m.evidence,
+    )
+
+
+@activity.defn(name="record_compliance_report")
+async def record_compliance_report(report: ComplianceReport) -> None:
+    """ComplianceReport를 RDS에 저장 (record_audit_log와 동일 패턴)."""
+    from shared.reports import save_compliance_report
+
+    await save_compliance_report(report)
+    activity.logger.info(
+        "[report] %s | severity=%s | isolation=%s",
+        report.workflow_id, report.severity, report.isolation_applied,
     )
 
 

@@ -12,8 +12,16 @@ data:
   AWS_REGION:             "ap-northeast-2"
   BEDROCK_REGION:         "ap-northeast-2"
   BEDROCK_MODEL:          "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-  BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (서울 리전 지원 확인 필요)
+  BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (ap-northeast-2 지원 확인됨 2026-07-06)
   USE_REAL_BEDROCK:       "true"
   USE_BEDROCK_KB:         "false"                    # KB 프로비저닝 완료 후 true
   # BEDROCK_KB_ID:        "<KB 생성 후 주입>"
+  # 트리거 SQS 큐 (secops-trigger.tf). 워커 poller가 이 큐를 폴링해 워크플로 기동.
+  # URL은 결정적(리전+계정+큐명) → REPLACE_WITH_ACCOUNT_ID를 gitops seed가 치환.
+  # 격리 ops VPC에서 SQS 도달은 vpc/ops/endpoints.tf의 SQS VPC 엔드포인트 경유.
+  SECOPS_TRIGGER_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-secops-trigger"
+  # poller가 워크플로 기동 시 넣는 vpc_id. gitops seed가 배포 시점에 실제 ops vpc_id로 치환.
+  SECOPS_VPC_ID:           "REPLACE_WITH_OPS_VPC_ID"
+  # CloudWatch Alarm(신호)만 오면 워커가 이 Flow Logs 그룹을 재조회해 실제 REJECT 레코드로 보강.
+  SECOPS_FLOWLOG_GROUP:    "/aws/vpc/flowlogs/vpc1"
   # DATABASE_URL → ExternalSecret(secops-orchestrator-secrets)에서 주입 (평문 금지)
