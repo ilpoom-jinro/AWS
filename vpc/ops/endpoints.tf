@@ -7,7 +7,8 @@
 
 # Interface Endpoint ENI 배치 AZ - single_az_mode = true 시 비용 절감을 위해 AZ-a에만 배치
 locals {
-  endpoint_subnet_ids = var.single_az_mode ? [aws_subnet.private_a.id] : [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  endpoint_subnet_ids            = var.single_az_mode ? [aws_subnet.private_a.id] : [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  eks_bootstrap_endpoint_subnets = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
 
 # ── Endpoint 전용 Security Group ──────────────────────────────────────────────
@@ -78,7 +79,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -91,7 +92,7 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -105,7 +106,7 @@ resource "aws_vpc_endpoint" "eks" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.eks"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -229,7 +230,7 @@ resource "aws_vpc_endpoint" "sts" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.sts"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -243,7 +244,7 @@ resource "aws_vpc_endpoint" "ec2" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.ec2"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
@@ -271,7 +272,7 @@ resource "aws_vpc_endpoint" "eks_auth" {
   vpc_id              = aws_vpc.this.id
   service_name        = "com.amazonaws.${var.aws_region}.eks-auth"
   vpc_endpoint_type   = "Interface"
-  subnet_ids          = local.endpoint_subnet_ids
+  subnet_ids          = local.eks_bootstrap_endpoint_subnets
   security_group_ids  = [aws_security_group.endpoints.id]
   private_dns_enabled = true
 
