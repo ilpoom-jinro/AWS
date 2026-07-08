@@ -434,7 +434,22 @@ def normalize_agent_output(
         raise ValueError(
             f"expected response from {agent_key}, received {response.agent_key}"
         )
-    if response.agent_name != agent_name:
+    accepted_agent_names = {agent_name}
+    if agent_key == "infra_execution":
+        accepted_agent_names.update(
+            {
+                "Infra Execution Planner",
+                "Infra Capacity Planning Agent",
+            }
+        )
+    if agent_key == "policy_guardrail":
+        accepted_agent_names.update(
+            {
+                "Policy Guardrail Agent",
+                "Policy & Fallback Guardrail Agent",
+            }
+        )
+    if response.agent_name not in accepted_agent_names:
         raise ValueError(
             f"expected agent name {agent_name}, received {response.agent_name}"
         )
