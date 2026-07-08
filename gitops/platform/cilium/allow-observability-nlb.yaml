@@ -10,8 +10,11 @@ spec:
       app.kubernetes.io/instance: observability-tempo
   ingress:
     - fromCIDR:
-        - 10.20.11.0/24
-        - 10.20.12.0/24
+        # chaining mode에서 unmanaged pod(alloy 등) 소스가 개별 /24가 아니라
+        # VPC2 전체(cidr:10.20.0.0/16 + reserved:world) 단일 CIDR identity(16777220)로 잡힘.
+        # /24 selector는 이 /16 identity를 매칭 못 해 audit 발생 → /16으로 확장해 커버.
+        # (동일 identity가 thanos-receive에선 이미 L4-Only ALLOWED로 통과됨 = /16 매칭 실증)
+        - 10.20.0.0/16
       toPorts:
         - ports:
             - port: "3200"
@@ -45,8 +48,11 @@ spec:
       app.kubernetes.io/instance: observability-loki
   ingress:
     - fromCIDR:
-        - 10.20.11.0/24
-        - 10.20.12.0/24
+        # chaining mode에서 unmanaged pod(alloy 등) 소스가 개별 /24가 아니라
+        # VPC2 전체(cidr:10.20.0.0/16 + reserved:world) 단일 CIDR identity(16777220)로 잡힘.
+        # /24 selector는 이 /16 identity를 매칭 못 해 audit 발생 → /16으로 확장해 커버.
+        # (동일 identity가 thanos-receive에선 이미 L4-Only ALLOWED로 통과됨 = /16 매칭 실증)
+        - 10.20.0.0/16
       toPorts:
         - ports:
             - port: "3100"
