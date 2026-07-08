@@ -98,6 +98,21 @@ phases:
           ecr_registry = os.environ["ECR_REGISTRY"]
           changed_paths = set()
 
+          def log(message):
+            print(message, flush=True)
+
+          def fail(update, reason):
+            log("[bulk][error] manifest update failed")
+            log(f"[bulk][error] agent={update.get('agent', '')}")
+            log(f"[bulk][error] manifest_path={update.get('manifest_path', '')}")
+            log(f"[bulk][error] target_container={update.get('target_container', '')}")
+            log(f"[bulk][error] repository={update.get('repository', '')}")
+            log(f"[bulk][error] tag={update.get('tag', '')}")
+            log(f"[bulk][error] reason={reason}")
+            raise SystemExit(1)
+
+          log(f"[bulk] loaded {len(updates)} MAS image update(s)")
+
           def update_kustomize_image(doc, update):
             if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
               return False
@@ -171,9 +186,16 @@ phases:
             return changed
 
           for update in updates:
+            log(
+              "[bulk] update start: "
+              f"agent={update.get('agent', '')} "
+              f"manifest={update.get('manifest_path', '')} "
+              f"target={update.get('target_container', '')} "
+              f"tag={update.get('tag', '')}"
+            )
             manifest_path = Path(update["manifest_path"])
             if not manifest_path.exists():
-              raise SystemExit(f"Manifest file not found: {manifest_path}")
+              fail(update, f"manifest file not found: {manifest_path}")
 
             docs = list(yaml.safe_load_all(manifest_path.read_text()))
             changed = False
@@ -191,9 +213,15 @@ phases:
                 f"{manifest_path}: {update['target_container']} -> {update['uri']}"
               )
             else:
-              print(f"No image change was needed for {update['target_container']}.")
+              log(f"[bulk] no image change needed: {update['target_container']}")
 
           for update in updates:
+            log(
+              "[bulk] verify start: "
+              f"agent={update.get('agent', '')} "
+              f"manifest={update.get('manifest_path', '')} "
+              f"target={update.get('target_container', '')}"
+            )
             manifest_path = Path(update["manifest_path"])
             expected_new_name = f"{ecr_registry}/{update['repository']}"
             expected_tag = update["tag"]
@@ -208,20 +236,21 @@ phases:
                 if image.get("name") != target_container:
                   continue
                 if image.get("newName") == expected_new_name and image.get("newTag") == expected_tag:
-                  print(f"Verified immutable image tag for {target_container}: {expected_tag}")
+                  log(f"[bulk] verified immutable image tag for {target_container}: {expected_tag}")
                   break
-                raise SystemExit(
-                  "Image tag verification failed for "
-                  f"{target_container}: expected {expected_new_name}:{expected_tag}, "
-                  f"got {image.get('newName')}:{image.get('newTag')}"
+                fail(
+                  update,
+                  "image tag verification failed: "
+                  f"expected {expected_new_name}:{expected_tag}, "
+                  f"got {image.get('newName')}:{image.get('newTag')}",
                 )
               else:
                 continue
               break
             else:
-              raise SystemExit(f"Image entry not found in {manifest_path}: {target_container}")
+              fail(update, f"image entry not found: {target_container}")
 
-          print(f"Bulk MAS image manifest update complete: {len(updates)} images, {len(changed_paths)} files changed.")
+          log(f"[bulk] manifest update complete: {len(updates)} images, {len(changed_paths)} file(s) changed")
           PY
 
           git diff || true
