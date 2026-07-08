@@ -46,6 +46,7 @@ with workflow.unsafe.imports_passed_through():
         DetectThreatInput,
         ExecutionResult,
         GenerateComplianceReportInput,
+        GeneratePostMortemReportInput,
         RegulationMapping,
         SecurityEvent,
     )
@@ -54,9 +55,11 @@ with workflow.unsafe.imports_passed_through():
         apply_isolation,
         detect_threat,
         generate_compliance_report,
+        generate_postmortem_report,
         map_regulation,
         record_audit_log,
         record_compliance_report,
+        record_postmortem_report,
         send_approval_request,
     )
 
@@ -215,6 +218,23 @@ class SecOpsWorkflow:
             record_compliance_report, report,
             **get_activity_options(ActivityName.RECORD_COMPLIANCE_REPORT),
         )
+
+        # Sev1/2(critical/high)만 사후분석(Post-Mortem) 보고서 추가 생성·저장.
+        # Medium 이하는 규제 보고서만 남기고 postmortem은 만들지 않는다(운영 노이즈 억제).
+        if mapping.severity in ("critical", "high"):
+            postmortem = await workflow.execute_activity(
+                generate_postmortem_report,
+                GeneratePostMortemReportInput(event=event, mapping=mapping, result=result),
+                **get_activity_options(ActivityName.GENERATE_POSTMORTEM_REPORT),
+            )
+            await workflow.execute_activity(
+                record_postmortem_report, postmortem,
+                **get_activity_options(ActivityName.RECORD_POSTMORTEM_REPORT),
+            )
+            await self._audit(event.workflow_id, "postmortem_generated",
+                              f"Post-Mortem 생성({mapping.severity})",
+                              {"action_items": postmortem.action_items})
+
         await self._audit(event.workflow_id, "workflow_completed", "워크플로우 완료",
                           {"summary": f"{result.action_taken} (격리 적용: {report.isolation_applied})"})
         return report
