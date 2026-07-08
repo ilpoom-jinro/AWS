@@ -576,8 +576,8 @@ jobs:
             exit 1
           fi
 
-          updates_json="$(
-            python3 - <<'PY'
+          updates_file="mas-image-tags/bulk-image-updates.json"
+          python3 - <<'PY'
           import csv
           import glob
           import json
@@ -604,16 +604,22 @@ jobs:
           if not updates:
               raise SystemExit("No MAS image tag metadata rows were found.")
 
-          print(json.dumps(updates, separators=(",", ":")))
+          with open("mas-image-tags/bulk-image-updates.json", "w", encoding="utf-8") as handle:
+              json.dump(updates, handle, separators=(",", ":"))
           PY
-          )"
 
           echo "Updating GitOps image tags in one CodeBuild run:"
           python3 - <<PY
           import json
-          for update in json.loads('''${updates_json}'''):
+          with open("${updates_file}", encoding="utf-8") as handle:
+              updates = json.load(handle)
+          for update in updates:
               print(f"  - {update['agent']} -> {update['tag']}")
           PY
+
+          updates_s3_uri="s3://ilpumjinro-terraform-state-v4/mas-manifest-updates/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          aws s3 cp "${updates_file}" "${updates_s3_uri}"
+          trap 'aws s3 rm "${updates_s3_uri}" >/dev/null 2>&1 || true' EXIT
 
           python3 - <<PY
           import json
@@ -622,7 +628,7 @@ jobs:
               {"name": "APP_NAME", "value": "mas-bulk-image-tags", "type": "PLAINTEXT"},
               {"name": "GITOPS_BRANCH", "value": "${GITOPS_BRANCH}", "type": "PLAINTEXT"},
               {"name": "ECR_REGISTRY", "value": "${ECR_REGISTRY}", "type": "PLAINTEXT"},
-              {"name": "BULK_IMAGE_UPDATES_JSON", "value": '''${updates_json}''', "type": "PLAINTEXT"},
+              {"name": "BULK_IMAGE_UPDATES_S3_URI", "value": "${updates_s3_uri}", "type": "PLAINTEXT"},
           ]
           with open("mas-image-tags/env-overrides.json", "w", encoding="utf-8") as handle:
               json.dump(env_overrides, handle)
