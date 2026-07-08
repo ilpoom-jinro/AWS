@@ -246,7 +246,7 @@ class CommonActivities(Protocol):
         Slack에 승인 요청 메시지 전송. 즉시 반환
 
         승인 결과 수신 4시간 8시간 로직은 workflow가 signal + wait_condition()으로 처리
-        구현 위치: mas/slack-hitl/bot.py
+        구현 위치: mas/pods/platform/slack-hitl/bot.py
         """
         ...
         
@@ -258,7 +258,7 @@ class CommonActivities(Protocol):
         """
         리마인더 시점에 Slack 메시지 갱신(chat.update) 또는 재알림 전송
         호출 시점은 Workflow가 결정한다 (ApprovalRequest.reminder_after_hours 경과 시)
-        구현 위치: mas/slack-hitl/bot.py
+        구현 위치: mas/pods/platform/slack-hitl/bot.py
         """
         ...
 

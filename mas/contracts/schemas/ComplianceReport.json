@@ -31,6 +31,16 @@
       "title": "Violated Regulations",
       "type": "array"
     },
+    "blast_radius_safe": {
+      "default": false,
+      "title": "Blast Radius Safe",
+      "type": "boolean"
+    },
+    "blast_radius_detail": {
+      "default": "",
+      "title": "Blast Radius Detail",
+      "type": "string"
+    },
     "threat_summary": {
       "title": "Threat Summary",
       "type": "string"

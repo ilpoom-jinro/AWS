@@ -14,6 +14,7 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir \
+        "awscli==1.36.40" \
         "boto3" \
         "psycopg[binary]==3.2.3" \
         "pydantic-settings" \
@@ -31,6 +32,10 @@ COPY shared ./shared
 COPY contracts ./contracts
 COPY workflows ./workflows
 COPY activities ./activities
+COPY pods/aiops/orchestrator/entrypoint.sh /usr/local/bin/aiops-entrypoint
+
+RUN chmod +x /usr/local/bin/aiops-entrypoint
 
 EXPOSE 8080
+ENTRYPOINT ["aiops-entrypoint"]
 CMD ["python", "-m", "app.run"]

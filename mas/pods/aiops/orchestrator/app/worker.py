@@ -51,7 +51,7 @@ async def main() -> None:
             record_audit_log,
         ],
         # 주의: send_approval_request / send_reminder 는 여기 없음 —
-        #       slack-hitl/bot.py가 HITL_TASK_QUEUE에서 단독 소유.
+        #       pods/platform/slack-hitl/bot.py가 HITL_TASK_QUEUE에서 단독 소유.
     )
 
     print(

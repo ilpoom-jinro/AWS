@@ -68,3 +68,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 session-manager-plugin.deb
+desktop.ini

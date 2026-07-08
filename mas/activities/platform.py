@@ -31,6 +31,7 @@ scale_out rollback 원복 흐름:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 
@@ -75,15 +76,23 @@ def _parse_strategy_detail(strategy_detail: str) -> tuple[str, dict[str, str], s
     return tag, _parse_kv(param_str), reason.strip()
 
 
-def _run_kubectl(*args: str) -> str:
+def _run_kubectl(*args: str, context: str = "") -> str:
     """
     kubectl을 실행하고 stdout을 반환. 실패 시 ApplicationError(non_retryable) 발생.
 
     kubectl 오류(잘못된 리소스명, 권한 없음 등)는 재시도로 고쳐지지 않으므로
     non_retryable=True로 즉시 실패시킨다.
     """
-    cmd = ["kubectl", *args]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    cmd = ["kubectl"]
+    if context:
+        cmd.extend(["--context", context])
+    cmd.extend(args)
+    env = None
+    if not context:
+        env = os.environ.copy()
+        env.pop("KUBECONFIG", None)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         raise ApplicationError(
             f"kubectl 오류: {' '.join(cmd)}\n{result.stderr.strip()}",
@@ -92,7 +101,7 @@ def _run_kubectl(*args: str) -> str:
     return result.stdout.strip()
 
 
-def _infer_deployment_from_pod(pod_name: str, namespace: str) -> str:
+def _infer_deployment_from_pod(pod_name: str, namespace: str, context: str = "") -> str:
     """
     pod_name → ReplicaSet → Deployment 이름을 kubectl로 추론한다.
 
@@ -103,10 +112,12 @@ def _infer_deployment_from_pod(pod_name: str, namespace: str) -> str:
     owner_kind = _run_kubectl(
         "get", "pod", pod_name, "-n", namespace,
         "-o", "jsonpath={.metadata.ownerReferences[0].kind}",
+        context=context,
     )
     owner_name = _run_kubectl(
         "get", "pod", pod_name, "-n", namespace,
         "-o", "jsonpath={.metadata.ownerReferences[0].name}",
+        context=context,
     )
 
     if not owner_kind or not owner_name:
@@ -120,6 +131,7 @@ def _infer_deployment_from_pod(pod_name: str, namespace: str) -> str:
         deployment = _run_kubectl(
             "get", "rs", owner_name, "-n", namespace,
             "-o", "jsonpath={.metadata.ownerReferences[0].name}",
+            context=context,
         )
         if not deployment:
             raise ApplicationError(
@@ -156,6 +168,21 @@ def _resolve_pod_name(params: dict[str, str], plan: RemediationPlan) -> str:
     return pod_name
 
 
+def _resolve_kube_context(params: dict[str, str], plan: RemediationPlan) -> str:
+    """실행 대상 kube context를 결정한다.
+
+    우선순위:
+      1. strategy_detail의 context=<name> 또는 kube_context=<name>
+      2. RemediationPlan.kube_context
+      3. 빈 문자열(기존 동작: kubectl 기본 context)
+    """
+    return (
+        params.get("context", "")
+        or params.get("kube_context", "")
+        or plan.kube_context
+    )
+
+
 # ---
 # Platform Core 소유 Activities
 # ---
@@ -185,23 +212,30 @@ async def execute_remediation(plan: RemediationPlan) -> ExecutionResult:
 
     try:
         if plan.strategy == "restart":
+            context = _resolve_kube_context(params, plan)
             namespace = params.get("namespace", "default")
             pod_name = _resolve_pod_name(params, plan)
 
             activity.heartbeat(f"pod {pod_name}에서 Deployment 추론 중")
-            deployment = _infer_deployment_from_pod(pod_name, namespace)
+            deployment = _infer_deployment_from_pod(pod_name, namespace, context)
 
             activity.heartbeat(f"deployment/{deployment} 재시작 중")
             _run_kubectl("rollout", "restart",
-                         f"deployment/{deployment}", "-n", namespace)
+                         f"deployment/{deployment}", "-n", namespace,
+                         context=context)
             return ExecutionResult(
                 workflow_id=plan.workflow_id,
                 success=True,
-                action_taken=f"kubectl rollout restart deployment/{deployment} -n {namespace}",
+                action_taken=(
+                    f"kubectl"
+                    f"{f' --context {context}' if context else ''} "
+                    f"rollout restart deployment/{deployment} -n {namespace}"
+                ),
                 output=deployment,
             )
 
         elif plan.strategy == "scale_out":
+            context = _resolve_kube_context(params, plan)
             target_hpa = params.get("target_hpa", "")
             namespace = params.get("namespace", "default")
             delta_str = params.get("maxReplicas+", "")
@@ -216,6 +250,7 @@ async def execute_remediation(plan: RemediationPlan) -> ExecutionResult:
             current_raw = _run_kubectl(
                 "get", "hpa", target_hpa, "-n", namespace,
                 "-o", "jsonpath={.spec.maxReplicas}",
+                context=context,
             )
             previous_max = int(current_raw)
             new_max = previous_max + delta
@@ -225,31 +260,40 @@ async def execute_remediation(plan: RemediationPlan) -> ExecutionResult:
             _run_kubectl(
                 "patch", "hpa", target_hpa, "-n", namespace,
                 "--type=merge", "-p", patch,
+                context=context,
             )
             return ExecutionResult(
                 workflow_id=plan.workflow_id,
                 success=True,
                 action_taken=(
-                    f"kubectl patch hpa {target_hpa} -n {namespace} "
+                    f"kubectl"
+                    f"{f' --context {context}' if context else ''} "
+                    f"patch hpa {target_hpa} -n {namespace} "
                     f"maxReplicas {previous_max}→{new_max}"
                 ),
                 output=str(previous_max),
             )
 
         elif plan.strategy == "rollback":
+            context = _resolve_kube_context(params, plan)
             namespace = params.get("namespace", "default")
             pod_name = _resolve_pod_name(params, plan)
 
             activity.heartbeat(f"pod {pod_name}에서 Deployment 추론 중")
-            deployment = _infer_deployment_from_pod(pod_name, namespace)
+            deployment = _infer_deployment_from_pod(pod_name, namespace, context)
 
             activity.heartbeat(f"rollout undo deployment/{deployment}")
             _run_kubectl("rollout", "undo",
-                         f"deployment/{deployment}", "-n", namespace)
+                         f"deployment/{deployment}", "-n", namespace,
+                         context=context)
             return ExecutionResult(
                 workflow_id=plan.workflow_id,
                 success=True,
-                action_taken=f"kubectl rollout undo deployment/{deployment} -n {namespace}",
+                action_taken=(
+                    f"kubectl"
+                    f"{f' --context {context}' if context else ''} "
+                    f"rollout undo deployment/{deployment} -n {namespace}"
+                ),
                 output=deployment,
             )
 
@@ -293,6 +337,7 @@ async def execute_rollback(plan: RemediationPlan) -> ExecutionResult:
 
     try:
         if plan.strategy == "scale_out":
+            context = _resolve_kube_context(params, plan)
             target_hpa = params.get("target_hpa", "")
             namespace = params.get("namespace", "default")
             delta_str = params.get("maxReplicas+", "")
@@ -306,6 +351,7 @@ async def execute_rollback(plan: RemediationPlan) -> ExecutionResult:
             current_raw = _run_kubectl(
                 "get", "hpa", target_hpa, "-n", namespace,
                 "-o", "jsonpath={.spec.maxReplicas}",
+                context=context,
             )
 
             if plan.previous_hpa_max_replicas > 0:
@@ -334,31 +380,38 @@ async def execute_rollback(plan: RemediationPlan) -> ExecutionResult:
             _run_kubectl(
                 "patch", "hpa", target_hpa, "-n", namespace,
                 "--type=merge", "-p", patch,
+                context=context,
             )
             return ExecutionResult(
                 workflow_id=plan.workflow_id,
                 success=True,
                 action_taken=(
-                    f"rollback: kubectl patch hpa {target_hpa} -n {namespace} "
+                    f"rollback: kubectl"
+                    f"{f' --context {context}' if context else ''} "
+                    f"patch hpa {target_hpa} -n {namespace} "
                     f"maxReplicas {current_raw}→{restore_max}"
                 ),
             )
 
         else:
+            context = _resolve_kube_context(params, plan)
             namespace = params.get("namespace", "default")
             pod_name = _resolve_pod_name(params, plan)
 
             activity.heartbeat(f"pod {pod_name}에서 Deployment 추론 중")
-            deployment = _infer_deployment_from_pod(pod_name, namespace)
+            deployment = _infer_deployment_from_pod(pod_name, namespace, context)
 
             activity.heartbeat(f"rollout undo deployment/{deployment}")
             _run_kubectl("rollout", "undo",
-                         f"deployment/{deployment}", "-n", namespace)
+                         f"deployment/{deployment}", "-n", namespace,
+                         context=context)
             return ExecutionResult(
                 workflow_id=plan.workflow_id,
                 success=True,
                 action_taken=(
-                    f"rollback: kubectl rollout undo "
+                    f"rollback: kubectl"
+                    f"{f' --context {context}' if context else ''} "
+                    f"rollout undo "
                     f"deployment/{deployment} -n {namespace}"
                 ),
             )

@@ -283,6 +283,8 @@ class RemediationPlan(WorkflowDerivedMixin):
     # pod_name 으로 Platform Core가 kubectl을 통해 Deployment를 추론한다.
     # (요청서 §2: "pod_name에서 Deployment를 추론")
     pod_name: str = ""
+    cluster_name: str = ""
+    kube_context: str = ""
 
     # scale_out rollback 전용: execute_remediation 이 HPA 패치 직전 maxReplicas 를
     # ExecutionResult.output 으로 반환하면, AIOps Workflow가 이 필드에 저장한 뒤
@@ -363,6 +365,8 @@ class ComplianceReport(WorkflowDerivedMixin):
     generated_at: datetime = Field(default_factory=utc_now)
     severity: SeverityType
     violated_regulations: list[str]
+    blast_radius_safe: bool = False
+    blast_radius_detail: str = ""
     threat_summary: str
     action_taken: str
     isolation_applied: bool
@@ -584,6 +588,9 @@ class DetectThreatInput(ContractVersionMixin):
     """
     cluster_name: str
     vpc_id: str
+    # 트리거 SQS 메시지 원본(raw). poller가 실어 보내면 detect_threat가 파싱·보강한다.
+    # 비어 있으면(run_demo/수동 실행) 더미 이벤트를 생성한다.
+    trigger_message: str = ""
  
  
 class GenerateComplianceReportInput(ContractVersionMixin):

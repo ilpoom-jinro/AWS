@@ -106,7 +106,12 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     }
     if infra.get("idle_resource_plan"):
         result["idle_resource_plan"] = infra.get("idle_resource_plan", [])
-
+    try:
+        cluster_state = get_agent_result(context, "cluster_state")
+    except KeyError:
+        cluster_state = {}
+    if cluster_state.get("idle_candidates"):
+        result["idle_candidates"] = cluster_state.get("idle_candidates", [])
     now = datetime.now(timezone.utc)
     cur_data = query_cur_via_athena(year=str(now.year), month=str(now.month))
     if cur_data:

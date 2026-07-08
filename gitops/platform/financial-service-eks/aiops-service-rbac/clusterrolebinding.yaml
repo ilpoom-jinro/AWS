@@ -1,0 +1,14 @@
+# access entry(STANDARD)로 등록된 ops role을 aiops-remote-reader에 바인딩.
+# EKS access entry는 principal ARN을 그대로 K8s User 이름으로 매핑한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiops-remote-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aiops-remote-reader
+subjects:
+  - kind: User
+    name: arn:aws:iam::609540154179:role/financial-ops-mas-orchestrator-role
+    apiGroup: rbac.authorization.k8s.io

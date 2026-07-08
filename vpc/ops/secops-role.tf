@@ -46,6 +46,26 @@ resource "aws_iam_role_policy" "secops_orchestrator_bedrock_runtime" {
   })
 }
 
+# Bedrock Knowledge Base 검색(RAG) — map_regulation이 규정 검색을 로컬 파일 대신
+# KB로 승격할 때(USE_BEDROCK_KB=true) 사용. retrieval.py가 bedrock:Retrieve 호출.
+# KB는 콘솔 Quick Create로 생성되므로 특정 KB ARN 대신 계정/리전 내 KB로 스코프.
+resource "aws_iam_role_policy" "secops_orchestrator_bedrock_kb" {
+  name = "bedrock-kb-retrieve"
+  role = aws_iam_role.secops_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "BedrockKnowledgeBaseRetrieve"
+      Effect = "Allow"
+      Action = [
+        "bedrock:Retrieve",
+      ]
+      Resource = "arn:aws:bedrock:${var.aws_region}:${var.account_id}:knowledge-base/*"
+    }]
+  })
+}
+
 # 보안 텔레메트리 조회 — SecOps 탐지/증적의 실데이터 소스
 resource "aws_iam_role_policy" "secops_orchestrator_telemetry" {
   name = "secops-telemetry-read"
@@ -91,6 +111,28 @@ resource "aws_iam_role_policy" "secops_orchestrator_telemetry" {
         Resource = "*"
       },
     ]
+  })
+}
+
+# 트리거 SQS 소비 — secops-trigger.tf(GuardDuty 아닌 기존 무료 탐지 SNS → SQS)의
+# 큐를 워커 poller가 폴링해 워크플로를 기동한다. 큐 ARN은 결정적(리전+계정+큐명)이라
+# 루트 리소스를 크로스모듈 참조하지 않고 문자열로 구성한다.
+resource "aws_iam_role_policy" "secops_orchestrator_trigger_sqs" {
+  name = "secops-trigger-sqs-consume"
+  role = aws_iam_role.secops_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SecOpsTriggerQueueConsume"
+      Effect = "Allow"
+      Action = [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+      ]
+      Resource = "arn:aws:sqs:${var.aws_region}:${var.account_id}:financial-secops-trigger"
+    }]
   })
 }
 

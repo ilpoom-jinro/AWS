@@ -1,0 +1,31 @@
+# compliance_reports DDL SQL — shared/reports/models.py ComplianceReportTable와 1:1 (멱등)
+# audit-db-init/configmap.yaml과 동일 패턴. PG13+ 내장 gen_random_uuid() 사용.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-db-init-sql
+  namespace: compliance-db-init
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+data:
+  compliance_reports.sql: |
+    CREATE TABLE IF NOT EXISTS compliance_reports (
+        id                   UUID             PRIMARY KEY DEFAULT gen_random_uuid(),
+        workflow_id          VARCHAR(64)      NOT NULL,
+        contract_version     VARCHAR(16)      NOT NULL,
+        generated_at         TIMESTAMPTZ      NOT NULL,
+        severity             VARCHAR(16)      NOT NULL,
+        violated_regulations TEXT[]           NOT NULL,
+        threat_summary       TEXT             NOT NULL,
+        action_taken         TEXT             NOT NULL,
+        isolation_applied    BOOLEAN          NOT NULL,
+        confidence           DOUBLE PRECISION NOT NULL,
+        evidence             JSONB            NOT NULL,
+        blast_radius_safe    BOOLEAN          NOT NULL DEFAULT false,
+        blast_radius_detail  TEXT             NOT NULL DEFAULT ''
+    );
+    -- 기존 배포 테이블(재구축으로 이미 생성됨) 대응: 멱등 컬럼 추가
+    ALTER TABLE compliance_reports ADD COLUMN IF NOT EXISTS blast_radius_safe   BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE compliance_reports ADD COLUMN IF NOT EXISTS blast_radius_detail TEXT    NOT NULL DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_compliance_reports_workflow_generated
+        ON compliance_reports (workflow_id, generated_at);
