@@ -92,6 +92,14 @@ resource "aws_iam_role_policy" "manifest_updater_codebuild" {
         Resource = "*"
       },
       {
+        Sid    = "BulkImageUpdatePayloadRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = "arn:aws:s3:::ilpumjinro-terraform-state-v4/mas-manifest-updates/*"
+      },
+      {
         Sid    = "VpcNetworkInterfaces"
         Effect = "Allow"
         Action = [
