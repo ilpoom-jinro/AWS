@@ -24,39 +24,14 @@ phases:
         IMAGE_URI="${IMAGE_URI:-${ECR_REGISTRY:-REPLACE_WITH_ECR_REGISTRY}/${ECR_REPOSITORY:-${APP_NAME}}:${IMAGE_TAG:-latest}}"
         KUBE_CONTEXT="manifest-updater-${OPS_EKS_CLUSTER_NAME}"
         WORKDIR="/tmp/internal-gitops"
-        export \
-          APP_NAME \
-          ARGOCD_APPLICATION_NAME \
-          CONTAINER_PORT \
-          CREATE_MANIFESTS \
-          ECR_REGISTRY \
-          ECR_REPOSITORY \
-          GITOPS_BRANCH \
-          IMAGE_TAG \
-          IMAGE_URI \
-          K8S_NAMESPACE \
-          MANIFEST_PATH \
-          MANIFESTS_ONLY \
-          REPLICAS \
-          SERVICE_ACCOUNT_NAME \
-          SERVICE_NAME \
-          SERVICE_PORT \
-          TARGET_CLUSTER \
-          TARGET_CONTAINER
+        export APP_NAME ARGOCD_APPLICATION_NAME CONTAINER_PORT CREATE_MANIFESTS ECR_REGISTRY ECR_REPOSITORY GITOPS_BRANCH IMAGE_TAG IMAGE_URI K8S_NAMESPACE MANIFEST_PATH MANIFESTS_ONLY REPLICAS SERVICE_ACCOUNT_NAME SERVICE_NAME SERVICE_PORT TARGET_CLUSTER TARGET_CONTAINER
 
         git config --global user.name "App Deploy Bot"
         git config --global user.email "app-deploy@internal.ops.local"
 
-        aws eks update-kubeconfig \
-          --region "${AWS_REGION}" \
-          --name "${OPS_EKS_CLUSTER_NAME}" \
-          --alias "${KUBE_CONTEXT}"
+        aws eks update-kubeconfig --region "${AWS_REGION}" --name "${OPS_EKS_CLUSTER_NAME}" --alias "${KUBE_CONTEXT}"
 
-        kubectl --context "${KUBE_CONTEXT}" \
-          -n "${INTERNAL_GIT_NAMESPACE}" \
-          port-forward "svc/${INTERNAL_GIT_SERVICE_NAME}" \
-          "3000:${INTERNAL_GIT_HTTP_PORT}" \
-          >/tmp/internal-git-port-forward.log 2>&1 &
+        kubectl --context "${KUBE_CONTEXT}" -n "${INTERNAL_GIT_NAMESPACE}" port-forward "svc/${INTERNAL_GIT_SERVICE_NAME}" "3000:${INTERNAL_GIT_HTTP_PORT}" >/tmp/internal-git-port-forward.log 2>&1 &
         PORT_FORWARD_PID="$!"
         trap 'kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true' EXIT
 
@@ -66,27 +41,21 @@ phases:
           fi
           if [ "${i}" -eq 60 ]; then
             cat /tmp/internal-git-port-forward.log || true
-            echo "Timed out waiting for internal Git port-forward."
+            echo "Timed out waiting for internal Git."
             exit 1
           fi
           sleep 2
         done
 
         rm -rf "${WORKDIR}"
-        git clone \
-          "http://${INTERNAL_GIT_USERNAME}:${INTERNAL_GIT_PASSWORD}@127.0.0.1:3000/${INTERNAL_GIT_ORG}/${INTERNAL_GIT_REPO}.git" \
-          "${WORKDIR}"
+        git clone "http://${INTERNAL_GIT_USERNAME}:${INTERNAL_GIT_PASSWORD}@127.0.0.1:3000/${INTERNAL_GIT_ORG}/${INTERNAL_GIT_REPO}.git" "${WORKDIR}"
         cd "${WORKDIR}"
 
         git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
         git pull --rebase origin "${GITOPS_BRANCH}" || true
 
-        if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ] || [ -n "${BULK_IMAGE_UPDATES_JSON:-}" ]; then
-          if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ]; then
-            aws s3 cp "${BULK_IMAGE_UPDATES_S3_URI}" /tmp/bulk-image-updates.json
-          else
-            printf '%s' "${BULK_IMAGE_UPDATES_JSON}" > /tmp/bulk-image-updates.json
-          fi
+        if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ]; then
+          aws s3 cp "${BULK_IMAGE_UPDATES_S3_URI}" /tmp/bulk-image-updates.json
 
           python3 - <<'PY'
           import json
@@ -98,20 +67,18 @@ phases:
           ecr_registry = os.environ["ECR_REGISTRY"]
           changed_paths = set()
 
-          def log(message):
-            print(message, flush=True)
-
           def fail(update, reason):
-            log("[bulk][error] manifest update failed")
-            log(f"[bulk][error] agent={update.get('agent', '')}")
-            log(f"[bulk][error] manifest_path={update.get('manifest_path', '')}")
-            log(f"[bulk][error] target_container={update.get('target_container', '')}")
-            log(f"[bulk][error] repository={update.get('repository', '')}")
-            log(f"[bulk][error] tag={update.get('tag', '')}")
-            log(f"[bulk][error] reason={reason}")
-            raise SystemExit(1)
+            raise SystemExit(
+              "[bulk][error] "
+              f"agent={update.get('agent', '')} "
+              f"manifest={update.get('manifest_path', '')} "
+              f"target={update.get('target_container', '')} "
+              f"repo={update.get('repository', '')} "
+              f"tag={update.get('tag', '')} "
+              f"reason={reason}"
+            )
 
-          log(f"[bulk] loaded {len(updates)} MAS image update(s)")
+          print(f"[bulk] loaded {len(updates)} MAS image update(s)", flush=True)
 
           def update_kustomize_image(doc, update):
             if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
@@ -186,13 +153,7 @@ phases:
             return changed
 
           for update in updates:
-            log(
-              "[bulk] update start: "
-              f"agent={update.get('agent', '')} "
-              f"manifest={update.get('manifest_path', '')} "
-              f"target={update.get('target_container', '')} "
-              f"tag={update.get('tag', '')}"
-            )
+            print(f"[bulk] update {update.get('agent', '')} -> {update.get('tag', '')}", flush=True)
             manifest_path = Path(update["manifest_path"])
             if not manifest_path.exists():
               fail(update, f"manifest file not found: {manifest_path}")
@@ -213,15 +174,10 @@ phases:
                 f"{manifest_path}: {update['target_container']} -> {update['uri']}"
               )
             else:
-              log(f"[bulk] no image change needed: {update['target_container']}")
+              print(f"[bulk] no change: {update['target_container']}", flush=True)
 
           for update in updates:
-            log(
-              "[bulk] verify start: "
-              f"agent={update.get('agent', '')} "
-              f"manifest={update.get('manifest_path', '')} "
-              f"target={update.get('target_container', '')}"
-            )
+            print(f"[bulk] verify {update.get('agent', '')}", flush=True)
             manifest_path = Path(update["manifest_path"])
             expected_new_name = f"{ecr_registry}/{update['repository']}"
             expected_tag = update["tag"]
@@ -236,7 +192,7 @@ phases:
                 if image.get("name") != target_container:
                   continue
                 if image.get("newName") == expected_new_name and image.get("newTag") == expected_tag:
-                  log(f"[bulk] verified immutable image tag for {target_container}: {expected_tag}")
+                  print(f"[bulk] verified {target_container}: {expected_tag}", flush=True)
                   break
                 fail(
                   update,
@@ -250,14 +206,14 @@ phases:
             else:
               fail(update, f"image entry not found: {target_container}")
 
-          log(f"[bulk] manifest update complete: {len(updates)} images, {len(changed_paths)} file(s) changed")
+          print(f"[bulk] complete: {len(updates)} images, {len(changed_paths)} file(s)", flush=True)
           PY
 
           git diff || true
           git add -A
 
           if git diff --cached --quiet; then
-            echo "Internal Git manifest is already up to date."
+            echo "No manifest changes."
             exit 0
           fi
 
@@ -265,20 +221,20 @@ phases:
 
           for attempt in 1 2 3 4 5; do
             if git push origin "${GITOPS_BRANCH}"; then
-              echo "Pushed bulk immutable MAS image tags to internal Git."
+              echo "Pushed bulk image tags."
               exit 0
             fi
 
-            echo "Git push failed, rebasing on origin/${GITOPS_BRANCH} before retry ${attempt}/5."
+            echo "Push failed; rebase retry ${attempt}/5."
             git fetch origin "${GITOPS_BRANCH}"
             if ! git rebase "origin/${GITOPS_BRANCH}"; then
               git rebase --abort || true
-              echo "Unable to rebase bulk manifest update."
+              echo "Rebase failed."
               exit 1
             fi
           done
 
-          echo "Failed to push bulk manifest update after retries."
+          echo "Bulk push failed."
           exit 1
         fi
 
