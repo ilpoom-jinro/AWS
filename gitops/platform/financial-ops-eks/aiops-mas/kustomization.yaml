@@ -6,12 +6,18 @@ resources:
   - clusterrole.yaml
   - clusterrolebinding.yaml
   - serviceaccount.yaml
+  - ui-serviceaccount.yaml
   - external-secret.yaml
   - configmap.yaml
   - deployment.yaml
   - service.yaml
+  - ui-deployment.yaml
+  - ui-service.yaml
 
 images:
   - name: aiops-orchestrator-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/aiops/orchestrator
+    newTag: latest
+  - name: aiops-ui-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/aiops/ui
     newTag: latest

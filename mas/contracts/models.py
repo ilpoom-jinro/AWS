@@ -283,6 +283,8 @@ class RemediationPlan(WorkflowDerivedMixin):
     # pod_name 으로 Platform Core가 kubectl을 통해 Deployment를 추론한다.
     # (요청서 §2: "pod_name에서 Deployment를 추론")
     pod_name: str = ""
+    cluster_name: str = ""
+    kube_context: str = ""
 
     # scale_out rollback 전용: execute_remediation 이 HPA 패치 직전 maxReplicas 를
     # ExecutionResult.output 으로 반환하면, AIOps Workflow가 이 필드에 저장한 뒤
@@ -363,10 +365,33 @@ class ComplianceReport(WorkflowDerivedMixin):
     generated_at: datetime = Field(default_factory=utc_now)
     severity: SeverityType
     violated_regulations: list[str]
+    blast_radius_safe: bool = False
+    blast_radius_detail: str = ""
     threat_summary: str
     action_taken: str
     isolation_applied: bool
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class PostMortemReport(WorkflowDerivedMixin):
+    """
+    SecOps: Sev1/2(critical/high) 사고에 대한 사후 분석(Post-Mortem) 보고서
+
+    ComplianceReport가 "규제 관점의 대응 기록"이라면, PostMortemReport는
+    "사고 자체의 회고 — 근본원인·타임라인·재발방지"를 담는다.
+    root_cause / lessons_learned / action_items는 Bedrock 초안(USE_REAL_BEDROCK)
+    또는 결정적 stub으로 생성한다. PostMortemReportTable과 1:1 매핑.
+    """
+    generated_at: datetime = Field(default_factory=utc_now)
+    severity: SeverityType
+    incident_summary: str
+    timeline: str = ""
+    root_cause: str = ""
+    impact: str = ""
+    action_items: list[str] = Field(default_factory=list)
+    lessons_learned: str = ""
+    isolation_applied: bool = False
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -506,6 +531,7 @@ class AuditLog(WorkflowDerivedMixin):
         "approval_timeout",
         "action_executed",
         "rollback_triggered",
+        "postmortem_generated",
         "workflow_completed",
         "workflow_failed",
     ]
@@ -601,6 +627,19 @@ class GenerateComplianceReportInput(ContractVersionMixin):
     event: SecurityEvent
     mapping: RegulationMapping
     result: ExecutionResult
+
+
+class GeneratePostMortemReportInput(ContractVersionMixin):
+    """
+    SecOps: Post-Mortem 보고서 생성 Activity 입력
+
+    GenerateComplianceReportInput과 동일한 3종(event/mapping/result)을 묶는다.
+    Sev1/2(critical/high) 사고에서만 workflow가 이 활동을 호출한다.
+    """
+    event: SecurityEvent
+    mapping: RegulationMapping
+    result: ExecutionResult
+
 
 class ApprovalTicket(WorkflowDerivedMixin):
     """

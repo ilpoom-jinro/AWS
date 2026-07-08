@@ -50,7 +50,9 @@ def _get_engine() -> AsyncEngine:
 
         try:
             _engine = create_async_engine(
-                settings.database_url,
+                # pydantic v2 PostgresDsn은 str 하위 타입이 아니므로 반드시 str()로 변환.
+                # (원본을 그대로 넘기면 SQLAlchemy가 "Expected string or URL object, got PostgresDsn" ArgumentError)
+                str(settings.database_url),
                 pool_size=settings.db_pool_size,
                 max_overflow=settings.db_max_overflow,
                 pool_timeout=settings.db_pool_timeout,

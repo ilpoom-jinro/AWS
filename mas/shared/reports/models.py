@@ -92,3 +92,88 @@ class ComplianceReportTable(Base):
         JSONB,
         nullable=False,
     )
+
+    blast_radius_safe: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+
+    blast_radius_detail: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )
+
+
+class PostMortemReportTable(Base):
+    """
+    Post-Mortem Report DB 모델 — contracts.models.PostMortemReport와 1:1 매핑.
+    ComplianceReportTable 패턴을 그대로 미러링(Sev1/2 사후분석 저장용).
+    """
+    __tablename__ = "postmortem_reports"
+
+    __table_args__ = (
+        Index(
+            "idx_postmortem_reports_workflow_generated",
+            "workflow_id",
+            "generated_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+
+    workflow_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    contract_version: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    incident_summary: Mapped[str] = mapped_column(Text, nullable=False)
+
+    timeline: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )
+
+    root_cause: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )
+
+    impact: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )
+
+    action_items: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        server_default=text("'{}'"),
+    )
+
+    lessons_learned: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("''"),
+    )
+
+    isolation_applied: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+    )
+
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False)

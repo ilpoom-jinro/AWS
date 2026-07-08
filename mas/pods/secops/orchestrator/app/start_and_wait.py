@@ -8,7 +8,7 @@ run_demo.py와의 차이:
 전제 (다른 터미널에서 실행 중이어야 함):
     1) temporal server start-dev
     2) python -m pods.secops.orchestrator.app.worker     ← SecOps 워커
-    3) python slack-hitl/bot.py                           ← 슬랙 봇 (HITL 큐 + Socket Mode)
+    3) python pods/platform/slack-hitl/bot.py                           ← 슬랙 봇 (HITL 큐 + Socket Mode)
 
 흐름: 이 스크립트가 워크플로우 시작 → 봇이 슬랙에 승인 메시지 게시 →
       사람이 슬랙에서 '✅ 승인' 클릭 → 봇이 submit_approval 시그널 전송 → 여기서 결과 출력.

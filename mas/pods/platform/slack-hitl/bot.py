@@ -1,5 +1,5 @@
 """
-Slack HITL 봇 — mas/slack-hitl/bot.py  (계약이 가리키던 위치)
+Slack HITL 봇 — mas/pods/platform/slack-hitl/bot.py  (계약이 가리키던 위치)
 ============================================================
 공통 컴포넌트. 3개 시나리오(FinOps/AIOps/SecOps) 워크플로우가 전부 이 봇으로 승인받는다.
 
@@ -24,7 +24,7 @@ Slack HITL 봇 — mas/slack-hitl/bot.py  (계약이 가리키던 위치)
     HITL_TASK_QUEUE   (기본 hitl-approval-queue — 워크플로우와 반드시 동일)
 
 설치:  pip install slack_bolt aiohttp temporalio
-실행 (mas/ 에서):  python slack-hitl/bot.py
+실행 (mas/ 에서):  python pods/platform/slack-hitl/bot.py
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ import os
 import sys
 from pathlib import Path
 
-# mas/ 를 import 경로에 (이 파일은 mas/slack-hitl/bot.py)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# mas/ 를 import 경로에 (이 파일은 mas/pods/platform/slack-hitl/bot.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from temporalio import activity
 from temporalio.client import Client

@@ -14,8 +14,8 @@ data:
   BEDROCK_MODEL:          "global.anthropic.claude-haiku-4-5-20251001-v1:0"
   BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (ap-northeast-2 지원 확인됨 2026-07-06)
   USE_REAL_BEDROCK:       "true"
-  USE_BEDROCK_KB:         "false"                    # KB 프로비저닝 완료 후 true
-  # BEDROCK_KB_ID:        "<KB 생성 후 주입>"
+  USE_BEDROCK_KB:         "true"                     # KB 프로비저닝 완료 (secops-regulations, S3 Vectors, 규정 4종 임베딩)
+  BEDROCK_KB_ID:          "NSSCV4WFHK"               # Bedrock KB — map_regulation RAG 검색 소스
   # 트리거 SQS 큐 (secops-trigger.tf). 워커 poller가 이 큐를 폴링해 워크플로 기동.
   # URL은 결정적(리전+계정+큐명) → REPLACE_WITH_ACCOUNT_ID를 gitops seed가 치환.
   # 격리 ops VPC에서 SQS 도달은 vpc/ops/endpoints.tf의 SQS VPC 엔드포인트 경유.

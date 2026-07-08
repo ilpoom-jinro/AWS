@@ -26,9 +26,11 @@ from .activities import (
     apply_isolation,
     detect_threat,
     generate_compliance_report,
+    generate_postmortem_report,
     map_regulation,
     record_audit_log,
     record_compliance_report,
+    record_postmortem_report,
 )
 from .workflow import SecOpsWorkflow
 
@@ -49,10 +51,12 @@ async def main() -> None:
             apply_isolation,
             generate_compliance_report,
             record_compliance_report,
+            generate_postmortem_report,
+            record_postmortem_report,
             record_audit_log,
         ],
         # 주의: send_approval_request / send_reminder 는 여기 없음 —
-        #       공통 슬랙 봇(slack-hitl/bot.py)이 전용 큐(HITL_TASK_QUEUE)에서 소유.
+        #       공통 슬랙 봇(pods/platform/slack-hitl/bot.py)이 전용 큐(HITL_TASK_QUEUE)에서 소유.
     )
     print(f"[worker] connected {TEMPORAL_ADDRESS}, task_queue={TASK_QUEUE} — waiting for tasks (Ctrl+C로 종료)")
     # 워커 + SQS poller 동시 실행 (poller는 트리거 큐를 폴링해 워크플로 기동)
