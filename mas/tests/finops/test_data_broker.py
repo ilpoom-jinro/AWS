@@ -235,7 +235,7 @@ class DataBrokerUnitTests(unittest.TestCase):
             request.required_fields,
         )
         self.assertEqual(resolved["_broker_status"], "completed")
-        self.assertLess(resolved["peak_rps_after"], 1000)
+        self.assertLess(resolved["peak_rps_after"], context["signals"]["baseline_peak_rps"])
 
         context["broker_results"]["traffic_forecast"] = resolved
         completed = bottleneck.evaluate(context)

@@ -46,8 +46,7 @@ PLANNER_SYSTEM_PROMPT = """
 replan_from은 다음 중 하나여야 합니다:
 business_control, demand_shaping, traffic_forecast,
 bottleneck_capacity, infra_execution, cost,
-unit_economics, policy_guardrail, observer,
-fallback, postmortem_learning
+unit_economics, policy_guardrail, postmortem_learning
 
 constraints 예시:
   "Pod 최대 15개" -> {"max_pods": 15}
@@ -93,8 +92,7 @@ PLANNER_SYSTEM_PROMPT = """
 처리 가능한 Agent 목록:
   business_control, demand_shaping, traffic_forecast,
   bottleneck_capacity, infra_execution, cost,
-  unit_economics, policy_guardrail, observer,
-  fallback, postmortem_learning
+  unit_economics, policy_guardrail, postmortem_learning
 
 constraints 예시:
   "Pod 최대 15개" → {"max_pods": 15}

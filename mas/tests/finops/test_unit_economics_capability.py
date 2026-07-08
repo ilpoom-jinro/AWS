@@ -108,6 +108,47 @@ def unit_context(
     }
 
 
+def unit_context_with_candidate_costs() -> dict:
+    context = unit_context(estimated_cost_usd=93.33)
+    context["agent_results"]["cost"] = agent_response(
+        "cost",
+        {
+            "total": 93.33,
+            "estimated_cost_usd": 93.33,
+            "gross_estimated_cost_usd": 93.33,
+            "idle_resource_saving_usd": 0.6,
+            "net_cost_after_idle_reduction": 92.73,
+            "candidate_costs": [
+                {
+                    "label": "안정성 우선",
+                    "gross_cost_usd": 93.33,
+                    "estimated_cost_usd": 93.33,
+                    "idle_resource_saving_usd": 0.6,
+                    "net_cost_after_idle_reduction": 92.73,
+                    "net_budget_exceeded": False,
+                    "required_app_pods": 69,
+                    "scale_out_pods": 42,
+                },
+                {
+                    "label": "균형",
+                    "gross_cost_usd": 87.96,
+                    "estimated_cost_usd": 87.96,
+                    "idle_resource_saving_usd": 0.6,
+                    "net_cost_after_idle_reduction": 87.36,
+                    "net_budget_exceeded": False,
+                    "required_app_pods": 64,
+                    "scale_out_pods": 37,
+                },
+            ],
+        },
+    )
+    context["agent_results"]["bottleneck_capacity"] = agent_response(
+        "bottleneck_capacity",
+        {"ready_pods": 27, "required_app_pods": 69},
+    )
+    return context
+
+
 class UnitEconomicsCapabilityTests(unittest.TestCase):
     def test_cost_efficiency_score_is_calculated(self) -> None:
         unit = load_unit_economics_logic()
@@ -162,6 +203,10 @@ class UnitEconomicsCapabilityTests(unittest.TestCase):
             "roi_validation",
             "business_impact_assessment",
             "final_approval_recommendation",
+            "candidate_economics",
+            "net_cost_usd",
+            "value_per_dollar",
+            "economic_assessment",
         ]:
             self.assertIn(field, fields)
 
@@ -180,6 +225,26 @@ class UnitEconomicsCapabilityTests(unittest.TestCase):
         )
 
         self.assertEqual(filtered, required_fields)
+
+    def test_net_cost_after_idle_saving_is_used_for_economics(self) -> None:
+        unit = load_unit_economics_logic()
+        result, _message = unit.evaluate(unit_context_with_candidate_costs())
+
+        self.assertEqual(result["gross_cost_usd"], 93.33)
+        self.assertEqual(result["idle_saving_usd"], 0.6)
+        self.assertEqual(result["net_cost_usd"], 92.73)
+        self.assertEqual(result["cost_ratio"], "2.2%")
+        self.assertEqual(result["value_per_dollar"], round(4200 / 92.73, 2))
+
+    def test_candidate_economics_are_calculated(self) -> None:
+        unit = load_unit_economics_logic()
+        result, _message = unit.evaluate(unit_context_with_candidate_costs())
+
+        self.assertEqual(result["selected_candidate_label"], "안정성 우선")
+        self.assertEqual(len(result["candidate_economics"]), 2)
+        self.assertEqual(result["candidate_economics"][0]["net_cost_usd"], 92.73)
+        self.assertEqual(result["candidate_economics"][0]["budget_status"], "within_budget")
+        self.assertEqual(result["candidate_economics"][1]["label"], "균형")
 
 
 if __name__ == "__main__":

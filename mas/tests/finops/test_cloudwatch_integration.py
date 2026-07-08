@@ -104,7 +104,7 @@ class CloudWatchIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["rds_data_source"], "cloudwatch_failed")
         self.assertEqual(result["data_quality"], "cloudwatch_failed_seed_fallback")
-        self.assertEqual(result["db_cpu"], "68%")
+        self.assertEqual(result["db_cpu"], 68.0)
 
     def test_bottleneck_sets_cloudwatch_data_quality(self) -> None:
         logic = load_agent_logic("bottleneck-capacity")
@@ -131,6 +131,7 @@ class CloudWatchIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["rds_data_source"], "cloudwatch")
         self.assertEqual(result["data_quality"], "realtime_cloudwatch")
+        self.assertEqual(result["db_cpu"], 66.5)
 
 
 if __name__ == "__main__":
