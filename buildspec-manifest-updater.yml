@@ -57,7 +57,8 @@ phases:
         if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ]; then
           aws s3 cp "${BULK_IMAGE_UPDATES_S3_URI}" /tmp/bulk-image-updates.json
 
-          python3 - <<'PY'
+        python3 - <<'PY'
+        if True:
           import json
           import os
           from pathlib import Path
@@ -207,7 +208,7 @@ phases:
               fail(update, f"image entry not found: {target_container}")
 
           print(f"[bulk] complete: {len(updates)} images, {len(changed_paths)} file(s)", flush=True)
-          PY
+        PY
 
           git diff || true
           git add -A
