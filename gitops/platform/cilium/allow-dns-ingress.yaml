@@ -16,15 +16,9 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-    # 신규: unmanaged pod(ebs-csi-controller 등)가 cilium endpoint identity를 못 받아
-    # world(ID:16777224)로 식별되는 케이스 대응 (재캡처에서 10.20.12.69 → coredns:53
-    # INGRESS AUDITED 확인). fromEndpoints는 world 소스를 못 잡아서 fromCIDR로 보강.
-    # ops VPC 노드 서브넷만 포함(db 서브넷 10.20.21/22.0/24는 노드 없어 제외).
-    # service VPC(10.10.x)는 재캡처에서 unmanaged 확인되면 별도 추가 예정.
-    - fromCIDR:               # 신규 - unmanaged/world 소스(ebs-csi 등) 대응
-        - 10.20.11.0/24       # financial-vpc2-private-a (node subnet)
-        - 10.20.12.0/24       # financial-vpc2-private-b (node subnet)
-        - 10.20.31.0/24       # financial-vpc2-monitor-a (node subnet)
+    - fromEntities:             # 신규 - unmanaged 소스(argocd, ebs-csi 등) 대응
+        - cluster               # cidr는 reserved:unmanaged 매칭 불가 -> cluster 필요
+                                # (DNS는 본래 클러스터 전체 허용 대상, world는 미포함)
       toPorts:
         - ports:
             - port: "53"
