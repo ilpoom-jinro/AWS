@@ -81,6 +81,142 @@ phases:
         git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
         git pull --rebase origin "${GITOPS_BRANCH}" || true
 
+        cat >/tmp/bulk-update.py <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        import yaml
+
+        updates = json.loads(Path("/tmp/bulk-image-updates.json").read_text(encoding="utf-8"))
+        ecr_registry = os.environ["ECR_REGISTRY"]
+        changed_paths = set()
+
+        def update_kustomize_image(doc, update):
+          if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
+            return False
+
+          repository = update["repository"]
+          target_container = update["target_container"]
+          app_name = update.get("app_name", "")
+          image_tag = update["tag"]
+          new_name = f"{ecr_registry}/{repository}"
+          placeholder_new_name = f"REPLACE_WITH_ECR_REGISTRY/{repository}"
+          image_names = {
+            value for value in [
+              target_container,
+              app_name,
+              repository,
+              new_name,
+              placeholder_new_name,
+            ] if value
+          }
+
+          matched = False
+          changed = False
+          for image in doc["images"]:
+            if not isinstance(image, dict):
+              continue
+            current_name = image.get("name")
+            current_new_name = image.get("newName")
+            if (
+              image_names
+              and current_name not in image_names
+              and current_new_name not in {new_name, placeholder_new_name}
+            ):
+              continue
+
+            matched = True
+            if image.get("newName") != new_name:
+              image["newName"] = new_name
+              changed = True
+            if image.get("newTag") != image_tag:
+              image["newTag"] = image_tag
+              changed = True
+
+          if not matched:
+            doc["images"].append({
+              "name": target_container,
+              "newName": new_name,
+              "newTag": image_tag,
+            })
+            changed = True
+
+          return changed
+
+        def update_container_images(node, update):
+          changed = False
+          target_container = update["target_container"]
+          image_uri = update["uri"]
+          if isinstance(node, dict):
+            if "containers" in node and isinstance(node["containers"], list):
+              for container in node["containers"]:
+                if not isinstance(container, dict) or "image" not in container:
+                  continue
+                if not target_container or container.get("name") == target_container:
+                  if container["image"] != image_uri:
+                    container["image"] = image_uri
+                    changed = True
+            for value in node.values():
+              changed = update_container_images(value, update) or changed
+          elif isinstance(node, list):
+            for item in node:
+              changed = update_container_images(item, update) or changed
+          return changed
+
+        for update in updates:
+          manifest_path = Path(update["manifest_path"])
+          if not manifest_path.exists():
+            raise SystemExit(f"Manifest file not found: {manifest_path}")
+
+          docs = list(yaml.safe_load_all(manifest_path.read_text()))
+          changed = False
+          for doc in docs:
+            changed = update_kustomize_image(doc, update) or changed
+            changed = update_container_images(doc, update) or changed
+
+          if changed:
+            manifest_path.write_text(
+              "---\n".join(yaml.safe_dump(doc, sort_keys=False) for doc in docs)
+            )
+            changed_paths.add(str(manifest_path))
+            print(
+              "Updated "
+              f"{manifest_path}: {update['target_container']} -> {update['uri']}"
+            )
+          else:
+            print(f"No image change was needed for {update['target_container']}.")
+
+        for update in updates:
+          manifest_path = Path(update["manifest_path"])
+          expected_new_name = f"{ecr_registry}/{update['repository']}"
+          expected_tag = update["tag"]
+          target_container = update["target_container"]
+          docs = list(yaml.safe_load_all(manifest_path.read_text()))
+          for doc in docs:
+            if not isinstance(doc, dict):
+              continue
+            for image in doc.get("images", []) or []:
+              if not isinstance(image, dict):
+                continue
+              if image.get("name") != target_container:
+                continue
+              if image.get("newName") == expected_new_name and image.get("newTag") == expected_tag:
+                print(f"Verified immutable image tag for {target_container}: {expected_tag}")
+                break
+              raise SystemExit(
+                "Image tag verification failed for "
+                f"{target_container}: expected {expected_new_name}:{expected_tag}, "
+                f"got {image.get('newName')}:{image.get('newTag')}"
+              )
+            else:
+              continue
+            break
+          else:
+            raise SystemExit(f"Image entry not found in {manifest_path}: {target_container}")
+
+        print(f"Bulk MAS image manifest update complete: {len(updates)} images, {len(changed_paths)} files changed.")
+        PY
+
         if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ] || [ -n "${BULK_IMAGE_UPDATES_JSON:-}" ]; then
           if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ]; then
             aws s3 cp "${BULK_IMAGE_UPDATES_S3_URI}" /tmp/bulk-image-updates.json
@@ -88,141 +224,7 @@ phases:
             printf '%s' "${BULK_IMAGE_UPDATES_JSON}" > /tmp/bulk-image-updates.json
           fi
 
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          import yaml
-
-          updates = json.loads(Path("/tmp/bulk-image-updates.json").read_text(encoding="utf-8"))
-          ecr_registry = os.environ["ECR_REGISTRY"]
-          changed_paths = set()
-
-          def update_kustomize_image(doc, update):
-            if not isinstance(doc, dict) or not isinstance(doc.get("images"), list):
-              return False
-
-            repository = update["repository"]
-            target_container = update["target_container"]
-            app_name = update.get("app_name", "")
-            image_tag = update["tag"]
-            new_name = f"{ecr_registry}/{repository}"
-            placeholder_new_name = f"REPLACE_WITH_ECR_REGISTRY/{repository}"
-            image_names = {
-              value for value in [
-                target_container,
-                app_name,
-                repository,
-                new_name,
-                placeholder_new_name,
-              ] if value
-            }
-
-            matched = False
-            changed = False
-            for image in doc["images"]:
-              if not isinstance(image, dict):
-                continue
-              current_name = image.get("name")
-              current_new_name = image.get("newName")
-              if (
-                image_names
-                and current_name not in image_names
-                and current_new_name not in {new_name, placeholder_new_name}
-              ):
-                continue
-
-              matched = True
-              if image.get("newName") != new_name:
-                image["newName"] = new_name
-                changed = True
-              if image.get("newTag") != image_tag:
-                image["newTag"] = image_tag
-                changed = True
-
-            if not matched:
-              doc["images"].append({
-                "name": target_container,
-                "newName": new_name,
-                "newTag": image_tag,
-              })
-              changed = True
-
-            return changed
-
-          def update_container_images(node, update):
-            changed = False
-            target_container = update["target_container"]
-            image_uri = update["uri"]
-            if isinstance(node, dict):
-              if "containers" in node and isinstance(node["containers"], list):
-                for container in node["containers"]:
-                  if not isinstance(container, dict) or "image" not in container:
-                    continue
-                  if not target_container or container.get("name") == target_container:
-                    if container["image"] != image_uri:
-                      container["image"] = image_uri
-                      changed = True
-              for value in node.values():
-                changed = update_container_images(value, update) or changed
-            elif isinstance(node, list):
-              for item in node:
-                changed = update_container_images(item, update) or changed
-            return changed
-
-          for update in updates:
-            manifest_path = Path(update["manifest_path"])
-            if not manifest_path.exists():
-              raise SystemExit(f"Manifest file not found: {manifest_path}")
-
-            docs = list(yaml.safe_load_all(manifest_path.read_text()))
-            changed = False
-            for doc in docs:
-              changed = update_kustomize_image(doc, update) or changed
-              changed = update_container_images(doc, update) or changed
-
-            if changed:
-              manifest_path.write_text(
-                "---\n".join(yaml.safe_dump(doc, sort_keys=False) for doc in docs)
-              )
-              changed_paths.add(str(manifest_path))
-              print(
-                "Updated "
-                f"{manifest_path}: {update['target_container']} -> {update['uri']}"
-              )
-            else:
-              print(f"No image change was needed for {update['target_container']}.")
-
-          for update in updates:
-            manifest_path = Path(update["manifest_path"])
-            expected_new_name = f"{ecr_registry}/{update['repository']}"
-            expected_tag = update["tag"]
-            target_container = update["target_container"]
-            docs = list(yaml.safe_load_all(manifest_path.read_text()))
-            for doc in docs:
-              if not isinstance(doc, dict):
-                continue
-              for image in doc.get("images", []) or []:
-                if not isinstance(image, dict):
-                  continue
-                if image.get("name") != target_container:
-                  continue
-                if image.get("newName") == expected_new_name and image.get("newTag") == expected_tag:
-                  print(f"Verified immutable image tag for {target_container}: {expected_tag}")
-                  break
-                raise SystemExit(
-                  "Image tag verification failed for "
-                  f"{target_container}: expected {expected_new_name}:{expected_tag}, "
-                  f"got {image.get('newName')}:{image.get('newTag')}"
-                )
-              else:
-                continue
-              break
-            else:
-              raise SystemExit(f"Image entry not found in {manifest_path}: {target_container}")
-
-          print(f"Bulk MAS image manifest update complete: {len(updates)} images, {len(changed_paths)} files changed.")
-          PY
+          python3 /tmp/bulk-update.py
 
           git diff || true
           git add -A
