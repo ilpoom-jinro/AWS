@@ -1,9 +1,20 @@
 # compliance_reports 테이블 초기화 패키지 (audit-db-init과 동일 패턴)
 # sync-wave로 순서 보장 (configmap -3 → external-secret -2 → job -1)
+#
+# configMapGenerator 사용 이유:
+#   SQL 파일 내용이 바뀌면 생성 ConfigMap 이름 해시가 바뀌고, Job의 volume 참조도
+#   kustomize가 자동으로 새 이름으로 rewrite → Job spec 변경 → (Replace=true) 재실행.
+#   inline ConfigMap(고정 이름)은 SQL만 바뀌면 Job spec이 그대로라 재실행 안 되는 한계가 있어 전환.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: compliance-db-init
 resources:
   - external-secret.yaml
-  - configmap.yaml
   - job.yaml
+configMapGenerator:
+  - name: compliance-db-init-sql
+    files:
+      - compliance_reports.sql=sql/compliance_reports.sql
+    options:
+      annotations:
+        argocd.argoproj.io/sync-wave: "-3"

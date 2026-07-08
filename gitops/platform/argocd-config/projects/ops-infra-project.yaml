@@ -26,6 +26,12 @@ spec:
     # Temporal (financial-ops-eks in-cluster)
     - server: https://kubernetes.default.svc
       namespace: temporal
+    # DB init Job 네임스페이스 (audit_logs / compliance_reports 테이블 선행 생성)
+    # 미등록 시 ArgoCD가 InvalidSpecError로 sync 거부 → init Job 미실행 → 테이블 누락
+    - server: https://kubernetes.default.svc
+      namespace: audit-db-init
+    - server: https://kubernetes.default.svc
+      namespace: compliance-db-init
     # Service 클러스터 (서버 URL이 동적이므로 등록 이름으로 참조)
     - name: financial-service-eks
       namespace: observability
