@@ -435,7 +435,15 @@ jobs:
 
           echo "::notice title=MAS image tag::${ECR_REPOSITORY}:${image_tag}"
           mkdir -p mas-image-tags
-          printf '%s\t%s\t%s\t%s\n' "${{ matrix.agent }}" "${ECR_REPOSITORY}" "${image_tag}" "${image_uri}" > "mas-image-tags/${{ strategy.job-index }}.tsv"
+          printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "${{ matrix.agent }}" \
+            "${ECR_REPOSITORY}" \
+            "${image_tag}" \
+            "${image_uri}" \
+            "${{ steps.agent.outputs.manifest_path }}" \
+            "${{ steps.agent.outputs.target_container }}" \
+            "${{ steps.agent.outputs.name }}" \
+            > "mas-image-tags/${{ strategy.job-index }}.tsv"
 
       - name: Ensure ECR repository
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
@@ -510,96 +518,99 @@ jobs:
           path: mas-image-tags/*.tsv
           if-no-files-found: error
 
-      - name: Start manifest update CodeBuild
-        id: codebuild
+  update_manifests:
+    name: Update MAS GitOps image tags
+    needs:
+      - detect
+      - deploy
+    if: ${{ always() && needs.detect.outputs.should_deploy == 'true' && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 20
+    concurrency:
+      group: mas-manifest-update-${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          retry-max-attempts: 3
+          action-timeout-s: 120
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Download image tag metadata
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.deploy_scope != 'manifests-only' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mas-image-tag-*
+          merge-multiple: true
+          path: mas-image-tags
+
+      - name: Run manifest update CodeBuild sequentially
         shell: bash
         env:
-          APP_NAME: ${{ steps.agent.outputs.name }}
           CODEBUILD_PROJECT: ${{ github.event_name == 'workflow_dispatch' && inputs.codebuild_project || 'financial-manifest-updater' }}
-          ECR_REPOSITORY: ${{ steps.agent.outputs.image_repository }}
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           GITOPS_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
-          IMAGE_URI: ${{ steps.image.outputs.uri }}
-          MANIFEST_PATH: ${{ steps.agent.outputs.manifest_path }}
-          TARGET_CONTAINER: ${{ steps.agent.outputs.target_container }}
-          CREATE_MANIFESTS: ${{ github.event_name != 'workflow_dispatch' || (inputs.operation != 'update' && inputs.deploy_scope != 'image-only') }}
+          CREATE_MANIFESTS: "false"
           MANIFESTS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_scope == 'manifests-only' }}
-          K8S_NAMESPACE: ${{ steps.agent.outputs.namespace }}
-          SERVICE_ACCOUNT_NAME: ${{ steps.agent.outputs.service_account_name }}
-          SERVICE_NAME: ${{ steps.agent.outputs.service_name }}
-          TARGET_CLUSTER: ${{ steps.agent.outputs.target_cluster }}
-          CONTAINER_PORT: ${{ steps.agent.outputs.container_port }}
-          SERVICE_PORT: ${{ steps.agent.outputs.service_port }}
-          REPLICAS: ${{ steps.agent.outputs.replicas }}
         run: |
           set -euo pipefail
-          build_id="$(
-            aws codebuild start-build \
-              --project-name "${CODEBUILD_PROJECT}" \
-              --environment-variables-override \
-                name=APP_NAME,value="${APP_NAME}",type=PLAINTEXT \
-                name=IMAGE_TAG,value="${IMAGE_TAG}",type=PLAINTEXT \
-                name=IMAGE_URI,value="${IMAGE_URI}",type=PLAINTEXT \
-                name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
-                name=ECR_REPOSITORY,value="${ECR_REPOSITORY}",type=PLAINTEXT \
-                name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
-                name=MANIFEST_PATH,value="${MANIFEST_PATH}",type=PLAINTEXT \
-                name=TARGET_CONTAINER,value="${TARGET_CONTAINER}",type=PLAINTEXT \
-                name=CREATE_MANIFESTS,value="${CREATE_MANIFESTS}",type=PLAINTEXT \
-                name=MANIFESTS_ONLY,value="${MANIFESTS_ONLY}",type=PLAINTEXT \
-                name=K8S_NAMESPACE,value="${K8S_NAMESPACE}",type=PLAINTEXT \
-                name=SERVICE_ACCOUNT_NAME,value="${SERVICE_ACCOUNT_NAME}",type=PLAINTEXT \
-                name=SERVICE_NAME,value="${SERVICE_NAME}",type=PLAINTEXT \
-                name=TARGET_CLUSTER,value="${TARGET_CLUSTER}",type=PLAINTEXT \
-                name=CONTAINER_PORT,value="${CONTAINER_PORT}",type=PLAINTEXT \
-                name=SERVICE_PORT,value="${SERVICE_PORT}",type=PLAINTEXT \
-                name=REPLICAS,value="${REPLICAS}",type=PLAINTEXT \
-              --query 'build.id' \
-              --output text
-          )"
 
-          echo "id=${build_id}" >> "${GITHUB_OUTPUT}"
-          echo "Started CodeBuild: ${build_id}"
-          echo "::notice title=Manifest updater started::${APP_NAME} -> ${IMAGE_URI} (${build_id})"
+          if ! compgen -G "mas-image-tags/*.tsv" > /dev/null; then
+            echo "::error::No MAS image tag artifacts were found."
+            exit 1
+          fi
 
-      - name: Wait for CodeBuild
-        shell: bash
-        env:
-          BUILD_ID: ${{ steps.codebuild.outputs.id }}
-          IMAGE_URI: ${{ steps.image.outputs.uri }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
-          AGENT: ${{ matrix.agent }}
-        run: |
-          set -euo pipefail
-          while true; do
-            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
-            echo "CodeBuild status: ${status}"
+          sort mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri manifest_path target_container app_name; do
+            if [ -z "${agent}" ]; then
+              continue
+            fi
 
-            case "${status}" in
-              SUCCEEDED)
-                echo "::notice title=MAS deploy succeeded::${AGENT} -> ${IMAGE_URI}"
-                exit 0
-                ;;
-              FAILED|FAULT|STOPPED|TIMED_OUT)
-                deep_link="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
-                echo "::error title=Manifest updater failed::${AGENT} CodeBuild finished with status ${status}. Image tag was ${IMAGE_TAG}. Logs: ${deep_link}"
-                exit 1
-                ;;
-            esac
+            echo "Updating GitOps image tag: ${agent} -> ${tag}"
+            build_id="$(
+              aws codebuild start-build \
+                --project-name "${CODEBUILD_PROJECT}" \
+                --environment-variables-override \
+                  name=APP_NAME,value="${app_name}",type=PLAINTEXT \
+                  name=IMAGE_TAG,value="${tag}",type=PLAINTEXT \
+                  name=IMAGE_URI,value="${uri}",type=PLAINTEXT \
+                  name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
+                  name=ECR_REPOSITORY,value="${repository}",type=PLAINTEXT \
+                  name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
+                  name=MANIFEST_PATH,value="${manifest_path}",type=PLAINTEXT \
+                  name=TARGET_CONTAINER,value="${target_container}",type=PLAINTEXT \
+                  name=CREATE_MANIFESTS,value="${CREATE_MANIFESTS}",type=PLAINTEXT \
+                  name=MANIFESTS_ONLY,value="${MANIFESTS_ONLY}",type=PLAINTEXT \
+                --query 'build.id' \
+                --output text
+            )"
 
-            sleep 30
+            while true; do
+              status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+              echo "CodeBuild ${build_id} status: ${status}"
+
+              case "${status}" in
+                SUCCEEDED)
+                  echo "::notice title=MAS manifest update succeeded::${agent} -> ${tag}"
+                  break
+                  ;;
+                FAILED|FAULT|STOPPED|TIMED_OUT)
+                  deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
+                  echo "::error title=Manifest updater failed::${agent} CodeBuild finished with status ${status}. Logs: ${deep_link}"
+                  exit 1
+                  ;;
+              esac
+
+              sleep 30
+            done
           done
-
-      - name: Stop manifest update CodeBuild on cancellation
-        if: ${{ cancelled() && steps.codebuild.outputs.id != '' }}
-        shell: bash
-        env:
-          BUILD_ID: ${{ steps.codebuild.outputs.id }}
-        run: |
-          set -euo pipefail
-          echo "Stopping CodeBuild because the GitHub Actions job was cancelled: ${BUILD_ID}"
-          aws codebuild stop-build --id "${BUILD_ID}" || true
 
   summarize_image_tags:
     name: Summarize MAS image tags
@@ -627,7 +638,7 @@ jobs:
           echo "| --- | --- | --- | --- |" >> "${GITHUB_STEP_SUMMARY}"
 
           if compgen -G "mas-image-tags/*.tsv" > /dev/null; then
-            sort mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri; do
+            sort mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri manifest_path target_container app_name; do
               echo "| \`${agent}\` | \`${repository}\` | \`${tag}\` | \`${uri}\` |" >> "${GITHUB_STEP_SUMMARY}"
               echo "${agent} ${tag} ${uri}"
             done
