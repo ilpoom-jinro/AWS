@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-ui
+  namespace: aiops-mas
+  labels:
+    app: aiops-ui
+    mas.platform/agent: aiops-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiops-ui
+  template:
+    metadata:
+      labels:
+        app: aiops-ui
+    spec:
+      serviceAccountName: aiops-ui
+      containers:
+        - name: aiops-ui
+          image: aiops-ui-image
+          imagePullPolicy: Always
+          env:
+            - name: ORCHESTRATOR_URL
+              value: http://aiops-orchestrator.aiops-mas.svc.cluster.local
+            - name: TEMPORAL_UI_URL
+              value: https://temporal-ui.teleport.local
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

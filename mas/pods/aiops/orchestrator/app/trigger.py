@@ -27,6 +27,7 @@ import os
 import uuid
 
 from fastapi import FastAPI, Request
+from pydantic import BaseModel
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
 
@@ -43,6 +44,12 @@ TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "aiops-task-queue")
 app = FastAPI(title="AIOps Alert Trigger", version="1.3.0")
 
 _client: Client | None = None
+
+
+class RunWorkflowRequest(BaseModel):
+    cluster_name: str
+    namespace: str
+    workflow_id: str | None = None
 
 
 async def _get_client() -> Client:
@@ -108,6 +115,50 @@ async def alertmanager_webhook(request: Request) -> dict:
         started.append({"workflow_id": wf_id, "cluster": cluster, "namespace": namespace})
 
     return {"started": started}
+
+
+@app.get("/api/dashboard")
+def dashboard() -> dict[str, object]:
+    return {
+        "scenario": "aiops",
+        "agent": "orchestrator",
+        "task_queue": TASK_QUEUE,
+        "temporal_address": TEMPORAL_ADDRESS,
+        "targets": [
+            {"cluster_name": "financial-ops-eks", "namespace": "tetragon"},
+            {"cluster_name": "financial-service-eks", "namespace": "stock-demo"},
+        ],
+    }
+
+
+@app.post("/api/workflows/run")
+async def run_workflow(request: RunWorkflowRequest) -> dict[str, str]:
+    """UI/API에서 수동으로 AIOps remediation workflow를 시작한다."""
+    client = await _get_client()
+    wf_id = request.workflow_id or (
+        f"aiops-{request.cluster_name}-{request.namespace}-manual-{uuid.uuid4().hex[:8]}"
+    )
+    await client.start_workflow(
+        AIOpsRemediationWorkflow.run,
+        DetectIncidentInput(
+            cluster_name=request.cluster_name,
+            namespace=request.namespace,
+        ),
+        id=wf_id,
+        task_queue=TASK_QUEUE,
+    )
+    logger.info(
+        "수동 워크플로 시작: %s (%s/%s)",
+        wf_id,
+        request.cluster_name,
+        request.namespace,
+    )
+    return {
+        "workflow_id": wf_id,
+        "cluster_name": request.cluster_name,
+        "namespace": request.namespace,
+        "task_queue": TASK_QUEUE,
+    }
 
 
 @app.get("/health")
