@@ -531,6 +531,7 @@ class AuditLog(WorkflowDerivedMixin):
         "approval_timeout",
         "action_executed",
         "rollback_triggered",
+        "postmortem_generated",
         "workflow_completed",
         "workflow_failed",
     ]
