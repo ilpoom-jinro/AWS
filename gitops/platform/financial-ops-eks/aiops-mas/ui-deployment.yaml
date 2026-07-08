@@ -4,17 +4,18 @@ metadata:
   name: aiops-ui
   namespace: aiops-mas
   labels:
-    app: aiops-ui
-    mas.platform/agent: aiops-ui
+    app.kubernetes.io/name: aiops-ui
+    app.kubernetes.io/part-of: aiops-mas
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: aiops-ui
+      app.kubernetes.io/name: aiops-ui
   template:
     metadata:
       labels:
-        app: aiops-ui
+        app.kubernetes.io/name: aiops-ui
+        app.kubernetes.io/part-of: aiops-mas
     spec:
       serviceAccountName: aiops-ui
       containers:
