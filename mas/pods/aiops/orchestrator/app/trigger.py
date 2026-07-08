@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+import asyncio
 
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -33,6 +34,8 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 
 from contracts.models import DetectIncidentInput
 
+from .config import settings
+from .k8s_collector import K8sCollector
 from .workflow import AIOpsRemediationWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +92,13 @@ def _extract_targets(payload: dict) -> set[tuple[str, str]]:
     return targets
 
 
+def _context_for_cluster(cluster_name: str) -> str:
+    """cluster_name에 맞는 K8sCollector context를 반환한다."""
+    if cluster_name == settings.SERVICE_EKS_CLUSTER_NAME:
+        return settings.SERVICE_KUBE_CONTEXT
+    return settings.OPS_KUBE_CONTEXT
+
+
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request) -> dict:
     """Alertmanager webhook 수신 → 조합별로 워크플로 시작."""
@@ -129,6 +139,47 @@ def dashboard() -> dict[str, object]:
             {"cluster_name": "financial-service-eks", "namespace": "stock-demo"},
         ],
     }
+
+
+@app.get("/api/clusters/{cluster_name}/namespaces")
+async def cluster_namespaces(cluster_name: str) -> dict[str, object]:
+    """해당 클러스터에서 pod가 존재하는 namespace 목록을 반환한다."""
+    collector = K8sCollector(context=_context_for_cluster(cluster_name))
+    pods = await collector.list_pods_all_namespaces()
+    namespaces = sorted(
+        {
+            pod.get("metadata", {}).get("namespace", "")
+            for pod in pods
+            if pod.get("metadata", {}).get("namespace")
+        }
+    )
+    return {
+        "cluster_name": cluster_name,
+        "namespaces": namespaces,
+    }
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def workflow_detail(workflow_id: str) -> dict[str, object]:
+    """Temporal workflow 상태와 완료된 경우 result를 조회한다."""
+    client = await _get_client()
+    handle = client.get_workflow_handle(workflow_id)
+    description = await handle.describe()
+    status = getattr(description.status, "name", str(description.status))
+
+    response: dict[str, object] = {
+        "workflow_id": workflow_id,
+        "status": status,
+        "result": None,
+    }
+    try:
+        response["result"] = await asyncio.wait_for(handle.result(), timeout=0.2)
+    except asyncio.TimeoutError:
+        response["result"] = None
+    except Exception as exc:
+        response["status"] = "FAILED"
+        response["result"] = str(exc)
+    return response
 
 
 @app.post("/api/workflows/run")
