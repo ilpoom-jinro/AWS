@@ -29,6 +29,8 @@ from contracts.models import (
     DetectThreatInput,
     ExecutionResult,
     GenerateComplianceReportInput,
+    GeneratePostMortemReportInput,
+    PostMortemReport,
     RegulationMapping,
     SecurityEvent,
 )
@@ -466,6 +468,114 @@ async def record_compliance_report(report: ComplianceReport) -> None:
     activity.logger.info(
         "[report] %s | severity=%s | isolation=%s",
         report.workflow_id, report.severity, report.isolation_applied,
+    )
+
+
+def _draft_postmortem_with_bedrock(
+    e: SecurityEvent, m: RegulationMapping, r: ExecutionResult
+) -> dict:
+    """Sev1/2 사후분석 초안 (Sonnet): root_cause / action_items / lessons_learned.
+    generate_compliance_report와 달리 서술형 회고를 생성 — analyze와 동일 converse 패턴."""
+    from botocore.exceptions import ClientError
+    from shared.bedrock import get_bedrock_client
+
+    client = get_bedrock_client()
+    system_prompt = (
+        "너는 금융 보안 사고 대응(Post-Mortem) 분석가다. 주어진 보안 이벤트/규제 매핑/대응 결과를 바탕으로 "
+        "비난 없는(blameless) 사후분석 초안을 작성해라. 근거에 없는 사실을 지어내지 마라. "
+        "반드시 아래 JSON 스키마만 출력해라.\n"
+        '{"root_cause": string, "impact": string, "action_items": [string], "lessons_learned": string}'
+    )
+    user_text = (
+        f"[보안 이벤트]\n{e.model_dump_json(indent=2)}\n\n"
+        f"[규제 매핑]\n위반규정={m.violated_regulations}\n설명={m.violation_description}\n"
+        f"blast_radius_safe={m.blast_radius_safe} detail={m.blast_radius_detail}\n\n"
+        f"[대응 결과]\n{r.action_taken} (success={r.success})"
+    )
+    try:
+        resp = client.converse(
+            modelId=BEDROCK_MODEL,
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": user_text}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0.2},
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            raise ApplicationError(
+                f"Bedrock postmortem ValidationException: {exc}", non_retryable=True
+            ) from exc
+        raise
+    text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
+    data = _parse_llm_json(text)
+    return {
+        "root_cause": str(data.get("root_cause", "")),
+        "impact": str(data.get("impact", "")),
+        "action_items": [str(x) for x in data.get("action_items", [])],
+        "lessons_learned": str(data.get("lessons_learned", "")),
+    }
+
+
+def _draft_postmortem_stub(
+    e: SecurityEvent, m: RegulationMapping, r: ExecutionResult
+) -> dict:
+    """USE_REAL_BEDROCK=false일 때의 결정적 초안 — 이벤트/매핑에서 직접 구성."""
+    return {
+        "root_cause": (
+            f"{e.source_pod}({e.namespace})에서 {e.threat_type} 발생 — "
+            f"{m.violation_description}"
+        ),
+        "impact": (
+            f"영향 범위: {'단일 pod 흡수 가능(안전)' if m.blast_radius_safe else '광범위(위험)'} — "
+            f"{m.blast_radius_detail or '상세 없음'}"
+        ),
+        "action_items": [
+            f"{e.namespace}/{e.source_pod} 관련 접근통제 정책 재점검",
+            "동일 threat_type 탐지 룰/알림 임계치 검토",
+            "격리 자동화 및 blast radius 판정 기준 재검증",
+        ],
+        "lessons_learned": (
+            f"위반 규정({', '.join(m.violated_regulations) or '해당 없음'})에 대한 대응은 "
+            f"'{r.action_taken}'로 마무리됨. 탐지→승인→격리 파이프라인의 반응시간 개선 여지 점검 필요."
+        ),
+    }
+
+
+@activity.defn(name="generate_postmortem_report")
+async def generate_postmortem_report(input: GeneratePostMortemReportInput) -> PostMortemReport:
+    """event + mapping + 실행결과 → Sev1/2 사후분석(Post-Mortem) 보고서.
+    USE_REAL_BEDROCK=true면 Sonnet 초안, false면 결정적 stub."""
+    e, m, r = input.event, input.mapping, input.result
+    draft = _draft_postmortem_with_bedrock(e, m, r) if USE_REAL_BEDROCK else _draft_postmortem_stub(e, m, r)
+    timeline = (
+        f"{e.detected_at:%Y-%m-%d %H:%M:%SZ} 탐지: {e.threat_type} ({e.source_pod} → "
+        f"{e.destination_ip}:{e.destination_port})\n"
+        f"규제 매핑: severity={m.severity}, 위반={m.violated_regulations}\n"
+        f"대응: {r.action_taken}"
+    )
+    return PostMortemReport(
+        workflow_id=e.workflow_id,
+        severity=m.severity,
+        incident_summary=f"{e.threat_type} from {e.source_pod} ({e.namespace})",
+        timeline=timeline,
+        root_cause=draft["root_cause"],
+        impact=draft["impact"],
+        action_items=draft["action_items"],
+        lessons_learned=draft["lessons_learned"],
+        isolation_applied=r.success,
+        evidence=m.evidence,
+    )
+
+
+@activity.defn(name="record_postmortem_report")
+async def record_postmortem_report(report: PostMortemReport) -> None:
+    """PostMortemReport를 RDS에 저장 (record_compliance_report와 동일 패턴)."""
+    from shared.reports import save_postmortem_report
+
+    await save_postmortem_report(report)
+    activity.logger.info(
+        "[postmortem] %s | severity=%s | action_items=%d",
+        report.workflow_id, report.severity, len(report.action_items),
     )
 
 

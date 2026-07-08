@@ -1,0 +1,75 @@
+{
+  "properties": {
+    "contract_version": {
+      "default": "v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "workflow_id": {
+      "title": "Workflow Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "incident_summary": {
+      "title": "Incident Summary",
+      "type": "string"
+    },
+    "timeline": {
+      "default": "",
+      "title": "Timeline",
+      "type": "string"
+    },
+    "root_cause": {
+      "default": "",
+      "title": "Root Cause",
+      "type": "string"
+    },
+    "impact": {
+      "default": "",
+      "title": "Impact",
+      "type": "string"
+    },
+    "action_items": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Action Items",
+      "type": "array"
+    },
+    "lessons_learned": {
+      "default": "",
+      "title": "Lessons Learned",
+      "type": "string"
+    },
+    "isolation_applied": {
+      "default": false,
+      "title": "Isolation Applied",
+      "type": "boolean"
+    },
+    "evidence": {
+      "title": "Evidence",
+      "type": "object"
+    }
+  },
+  "required": [
+    "workflow_id",
+    "severity",
+    "incident_summary"
+  ],
+  "title": "PostMortemReport",
+  "type": "object"
+}
