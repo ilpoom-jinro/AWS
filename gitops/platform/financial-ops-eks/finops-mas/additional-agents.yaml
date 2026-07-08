@@ -31,7 +31,7 @@ spec:
             - name: AGENT_KEY
               value: infra_execution
             - name: AGENT_NAME
-              value: Infra Execution Planner
+              value: Infra Capacity Planning Agent
             - name: AGENT_TASK_QUEUE
               value: finops-infra-execution-agent-task-queue
             - name: TEMPORAL_ADDRESS
