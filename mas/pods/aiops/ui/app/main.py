@@ -230,8 +230,51 @@ def index() -> str:
         overflow-wrap: anywhere;
         font: inherit;
       }}
+      .incident-banner {{
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+        padding: 16px;
+        min-height: 86px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }}
+      .incident-title {{
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 6px;
+      }}
+      .incident-message {{
+        font-size: 24px;
+        font-weight: 800;
+      }}
+      .incident-banner.ok {{
+        border-color: #b9dfcc;
+        background: #f3fbf7;
+      }}
+      .incident-banner.alert {{
+        border-color: #f0b6b6;
+        background: #fff6f6;
+      }}
+      .incident-banner.pending {{
+        border-color: #c8d3ff;
+        background: #f6f8ff;
+      }}
+      .incident-chip {{
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: #e8edf6;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }}
       .ok {{ color: var(--green); }}
       .err {{ color: var(--red); }}
+      .pending-text {{ color: #3150b8; }}
       a {{ color: #3150b8; font-weight: 700; text-decoration: none; }}
       @media (max-width: 900px) {{
         .summary, .layout, .result-grid {{ grid-template-columns: 1fr; }}
@@ -309,6 +352,13 @@ def index() -> str:
             <pre id="resultBox">아직 실행된 워크플로우가 없습니다.</pre>
           </div>
         </div>
+        <div id="incidentBanner" class="incident-banner ok">
+          <div>
+            <div class="incident-title">장애 메트릭 알림</div>
+            <div id="incidentMessage" class="incident-message ok">장애 없음</div>
+          </div>
+          <div id="incidentChip" class="incident-chip">normal</div>
+        </div>
       </section>
     </main>
     <script>
@@ -322,6 +372,9 @@ def index() -> str:
       const workflowId = document.getElementById("workflowId");
       const inputBox = document.getElementById("inputBox");
       const resultBox = document.getElementById("resultBox");
+      const incidentBanner = document.getElementById("incidentBanner");
+      const incidentMessage = document.getElementById("incidentMessage");
+      const incidentChip = document.getElementById("incidentChip");
       const runButton = document.getElementById("runButton");
       const namespaceByCluster = {{
         "financial-ops-eks": ["tetragon", "aiops-mas", "finops-mas", "secops-mas", "platform-mas"],
@@ -331,7 +384,30 @@ def index() -> str:
       let selectedCluster = "financial-ops-eks";
       let selectedNamespace = "tetragon";
       let currentWorkflowId = "";
+      let currentWorkflowCluster = "";
       let namespaceRefreshMessage = "";
+
+      function incidentTextForCluster(clusterName) {{
+        return clusterName === "financial-service-eks" ? "Service EKS 장애 발생" : "Ops EKS 장애 발생";
+      }}
+
+      function renderIncidentState(state, clusterName = selectedCluster) {{
+        incidentBanner.className = `incident-banner ${{state}}`;
+        incidentMessage.className =
+          `incident-message ${{state === "alert" ? "err" : state === "pending" ? "pending-text" : "ok"}}`;
+        if (state === "alert") {{
+          incidentMessage.textContent = incidentTextForCluster(clusterName);
+          incidentChip.textContent = clusterName === "financial-service-eks" ? "service" : "ops";
+          return;
+        }}
+        if (state === "pending") {{
+          incidentMessage.textContent = "장애 여부 확인 중";
+          incidentChip.textContent = "checking";
+          return;
+        }}
+        incidentMessage.textContent = "장애 없음";
+        incidentChip.textContent = "normal";
+      }}
 
       function selectedTarget() {{
         return {{ cluster_name: selectedCluster, namespace: selectedNamespace }};
@@ -421,6 +497,15 @@ def index() -> str:
         resultBox.textContent =
           `status: ${{detail.status || "-"}}\\n` +
           `result: ${{detail.result === null || detail.result === undefined ? "(아직 완료되지 않음)" : detail.result}}`;
+        if (detail.result === "no_incident") {{
+          renderIncidentState("ok", currentWorkflowCluster);
+        }} else if (detail.result !== null && detail.result !== undefined) {{
+          renderIncidentState("alert", currentWorkflowCluster);
+        }} else if (detail.status === "RUNNING") {{
+          renderIncidentState("alert", currentWorkflowCluster);
+        }} else {{
+          renderIncidentState("pending", currentWorkflowCluster);
+        }}
       }}
 
       async function refreshWorkflowResult() {{
@@ -445,6 +530,7 @@ def index() -> str:
         runButton.disabled = true;
         inputBox.textContent = JSON.stringify({{ ...target, workflow_id: workflowId.value.trim() || null }}, null, 2);
         resultBox.textContent = "AIOps workflow를 시작하는 중입니다...";
+        renderIncidentState("pending", target.cluster_name);
         try {{
           const body = {{
             ...target,
@@ -458,6 +544,7 @@ def index() -> str:
           if (!response.ok) throw new Error(await response.text());
           const data = await response.json();
           currentWorkflowId = data.workflow_id;
+          currentWorkflowCluster = data.cluster_name;
           renderInput(data);
           resultBox.textContent = "workflow 시작됨. result 조회 중...";
           await pollWorkflowResult();
@@ -481,8 +568,10 @@ def index() -> str:
       document.getElementById("refreshButton").addEventListener("click", refreshDashboard);
       document.getElementById("clearButton").addEventListener("click", () => {{
         currentWorkflowId = "";
+        currentWorkflowCluster = "";
         inputBox.textContent = "아직 실행된 워크플로우가 없습니다.";
         resultBox.textContent = "아직 실행된 워크플로우가 없습니다.";
+        renderIncidentState("ok");
       }});
       runButton.addEventListener("click", runWorkflow);
       refreshDashboard();
