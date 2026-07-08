@@ -234,12 +234,11 @@
         import json
         from pathlib import Path
 
-        preserve_paths = [
-            Path("financial-ops-eks/finops-mas/kustomization.yaml"),
-            Path("financial-ops-eks/aiops-mas/kustomization.yaml"),
-            Path("financial-ops-eks/secops-mas/kustomization.yaml"),
-            Path("financial-ops-eks/platform-mas/kustomization.yaml"),
-        ]
+        preserve_paths = sorted(
+            path
+            for path in Path("financial-ops-eks").rglob("kustomization.yaml")
+            if path.exists()
+        )
 
         preserved = {}
         for path in preserve_paths:
@@ -343,7 +342,7 @@
                 continue
 
             doc = yaml.safe_load(path.read_text()) or {}
-            images = doc.get("images", []) or []
+            images = doc.setdefault("images", [])
             for image in images:
                 if not isinstance(image, dict):
                     continue
@@ -355,6 +354,21 @@
                 if preserved_image.get("newName"):
                     image["newName"] = preserved_image["newName"]
                 image["newTag"] = preserved_image["newTag"]
+                restored = True
+
+            existing_names = {
+                image.get("name")
+                for image in images
+                if isinstance(image, dict) and image.get("name")
+            }
+            for name, preserved_image in images_by_name.items():
+                if name in existing_names:
+                    continue
+                restored_image = {"name": name}
+                if preserved_image.get("newName"):
+                    restored_image["newName"] = preserved_image["newName"]
+                restored_image["newTag"] = preserved_image["newTag"]
+                images.append(restored_image)
                 restored = True
 
             path.write_text(yaml.safe_dump(doc, sort_keys=False))
