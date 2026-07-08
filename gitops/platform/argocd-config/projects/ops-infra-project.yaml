@@ -32,6 +32,8 @@ spec:
       namespace: audit-db-init
     - server: https://kubernetes.default.svc
       namespace: compliance-db-init
+    - server: https://kubernetes.default.svc
+      namespace: postmortem-db-init
     # Service 클러스터 (서버 URL이 동적이므로 등록 이름으로 참조)
     - name: financial-service-eks
       namespace: observability

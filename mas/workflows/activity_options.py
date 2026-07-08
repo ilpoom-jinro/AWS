@@ -96,6 +96,7 @@ class ActivityName(StrEnum):
     MAP_REGULATION = "map_regulation"
     APPLY_ISOLATION = "apply_isolation"
     GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
+    GENERATE_POSTMORTEM_REPORT = "generate_postmortem_report"
 
     # --------------------------------------------------------
     # Common
@@ -105,6 +106,7 @@ class ActivityName(StrEnum):
     SEND_REMINDER = "send_reminder"
     RECORD_AUDIT_LOG = "record_audit_log"
     RECORD_COMPLIANCE_REPORT = "record_compliance_report"
+    RECORD_POSTMORTEM_REPORT = "record_postmortem_report"
 
 
 # ---
@@ -206,6 +208,12 @@ ACTIVITY_TIMEOUTS: dict[
         "schedule_to_close_timeout": timedelta(minutes=5),
     },
 
+    ActivityName.GENERATE_POSTMORTEM_REPORT: {
+        # Bedrock 서술형 초안 생성 — compliance보다 토큰이 많아 여유를 둔다
+        "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=8),
+    },
+
     # --------------------------------------------------------
     # Common
     # --------------------------------------------------------
@@ -225,6 +233,10 @@ ACTIVITY_TIMEOUTS: dict[
         "schedule_to_close_timeout": timedelta(minutes=2),
     },
     ActivityName.RECORD_COMPLIANCE_REPORT: {
+        "start_to_close_timeout": timedelta(seconds=30),
+        "schedule_to_close_timeout": timedelta(minutes=2),
+    },
+    ActivityName.RECORD_POSTMORTEM_REPORT: {
         "start_to_close_timeout": timedelta(seconds=30),
         "schedule_to_close_timeout": timedelta(minutes=2),
     },

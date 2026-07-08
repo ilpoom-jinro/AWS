@@ -23,10 +23,10 @@ import logging
 from sqlalchemy import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from contracts.models import ComplianceReport
+from contracts.models import ComplianceReport, PostMortemReport
 from shared.db.engine import dispose_engine, get_engine
 from shared.exceptions import ReportError
-from shared.reports.models import ComplianceReportTable
+from shared.reports.models import ComplianceReportTable, PostMortemReportTable
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,56 @@ async def save_compliance_report(report: ComplianceReport) -> None:
 
         raise ReportError(
             f"ComplianceReport 저장 중 예상치 못한 오류 "
+            f"[workflow_id={report.workflow_id}]: {e}"
+        ) from e
+
+
+async def save_postmortem_report(report: PostMortemReport) -> None:
+    """
+    contracts.models.PostMortemReport를 RDS PostgreSQL에 저장.
+    save_compliance_report와 동일 패턴(Core insert + 공통 엔진).
+    PostMortemReport.model_dump() 필드가 PostMortemReportTable 컬럼과 1:1 대응.
+    """
+
+    try:
+        engine = get_engine()
+    except Exception as e:
+        raise ReportError(f"DB 엔진 생성 실패: {e}") from e
+
+    try:
+        row = report.model_dump()
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                insert(PostMortemReportTable).values(**row)
+            )
+
+        logger.info(
+            "postmortem_report_saved",
+            extra={
+                "workflow_id": report.workflow_id,
+                "severity": report.severity,
+                "isolation_applied": report.isolation_applied,
+            },
+        )
+
+    except SQLAlchemyError as e:
+        logger.error(
+            "postmortem_report_save_failed",
+            extra={"workflow_id": report.workflow_id, "error": str(e)},
+        )
+        raise ReportError(
+            f"PostMortemReport INSERT 실패 "
+            f"[workflow_id={report.workflow_id}]: {e}"
+        ) from e
+
+    except Exception as e:
+        logger.error(
+            "postmortem_report_unexpected_error",
+            extra={"workflow_id": report.workflow_id, "error": str(e)},
+        )
+        raise ReportError(
+            f"PostMortemReport 저장 중 예상치 못한 오류 "
             f"[workflow_id={report.workflow_id}]: {e}"
         ) from e
 
