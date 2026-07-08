@@ -79,6 +79,7 @@ phases:
         cd "${WORKDIR}"
 
         git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
+        git pull --rebase origin "${GITOPS_BRANCH}" || true
 
         python3 - <<'PY'
         import os
@@ -365,12 +366,18 @@ phases:
 
           matched = False
           new_name = f"{ecr_registry}/{ecr_repository}" if ecr_registry and ecr_repository else None
+          placeholder_new_name = (
+            f"REPLACE_WITH_ECR_REGISTRY/{ecr_repository}"
+            if ecr_repository
+            else None
+          )
           image_names = {
             value for value in [
               target_container,
               app_name,
               ecr_repository,
               new_name,
+              placeholder_new_name,
             ] if value
           }
 
@@ -379,7 +386,11 @@ phases:
               continue
             current_name = image.get("name")
             current_new_name = image.get("newName")
-            if image_names and current_name not in image_names and current_new_name != new_name:
+            if (
+              image_names
+              and current_name not in image_names
+              and current_new_name not in {new_name, placeholder_new_name}
+            ):
               continue
 
             matched = True
@@ -428,6 +439,45 @@ phases:
           print(f"Updated {manifest_path} to {image_uri}")
         PY
 
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import yaml
+
+        manifests_only = os.environ.get("MANIFESTS_ONLY", "").lower() == "true"
+        if manifests_only:
+          raise SystemExit(0)
+
+        manifest_path = Path(os.environ["MANIFEST_PATH"])
+        image_tag = os.environ.get("IMAGE_TAG", "")
+        ecr_registry = os.environ.get("ECR_REGISTRY", "")
+        ecr_repository = os.environ.get("ECR_REPOSITORY", "")
+        target_container = os.environ.get("TARGET_CONTAINER", "")
+        expected_new_name = f"{ecr_registry}/{ecr_repository}"
+
+        docs = list(yaml.safe_load_all(manifest_path.read_text()))
+        for doc in docs:
+          if not isinstance(doc, dict):
+            continue
+          for image in doc.get("images", []) or []:
+            if not isinstance(image, dict):
+              continue
+            if image.get("name") != target_container:
+              continue
+            actual_new_name = image.get("newName")
+            actual_new_tag = image.get("newTag")
+            if actual_new_name == expected_new_name and actual_new_tag == image_tag:
+              print(f"Verified immutable image tag for {target_container}: {actual_new_tag}")
+              raise SystemExit(0)
+            raise SystemExit(
+              "Image tag verification failed for "
+              f"{target_container}: expected {expected_new_name}:{image_tag}, "
+              f"got {actual_new_name}:{actual_new_tag}"
+            )
+
+        raise SystemExit(f"Image entry not found in {manifest_path}: {target_container}")
+        PY
+
         git diff -- "${MANIFEST_PATH}" applications || true
         git add "${MANIFEST_PATH}" "$(dirname "${MANIFEST_PATH}")" applications
 
@@ -437,4 +487,21 @@ phases:
         fi
 
         git commit -m "deploy: ${APP_NAME} ${IMAGE_TAG:-${IMAGE_URI}}"
-        git push origin "${GITOPS_BRANCH}"
+
+        for attempt in 1 2 3 4 5; do
+          if git push origin "${GITOPS_BRANCH}"; then
+            echo "Pushed immutable image tag ${IMAGE_TAG:-${IMAGE_URI}} to ${MANIFEST_PATH}."
+            exit 0
+          fi
+
+          echo "Git push failed, rebasing on origin/${GITOPS_BRANCH} before retry ${attempt}/5."
+          git fetch origin "${GITOPS_BRANCH}"
+          if ! git rebase "origin/${GITOPS_BRANCH}"; then
+            git rebase --abort || true
+            echo "Unable to rebase manifest update for ${APP_NAME}; another deploy may have changed the same file."
+            exit 1
+          fi
+        done
+
+        echo "Failed to push manifest update after retries."
+        exit 1
