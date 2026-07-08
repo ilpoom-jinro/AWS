@@ -1,0 +1,13 @@
+name: aiops-ui
+scenario: aiops
+role: ui
+image_repository: financial/mas/aiops/ui
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/aiops/ui/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/aiops-mas/kustomization.yaml
+target_container: aiops-ui-image
+service_account_name: aiops-ui
+service_name: aiops-ui
+namespace: aiops-mas
+target_cluster: financial-ops-eks
