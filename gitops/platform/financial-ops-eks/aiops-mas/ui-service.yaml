@@ -4,11 +4,12 @@ metadata:
   name: aiops-ui
   namespace: aiops-mas
   labels:
-    app: aiops-ui
+    app.kubernetes.io/name: aiops-ui
+    app.kubernetes.io/part-of: aiops-mas
 spec:
   type: ClusterIP
   selector:
-    app: aiops-ui
+    app.kubernetes.io/name: aiops-ui
   ports:
     - name: http
       port: 80
