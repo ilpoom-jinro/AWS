@@ -142,13 +142,23 @@ jobs:
                   and parts[0] == "mas"
                   and parts[1] == "pods"
               }
-              shared_finops_runtime_changed = any(
-                  path == "mas/pods/finops/orchestrator/app/agent_runtime.py"
-                  or path.startswith("mas/pods/finops/agents/")
-                  or path.startswith("mas/shared/")
+              common_code_changed = any(
+                  path.startswith((
+                      "mas/shared/",
+                      "mas/contracts/",
+                      "mas/workflows/",
+                      "mas/activities/",
+                  ))
                   for path in changed
               )
-              if shared_finops_runtime_changed:
+              finops_runtime_changed = any(
+                  path == "mas/pods/finops/orchestrator/app/agent_runtime.py"
+                  or path.startswith("mas/pods/finops/agents/")
+                  for path in changed
+              )
+              if common_code_changed:
+                  candidates.update(existing_agents())
+              elif finops_runtime_changed:
                   candidates.update(
                       agent
                       for agent in existing_agents()
@@ -552,14 +562,12 @@ jobs:
           merge-multiple: true
           path: mas-image-tags
 
-      - name: Run manifest update CodeBuild sequentially
+      - name: Run manifest update CodeBuild
         shell: bash
         env:
           CODEBUILD_PROJECT: ${{ github.event_name == 'workflow_dispatch' && inputs.codebuild_project || 'financial-manifest-updater' }}
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           GITOPS_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.gitops_branch || 'main' }}
-          CREATE_MANIFESTS: "false"
-          MANIFESTS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_scope == 'manifests-only' }}
         run: |
           set -euo pipefail
 
@@ -568,48 +576,83 @@ jobs:
             exit 1
           fi
 
-          sort mas-image-tags/*.tsv | while IFS=$'\t' read -r agent repository tag uri manifest_path target_container app_name; do
-            if [ -z "${agent}" ]; then
-              continue
-            fi
+          updates_json="$(
+            python3 - <<'PY'
+          import csv
+          import glob
+          import json
 
-            echo "Updating GitOps image tag: ${agent} -> ${tag}"
-            build_id="$(
-              aws codebuild start-build \
-                --project-name "${CODEBUILD_PROJECT}" \
-                --environment-variables-override \
-                  name=APP_NAME,value="${app_name}",type=PLAINTEXT \
-                  name=IMAGE_TAG,value="${tag}",type=PLAINTEXT \
-                  name=IMAGE_URI,value="${uri}",type=PLAINTEXT \
-                  name=ECR_REGISTRY,value="${ECR_REGISTRY}",type=PLAINTEXT \
-                  name=ECR_REPOSITORY,value="${repository}",type=PLAINTEXT \
-                  name=GITOPS_BRANCH,value="${GITOPS_BRANCH}",type=PLAINTEXT \
-                  name=MANIFEST_PATH,value="${manifest_path}",type=PLAINTEXT \
-                  name=TARGET_CONTAINER,value="${target_container}",type=PLAINTEXT \
-                  name=CREATE_MANIFESTS,value="${CREATE_MANIFESTS}",type=PLAINTEXT \
-                  name=MANIFESTS_ONLY,value="${MANIFESTS_ONLY}",type=PLAINTEXT \
-                --query 'build.id' \
-                --output text
-            )"
+          updates = []
+          for path in sorted(glob.glob("mas-image-tags/*.tsv")):
+              with open(path, encoding="utf-8", newline="") as handle:
+                  for row in csv.reader(handle, delimiter="\t"):
+                      if not row or not row[0]:
+                          continue
+                      if len(row) != 7:
+                          raise SystemExit(f"Invalid MAS image tag metadata row in {path}: {row}")
+                      agent, repository, tag, uri, manifest_path, target_container, app_name = row
+                      updates.append({
+                          "agent": agent,
+                          "repository": repository,
+                          "tag": tag,
+                          "uri": uri,
+                          "manifest_path": manifest_path,
+                          "target_container": target_container,
+                          "app_name": app_name,
+                      })
 
-            while true; do
-              status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
-              echo "CodeBuild ${build_id} status: ${status}"
+          if not updates:
+              raise SystemExit("No MAS image tag metadata rows were found.")
 
-              case "${status}" in
-                SUCCEEDED)
-                  echo "::notice title=MAS manifest update succeeded::${agent} -> ${tag}"
-                  break
-                  ;;
-                FAILED|FAULT|STOPPED|TIMED_OUT)
-                  deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
-                  echo "::error title=Manifest updater failed::${agent} CodeBuild finished with status ${status}. Logs: ${deep_link}"
-                  exit 1
-                  ;;
-              esac
+          print(json.dumps(updates, separators=(",", ":")))
+          PY
+          )"
 
-              sleep 30
-            done
+          echo "Updating GitOps image tags in one CodeBuild run:"
+          python3 - <<PY
+          import json
+          for update in json.loads('''${updates_json}'''):
+              print(f"  - {update['agent']} -> {update['tag']}")
+          PY
+
+          python3 - <<PY
+          import json
+
+          env_overrides = [
+              {"name": "APP_NAME", "value": "mas-bulk-image-tags", "type": "PLAINTEXT"},
+              {"name": "GITOPS_BRANCH", "value": "${GITOPS_BRANCH}", "type": "PLAINTEXT"},
+              {"name": "ECR_REGISTRY", "value": "${ECR_REGISTRY}", "type": "PLAINTEXT"},
+              {"name": "BULK_IMAGE_UPDATES_JSON", "value": '''${updates_json}''', "type": "PLAINTEXT"},
+          ]
+          with open("mas-image-tags/env-overrides.json", "w", encoding="utf-8") as handle:
+              json.dump(env_overrides, handle)
+          PY
+
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${CODEBUILD_PROJECT}" \
+              --environment-variables-override file://mas-image-tags/env-overrides.json \
+              --query 'build.id' \
+              --output text
+          )"
+
+          while true; do
+            status="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].buildStatus' --output text)"
+            echo "CodeBuild ${build_id} status: ${status}"
+
+            case "${status}" in
+              SUCCEEDED)
+                echo "::notice title=MAS manifest update succeeded::Updated MAS image tags in bulk"
+                break
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                deep_link="$(aws codebuild batch-get-builds --ids "${build_id}" --query 'builds[0].logs.deepLink' --output text 2>/dev/null || true)"
+                echo "::error title=Manifest updater failed::CodeBuild finished with status ${status}. Logs: ${deep_link}"
+                exit 1
+                ;;
+            esac
+
+            sleep 30
           done
 
   summarize_image_tags:
