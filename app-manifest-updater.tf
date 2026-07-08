@@ -112,6 +112,15 @@ resource "aws_iam_role_policy" "manifest_updater_codebuild" {
         Resource = "arn:aws:s3:::ilpumjinro-terraform-state-v4/mas-manifest-updates/*"
       },
       {
+        Sid    = "BulkImageUpdatePayloadDecrypt"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = data.aws_kms_key.key_s3.arn
+      },
+      {
         Sid    = "VpcNetworkInterfaces"
         Effect = "Allow"
         Action = [
