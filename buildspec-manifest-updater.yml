@@ -81,14 +81,20 @@ phases:
         git checkout "${GITOPS_BRANCH}" || git checkout -b "${GITOPS_BRANCH}"
         git pull --rebase origin "${GITOPS_BRANCH}" || true
 
-        if [ -n "${BULK_IMAGE_UPDATES_JSON:-}" ]; then
+        if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ] || [ -n "${BULK_IMAGE_UPDATES_JSON:-}" ]; then
+          if [ -n "${BULK_IMAGE_UPDATES_S3_URI:-}" ]; then
+            aws s3 cp "${BULK_IMAGE_UPDATES_S3_URI}" /tmp/bulk-image-updates.json
+          else
+            printf '%s' "${BULK_IMAGE_UPDATES_JSON}" > /tmp/bulk-image-updates.json
+          fi
+
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
           import yaml
 
-          updates = json.loads(os.environ["BULK_IMAGE_UPDATES_JSON"])
+          updates = json.loads(Path("/tmp/bulk-image-updates.json").read_text(encoding="utf-8"))
           ecr_registry = os.environ["ECR_REGISTRY"]
           changed_paths = set()
 
