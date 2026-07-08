@@ -7,7 +7,7 @@ from contracts.models import AgentResponse, AgentStatus
 
 
 AGENT_KEY = "policy_guardrail"
-AGENT_NAME = "Policy Guardrail Agent"
+AGENT_NAME = "Policy & Fallback Guardrail Agent"
 LLM_PROMPT = (
     "Review whether execution should proceed given event value, cost ratio, approval "
     "requirements, allowed actions, and forbidden actions. Return JSON exactly like "
@@ -28,6 +28,14 @@ def _build_rule_result(context: dict[str, Any]) -> dict[str, Any]:
         "approval_required_over_usd": source.get("approval_required_over_usd"),
         "policy_version": source.get("policy_version"),
     }
+    result["fallback_plan"] = _build_fallback_plan(result)
+    result["safety_plan"] = {
+        "policy_validated": True,
+        "approval_required": result["approval_required"],
+        "allowed_actions": result["allowed"],
+        "forbidden_actions": result["forbidden"],
+        "fallback_plan": result["fallback_plan"],
+    }
 
     result["evidence"] = [
         f"Unit Economics Agent의 cost_ratio={unit.get('cost_ratio')} 값을 사용했습니다.",
@@ -40,6 +48,22 @@ def _build_rule_result(context: dict[str, Any]) -> dict[str, Any]:
     ]
 
     return result
+
+
+def _build_fallback_plan(policy_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "vip_only": True,
+        "general_hold": True,
+        "static_report": True,
+        "allowed_actions": policy_result.get("allowed", []),
+        "excluded_actions": policy_result.get("forbidden", []),
+        "requires_approval": True,
+        "reason": (
+            "이벤트 중 인프라 또는 DB 위험이 커지면 VIP 발송은 유지하고 "
+            "일반 사용자 발송은 일시 보류합니다."
+        ),
+    }
+
 
 def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentResponse:
     result = _build_rule_result(context)
@@ -101,7 +125,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str] | AgentRespo
         )
         return response
 
-    return result, "Validated proposed actions against budget, approval, and forbidden-action policies."
+    return result, "Validated proposed actions and prepared a fallback safety plan."
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:

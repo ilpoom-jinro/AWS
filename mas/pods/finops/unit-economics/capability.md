@@ -29,6 +29,25 @@ Compare expected event value against incremental cost.
     - `requires_human_approval_budget_exceeded`
     - `requires_human_approval_infra_risk`
     - `requires_human_approval_budget_and_infra_risk`
+- `gross_cost_usd`
+  - Total estimated cost before idle-resource savings
+- `idle_saving_usd`
+  - Estimated savings from idle-resource reduction candidates
+- `net_cost_usd`
+  - Net cost after idle-resource savings
+- `cost_to_value_percent`
+  - Net cost as a percentage of expected business value
+- `value_per_dollar`
+  - Expected business value per 1 USD of net cost
+- `candidate_economics`
+  - Candidate-level economics comparison
+  - Includes `gross_cost_usd`, `net_cost_usd`, `cost_to_value_percent`, `value_per_dollar`, `budget_status`
+- `selected_candidate_label`
+  - Candidate label used as the primary economics recommendation
+- `economic_assessment`
+  - Overall economics assessment: `positive` or `needs_review`
+- `economic_summary`
+  - Human-readable economics summary
 
 ## Unsupported requests
 - Infrastructure scaling

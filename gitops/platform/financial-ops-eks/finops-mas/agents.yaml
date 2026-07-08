@@ -129,6 +129,16 @@ spec:
               value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
+            - name: APP_OPEN_RATE_VIP
+              value: "0.35"
+            - name: APP_OPEN_RATE_GENERAL
+              value: "0.30"
+            - name: REQUESTS_PER_OPEN
+              value: "3"
+            - name: VIP_OPEN_WINDOW_SECONDS
+              value: "30"
+            - name: RPS_PER_POD
+              value: "28.0"
           ports:
             - name: http
               containerPort: 8000
@@ -210,6 +220,16 @@ spec:
               value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
+            - name: APP_OPEN_RATE_VIP
+              value: "0.35"
+            - name: APP_OPEN_RATE_GENERAL
+              value: "0.30"
+            - name: REQUESTS_PER_OPEN
+              value: "3"
+            - name: VIP_OPEN_WINDOW_SECONDS
+              value: "30"
+            - name: RPS_PER_POD
+              value: "28.0"
           ports:
             - name: http
               containerPort: 8000
@@ -548,6 +568,20 @@ spec:
               value: global.anthropic.claude-haiku-4-5-20251001-v1:0
             - name: BEDROCK_REGION
               value: ap-northeast-2
+            - name: SCALE_TARGET_NAMESPACE
+              value: finops-mas
+            - name: SCALE_TARGET_DEPLOYMENT
+              value: finops-orchestrator
+            - name: APP_OPEN_RATE_VIP
+              value: "0.35"
+            - name: APP_OPEN_RATE_GENERAL
+              value: "0.30"
+            - name: REQUESTS_PER_OPEN
+              value: "3"
+            - name: VIP_OPEN_WINDOW_SECONDS
+              value: "30"
+            - name: RPS_PER_POD
+              value: "28.0"
           ports:
             - name: http
               containerPort: 8000

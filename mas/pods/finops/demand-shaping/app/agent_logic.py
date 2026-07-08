@@ -8,8 +8,8 @@ from app.agent_support import get_agent_result
 AGENT_KEY = "demand_shaping"
 AGENT_NAME = "Demand Shaping Agent"
 LLM_PROMPT = (
-    "Assess the send window and peak reduction for the VIP and general audiences, then "
-    "recommend a better distribution strategy when appropriate. Return JSON exactly like "
+    "Assess the send window for the VIP and general audiences, then recommend "
+    "a better distribution strategy when appropriate. Return JSON exactly like "
     '{"recommended_window_minutes": 10, "strategy": "...", "reasoning": "..."}.'
 )
 
@@ -18,49 +18,84 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
     policy = context["policy"]
     business = context.get("business", {})
     control = get_agent_result(context, "business_control")
+
+    max_delay = int(control.get("max_delay_minutes") or policy["max_general_delay_minutes"])
+    vip_count = int(control.get("vip_audience_count") or business.get("vip_audience_count") or 0)
+    general_count = int(
+        control.get("general_audience_count")
+        or business.get("general_audience_count")
+        or max(0, int(control.get("target_users") or 0) - vip_count)
+    )
+    total_users = int(control.get("target_users") or vip_count + general_count)
+
+    windows = [max_delay, max_delay + 5, max_delay + 10]
+    labels = ["안정성 우선", "균형", "비용 우선"]
     candidates = [
-        {
-            "label": "안정성 우선",
-            "push_window_minutes": 10,
-            "peak_reduction_percent": 42,
-        },
-        {
-            "label": "균형",
-            "push_window_minutes": 15,
-            "peak_reduction_percent": 60,
-        },
-        {
-            "label": "비용 우선",
-            "push_window_minutes": 20,
-            "peak_reduction_percent": 60,
-        },
+        _build_candidate(
+            label=label,
+            window_minutes=window,
+            vip_count=vip_count,
+            general_count=general_count,
+            vip_immediate=policy["vip_immediate"],
+        )
+        for label, window in zip(labels, windows, strict=True)
     ]
-    delay = candidates[0]["push_window_minutes"]
-    reduction = candidates[0]["peak_reduction_percent"]
+    selected = candidates[0]
+
     result = {
-        "vip": "immediate" if policy["vip_immediate"] else "batched",
-        "general_users": f"spread_over_{delay}m",
-        "vip_send_mode": "immediate" if policy["vip_immediate"] else "batched",
-        "general_send_mode": "spread",
-        "send_window_minutes": delay,
-        "peak_reduction_percent": reduction,
-        "vip_audience_count": control.get(
-            "vip_audience_count", business.get("vip_audience_count")
-        ),
-        "general_audience_count": control.get(
-            "general_audience_count", business.get("general_audience_count")
-        ),
+        "vip": selected["vip_send_mode"],
+        "general_users": selected["general_send_mode"],
+        "vip_send_mode": selected["vip_send_mode"],
+        "general_send_mode": selected["general_send_mode"],
+        "send_window_minutes": selected["send_window_minutes"],
+        "per_minute_general": selected["per_minute_general"],
+        "per_second_general": selected["per_second_general"],
+        "vip_count": vip_count,
+        "general_count": general_count,
+        "total_users": total_users,
+        "vip_audience_count": vip_count,
+        "general_audience_count": general_count,
         "crm_segment": business.get("crm_segment"),
         "candidates": candidates,
         "evidence": [
             f"Business Control Agent의 target_users={control.get('target_users')} 값을 사용했습니다.",
-            f"VIP 발송 방식은 {'immediate' if policy['vip_immediate'] else 'batched'}입니다.",
-            f"일반 사용자는 {delay}분 동안 분산 발송합니다.",
-            f"선택된 후보는 '{candidates[0]['label']}'입니다.",
-            f"예상 peak 감소율은 {reduction}%입니다.",
+            f"VIP 발송 방식은 {selected['vip_send_mode']}입니다.",
+            f"일반 사용자는 {selected['send_window_minutes']}분 동안 균등 분산합니다.",
+            f"일반 사용자 분당 발송량은 {selected['per_minute_general']}명입니다.",
+            f"일반 사용자 초당 발송량은 {selected['per_second_general']}명입니다.",
+            f"선택된 후보는 '{selected['label']}'입니다.",
         ],
     }
-    return result, f"Spread general delivery over {delay} minutes; estimated peak reduction is {reduction}%."
+    return (
+        result,
+        (
+            f"Spread {general_count:,} general users over "
+            f"{selected['send_window_minutes']} minutes "
+            f"({selected['per_second_general']} users/sec)."
+        ),
+    )
+
+
+def _build_candidate(
+    *,
+    label: str,
+    window_minutes: int,
+    vip_count: int,
+    general_count: int,
+    vip_immediate: bool,
+) -> dict[str, Any]:
+    window = max(1, int(window_minutes))
+    return {
+        "label": label,
+        "send_window_minutes": window,
+        "push_window_minutes": window,
+        "vip_send_mode": "즉시 발송" if vip_immediate else "일괄 발송",
+        "general_send_mode": f"{window}분 균등 분산",
+        "per_minute_general": round(general_count / window, 1),
+        "per_second_general": round(general_count / (window * 60), 1),
+        "vip_count": vip_count,
+        "general_count": general_count,
+    }
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:
@@ -68,8 +103,7 @@ def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, A
     recommended = value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
     if recommended:
         result["send_window_minutes"] = recommended
-        result["general_users"] = f"spread_over_{recommended}m"
-        result["peak_reduction_percent"] = min(60, max(10, int(recommended * 4.2)))
+        result["general_users"] = f"{recommended}분 균등 분산"
     result["strategy"] = assessment.get("strategy")
     result["strategy_reasoning"] = assessment.get("reasoning")
     return result

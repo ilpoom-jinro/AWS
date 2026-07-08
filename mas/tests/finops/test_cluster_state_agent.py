@@ -145,8 +145,8 @@ class ClusterStateAgentTests(TestCase):
                 "actual_p95_ms": 195,
             },
         ]
-        with patch.object(business_logic, "_query_event_history", return_value=history):
-            result, _ = business_logic.evaluate(context)
+        context["event_history"] = history
+        result, _ = business_logic.evaluate(context)
 
         self.assertEqual(result["historical_event_count"], 2)
         self.assertEqual(result["historical_avg_peak_rps"], 1415)
