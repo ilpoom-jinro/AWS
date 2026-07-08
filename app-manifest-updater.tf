@@ -1,5 +1,9 @@
 data "aws_caller_identity" "current" {}
 
+data "aws_prefix_list" "s3" {
+  name = "com.amazonaws.${var.aws_region}.s3"
+}
+
 locals {
   manifest_updater_image = coalesce(
     var.manifest_updater_image,
@@ -26,6 +30,14 @@ resource "aws_security_group" "manifest_updater_codebuild" {
     to_port     = 65535
     protocol    = "tcp"
     cidr_blocks = [module.vpc2.vpc_cidr]
+  }
+
+  egress {
+    description     = "Allow S3 gateway endpoint access for bulk image update payloads"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_prefix_list.s3.id]
   }
 
   tags = {
@@ -98,6 +110,15 @@ resource "aws_iam_role_policy" "manifest_updater_codebuild" {
           "s3:GetObject"
         ]
         Resource = "arn:aws:s3:::ilpumjinro-terraform-state-v4/mas-manifest-updates/*"
+      },
+      {
+        Sid    = "BulkImageUpdatePayloadDecrypt"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = data.aws_kms_key.key_s3.arn
       },
       {
         Sid    = "VpcNetworkInterfaces"
