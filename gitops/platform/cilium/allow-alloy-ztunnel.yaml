@@ -10,18 +10,9 @@ spec:
       app.kubernetes.io/name: alloy
       app.kubernetes.io/instance: observability-alloy-ops
   egress:
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: istio-system
-            app: ztunnel
-      toPorts:
-        - ports:
-            - port: "15020"
-              protocol: TCP
-    - toCIDR:
-        - 10.20.11.0/24  # financial-vpc2-private-a
-        - 10.20.12.0/24  # financial-vpc2-private-b
-        - 10.20.31.0/24  # financial-vpc2-monitor-a
+    - toEntities:
+        - cluster          # ztunnel이 reserved:unmanaged라 cluster로만 매칭됨
+                           # (toEndpoints/toCIDR 둘 다 unmanaged 목적지 매칭 실패)
       toPorts:
         - ports:
             - port: "15020"
