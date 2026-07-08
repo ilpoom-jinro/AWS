@@ -3,7 +3,8 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-ztunnel-hbone
 spec:
-  # Istio Ambient ztunnel은 hostNetwork DaemonSet으로 실행 → Cilium에서 entity: host/remote-node로 보임
+  # ztunnel은 reserved:unmanaged identity라 host/remote-node로 안 잡힘 -> cluster 필요.
+  # 15008은 audit 미발생이라 flip 후 관찰 필요
   # ztunnel ↔ waypoint(pod) 간 HBONE 터널(15008)이 막히면 enforce 시 메시 내 mTLS 전부 끊김
   description: "Istio ztunnel HBONE 15008 TCP 양방향 허용"
   endpointSelector: {}
@@ -11,6 +12,7 @@ spec:
     - fromEntities:
         - host
         - remote-node
+        - cluster          # ztunnel unmanaged 대응 (실측: reserved:unmanaged)
       toPorts:
         - ports:
             - port: "15008"
@@ -19,6 +21,7 @@ spec:
     - toEntities:
         - host
         - remote-node
+        - cluster          # ztunnel unmanaged 대응
       toPorts:
         - ports:
             - port: "15008"

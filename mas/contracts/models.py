@@ -374,6 +374,27 @@ class ComplianceReport(WorkflowDerivedMixin):
     evidence: dict[str, Any] = Field(default_factory=dict)
 
 
+class PostMortemReport(WorkflowDerivedMixin):
+    """
+    SecOps: Sev1/2(critical/high) 사고에 대한 사후 분석(Post-Mortem) 보고서
+
+    ComplianceReport가 "규제 관점의 대응 기록"이라면, PostMortemReport는
+    "사고 자체의 회고 — 근본원인·타임라인·재발방지"를 담는다.
+    root_cause / lessons_learned / action_items는 Bedrock 초안(USE_REAL_BEDROCK)
+    또는 결정적 stub으로 생성한다. PostMortemReportTable과 1:1 매핑.
+    """
+    generated_at: datetime = Field(default_factory=utc_now)
+    severity: SeverityType
+    incident_summary: str
+    timeline: str = ""
+    root_cause: str = ""
+    impact: str = ""
+    action_items: list[str] = Field(default_factory=list)
+    lessons_learned: str = ""
+    isolation_applied: bool = False
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
 # ---
 # 공통 분석 결과
 # ---
@@ -510,6 +531,7 @@ class AuditLog(WorkflowDerivedMixin):
         "approval_timeout",
         "action_executed",
         "rollback_triggered",
+        "postmortem_generated",
         "workflow_completed",
         "workflow_failed",
     ]
@@ -605,6 +627,19 @@ class GenerateComplianceReportInput(ContractVersionMixin):
     event: SecurityEvent
     mapping: RegulationMapping
     result: ExecutionResult
+
+
+class GeneratePostMortemReportInput(ContractVersionMixin):
+    """
+    SecOps: Post-Mortem 보고서 생성 Activity 입력
+
+    GenerateComplianceReportInput과 동일한 3종(event/mapping/result)을 묶는다.
+    Sev1/2(critical/high) 사고에서만 workflow가 이 활동을 호출한다.
+    """
+    event: SecurityEvent
+    mapping: RegulationMapping
+    result: ExecutionResult
+
 
 class ApprovalTicket(WorkflowDerivedMixin):
     """

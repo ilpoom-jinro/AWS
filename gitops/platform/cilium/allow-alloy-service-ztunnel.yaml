@@ -10,10 +10,8 @@ spec:
       app.kubernetes.io/name: alloy
       app.kubernetes.io/instance: observability-alloy-service
   egress:
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: istio-system
-            app: ztunnel
+    - toEntities:
+        - cluster          # service ztunnel도 unmanaged 예상 (ops와 동일 구조)
       toPorts:
         - ports:
             - port: "15020"

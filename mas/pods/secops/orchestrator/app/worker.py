@@ -26,9 +26,11 @@ from .activities import (
     apply_isolation,
     detect_threat,
     generate_compliance_report,
+    generate_postmortem_report,
     map_regulation,
     record_audit_log,
     record_compliance_report,
+    record_postmortem_report,
 )
 from .workflow import SecOpsWorkflow
 
@@ -49,6 +51,8 @@ async def main() -> None:
             apply_isolation,
             generate_compliance_report,
             record_compliance_report,
+            generate_postmortem_report,
+            record_postmortem_report,
             record_audit_log,
         ],
         # 주의: send_approval_request / send_reminder 는 여기 없음 —
