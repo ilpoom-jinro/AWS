@@ -41,6 +41,11 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         for label, window in zip(labels, windows, strict=True)
     ]
     selected = candidates[0]
+    peak_reduction_percent = _estimate_peak_reduction_percent(
+        selected,
+        total_users=total_users,
+        general_count=general_count,
+    )
 
     result = {
         "vip": selected["vip_send_mode"],
@@ -55,6 +60,7 @@ def evaluate(context: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "total_users": total_users,
         "vip_audience_count": vip_count,
         "general_audience_count": general_count,
+        "peak_reduction_percent": peak_reduction_percent,
         "crm_segment": business.get("crm_segment"),
         "candidates": candidates,
         "evidence": [
@@ -96,6 +102,26 @@ def _build_candidate(
         "vip_count": vip_count,
         "general_count": general_count,
     }
+
+
+def _estimate_peak_reduction_percent(
+    candidate: dict[str, Any],
+    *,
+    total_users: int,
+    general_count: int,
+) -> int:
+    if total_users <= 0 or general_count <= 0:
+        return 0
+
+    general_ratio = min(1.0, max(0.0, general_count / total_users))
+    window = int(candidate.get("send_window_minutes") or 1)
+    if window >= 15:
+        distribution_effect = 0.68
+    elif window >= 10:
+        distribution_effect = 0.48
+    else:
+        distribution_effect = max(0.10, min(0.48, window * 0.048))
+    return int(round(general_ratio * distribution_effect * 100))
 
 
 def apply_llm(result: dict[str, Any], assessment: dict[str, Any]) -> dict[str, Any]:
