@@ -237,7 +237,7 @@ def query_cur_via_athena(year: str, month: str) -> dict[str, float | str] | None
         "ATHENA_OUTPUT_LOCATION",
         os.getenv(
             "FINOPS_ATHENA_OUTPUT_LOCATION",
-            "s3://financial-ops-cur-609540154179-ap-northeast-2/athena-results/",
+            "s3://financial-ops-cur-013131246630-ap-northeast-2/athena-results/",
         ),
     )
     timeout_seconds = int(os.getenv("ATHENA_TIMEOUT_SECONDS", "30"))
