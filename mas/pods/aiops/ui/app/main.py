@@ -53,6 +53,11 @@ def dashboard() -> Any:
     return call_orchestrator("/api/dashboard")
 
 
+@app.get("/api/clusters/{cluster_name}/namespaces")
+def cluster_namespaces(cluster_name: str) -> Any:
+    return call_orchestrator(f"/api/clusters/{cluster_name}/namespaces")
+
+
 @app.post("/api/workflows/run")
 def run_workflow(request: RunWorkflowRequest) -> Any:
     return call_orchestrator(
@@ -60,6 +65,11 @@ def run_workflow(request: RunWorkflowRequest) -> Any:
         method="POST",
         body=request.model_dump(),
     )
+
+
+@app.get("/api/workflows/{workflow_id}")
+def workflow_detail(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -149,6 +159,27 @@ def index() -> str:
       button:disabled {{ cursor: not-allowed; opacity: 0.55; }}
       .actions {{ display: flex; gap: 10px; margin-top: 18px; }}
       .secondary {{ background: #e8edf6; color: var(--text); }}
+      .segmented {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }}
+      .segment {{
+        min-height: 46px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        padding: 10px 12px;
+      }}
+      .segment.active {{
+        border-color: var(--blue);
+        background: var(--blue);
+        color: #fff;
+      }}
+      .namespace-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
       .timeline {{ display: grid; gap: 10px; }}
       .step {{
         border: 1px solid var(--line);
@@ -177,11 +208,76 @@ def index() -> str:
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }}
+      .result-grid {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }}
+      .result-card {{
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+        padding: 14px;
+        min-height: 132px;
+      }}
+      .result-card h3 {{
+        margin: 0 0 10px;
+        font-size: 15px;
+      }}
+      .result-card pre {{
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font: inherit;
+      }}
+      .incident-banner {{
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+        padding: 16px;
+        min-height: 86px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }}
+      .incident-title {{
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 6px;
+      }}
+      .incident-message {{
+        font-size: 24px;
+        font-weight: 800;
+      }}
+      .incident-banner.ok {{
+        border-color: #b9dfcc;
+        background: #f3fbf7;
+      }}
+      .incident-banner.alert {{
+        border-color: #f0b6b6;
+        background: #fff6f6;
+      }}
+      .incident-banner.pending {{
+        border-color: #c8d3ff;
+        background: #f6f8ff;
+      }}
+      .incident-chip {{
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: #e8edf6;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }}
       .ok {{ color: var(--green); }}
       .err {{ color: var(--red); }}
+      .pending-text {{ color: #3150b8; }}
       a {{ color: #3150b8; font-weight: 700; text-decoration: none; }}
       @media (max-width: 900px) {{
-        .summary, .layout {{ grid-template-columns: 1fr; }}
+        .summary, .layout, .result-grid {{ grid-template-columns: 1fr; }}
         header {{ align-items: flex-start; flex-direction: column; }}
       }}
     </style>
@@ -217,11 +313,13 @@ def index() -> str:
       <section class="layout">
         <div class="panel">
           <h2>수동 실행</h2>
-          <label for="targetSelect">대상</label>
-          <select id="targetSelect">
-            <option value="financial-service-eks|stock-demo">financial-service-eks / stock-demo</option>
-            <option value="financial-ops-eks|tetragon">financial-ops-eks / tetragon</option>
-          </select>
+          <label>Cluster</label>
+          <div id="clusterSegments" class="segmented">
+            <button class="segment active" data-cluster="financial-ops-eks">financial-ops-eks</button>
+            <button class="segment" data-cluster="financial-service-eks">financial-service-eks</button>
+          </div>
+          <label>Namespace</label>
+          <div id="namespaceSegments" class="segmented namespace-grid"></div>
           <label for="workflowId">Workflow ID</label>
           <input id="workflowId" placeholder="비워두면 자동 생성" />
           <div class="actions">
@@ -244,7 +342,23 @@ def index() -> str:
 
       <section class="panel">
         <h2>실행 결과</h2>
-        <div id="resultBox" class="result">아직 실행된 워크플로우가 없습니다.</div>
+        <div class="result-grid">
+          <div class="result-card">
+            <h3>Input</h3>
+            <pre id="inputBox">아직 실행된 워크플로우가 없습니다.</pre>
+          </div>
+          <div class="result-card">
+            <h3>Result</h3>
+            <pre id="resultBox">아직 실행된 워크플로우가 없습니다.</pre>
+          </div>
+        </div>
+        <div id="incidentBanner" class="incident-banner ok">
+          <div>
+            <div class="incident-title">장애 메트릭 알림</div>
+            <div id="incidentMessage" class="incident-message ok">장애 없음</div>
+          </div>
+          <div id="incidentChip" class="incident-chip">normal</div>
+        </div>
       </section>
     </main>
     <script>
@@ -253,23 +367,104 @@ def index() -> str:
       const clusterValue = document.getElementById("clusterValue");
       const namespaceValue = document.getElementById("namespaceValue");
       const queueValue = document.getElementById("queueValue");
-      const targetSelect = document.getElementById("targetSelect");
+      const clusterSegments = document.getElementById("clusterSegments");
+      const namespaceSegments = document.getElementById("namespaceSegments");
       const workflowId = document.getElementById("workflowId");
+      const inputBox = document.getElementById("inputBox");
       const resultBox = document.getElementById("resultBox");
+      const incidentBanner = document.getElementById("incidentBanner");
+      const incidentMessage = document.getElementById("incidentMessage");
+      const incidentChip = document.getElementById("incidentChip");
       const runButton = document.getElementById("runButton");
+      const namespaceByCluster = {{
+        "financial-ops-eks": ["tetragon", "aiops-mas", "finops-mas", "secops-mas", "platform-mas"],
+        "financial-service-eks": ["stock-demo"],
+      }};
+      const clusters = ["financial-ops-eks", "financial-service-eks"];
+      let selectedCluster = "financial-ops-eks";
+      let selectedNamespace = "tetragon";
+      let currentWorkflowId = "";
+      let currentWorkflowCluster = "";
+      let namespaceRefreshMessage = "";
+
+      function incidentTextForCluster(clusterName) {{
+        return clusterName === "financial-service-eks" ? "Service EKS 장애 발생" : "Ops EKS 장애 발생";
+      }}
+
+      function renderIncidentState(state, clusterName = selectedCluster) {{
+        incidentBanner.className = `incident-banner ${{state}}`;
+        incidentMessage.className =
+          `incident-message ${{state === "alert" ? "err" : state === "pending" ? "pending-text" : "ok"}}`;
+        if (state === "alert") {{
+          incidentMessage.textContent = incidentTextForCluster(clusterName);
+          incidentChip.textContent = clusterName === "financial-service-eks" ? "service" : "ops";
+          return;
+        }}
+        if (state === "pending") {{
+          incidentMessage.textContent = "장애 여부 확인 중";
+          incidentChip.textContent = "checking";
+          return;
+        }}
+        incidentMessage.textContent = "장애 없음";
+        incidentChip.textContent = "normal";
+      }}
 
       function selectedTarget() {{
-        const [cluster_name, namespace] = targetSelect.value.split("|");
-        return {{ cluster_name, namespace }};
+        return {{ cluster_name: selectedCluster, namespace: selectedNamespace }};
+      }}
+
+      function setActiveButton(container, attrName, value) {{
+        [...container.querySelectorAll("button")].forEach((button) => {{
+          button.classList.toggle("active", button.dataset[attrName] === value);
+        }});
+      }}
+
+      function renderNamespaceSegments() {{
+        const namespaces = namespaceByCluster[selectedCluster] || [];
+        if (!namespaces.includes(selectedNamespace)) {{
+          selectedNamespace = namespaces[0] || "";
+        }}
+        if (namespaces.length === 0) {{
+          namespaceSegments.innerHTML = '<button class="segment" disabled>namespace 없음</button>';
+          return;
+        }}
+        namespaceSegments.innerHTML = namespaces
+          .map((namespace) => (
+            `<button class="segment ${{namespace === selectedNamespace ? "active" : ""}}" ` +
+            `data-namespace="${{namespace}}">${{namespace}}</button>`
+          ))
+          .join("");
       }}
 
       function syncTargetCards() {{
         const target = selectedTarget();
         clusterValue.textContent = target.cluster_name;
         namespaceValue.textContent = target.namespace;
+        setActiveButton(clusterSegments, "cluster", selectedCluster);
+        renderNamespaceSegments();
+      }}
+
+      async function refreshNamespacesForCluster(clusterName) {{
+        const response = await fetch(`/api/clusters/${{clusterName}}/namespaces`);
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        if (Array.isArray(data.namespaces)) {{
+          namespaceByCluster[clusterName] = data.namespaces;
+        }}
+      }}
+
+      async function refreshNamespaces() {{
+        try {{
+          await Promise.all(clusters.map((clusterName) => refreshNamespacesForCluster(clusterName)));
+          namespaceRefreshMessage = "";
+          syncTargetCards();
+        }} catch (error) {{
+          namespaceRefreshMessage = `namespace refresh error: ${{error}}`;
+        }}
       }}
 
       async function refreshDashboard() {{
+        await refreshNamespaces();
         syncTargetCards();
         try {{
           const response = await fetch("/api/dashboard");
@@ -278,6 +473,9 @@ def index() -> str:
           statusValue.textContent = "ready";
           statusValue.className = "value ok";
           queueValue.textContent = data.task_queue || "-";
+          if (namespaceRefreshMessage) {{
+            resultBox.textContent = namespaceRefreshMessage;
+          }}
         }} catch (error) {{
           statusValue.textContent = "error";
           statusValue.className = "value err";
@@ -286,10 +484,53 @@ def index() -> str:
         }}
       }}
 
+      function renderInput(data) {{
+        const workflowLink = `${{temporalUrl}}/namespaces/default/workflows/${{data.workflow_id}}`;
+        inputBox.innerHTML =
+          `workflow_id: <a href="${{workflowLink}}" target="_blank" rel="noreferrer">${{data.workflow_id}}</a>\\n` +
+          `cluster: ${{data.cluster_name}}\\n` +
+          `namespace: ${{data.namespace}}\\n` +
+          `task_queue: ${{data.task_queue}}`;
+      }}
+
+      function renderResult(detail) {{
+        resultBox.textContent =
+          `status: ${{detail.status || "-"}}\\n` +
+          `result: ${{detail.result === null || detail.result === undefined ? "(아직 완료되지 않음)" : detail.result}}`;
+        if (detail.result === "no_incident") {{
+          renderIncidentState("ok", currentWorkflowCluster);
+        }} else if (detail.result !== null && detail.result !== undefined) {{
+          renderIncidentState("alert", currentWorkflowCluster);
+        }} else if (detail.status === "RUNNING") {{
+          renderIncidentState("alert", currentWorkflowCluster);
+        }} else {{
+          renderIncidentState("pending", currentWorkflowCluster);
+        }}
+      }}
+
+      async function refreshWorkflowResult() {{
+        if (!currentWorkflowId) return;
+        const response = await fetch(`/api/workflows/${{currentWorkflowId}}`);
+        if (!response.ok) throw new Error(await response.text());
+        const detail = await response.json();
+        renderResult(detail);
+        return detail;
+      }}
+
+      async function pollWorkflowResult() {{
+        for (let attempt = 0; attempt < 8; attempt += 1) {{
+          const detail = await refreshWorkflowResult();
+          if (detail && detail.result !== null && detail.result !== undefined) return;
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }}
+      }}
+
       async function runWorkflow() {{
         const target = selectedTarget();
         runButton.disabled = true;
+        inputBox.textContent = JSON.stringify({{ ...target, workflow_id: workflowId.value.trim() || null }}, null, 2);
         resultBox.textContent = "AIOps workflow를 시작하는 중입니다...";
+        renderIncidentState("pending", target.cluster_name);
         try {{
           const body = {{
             ...target,
@@ -302,12 +543,11 @@ def index() -> str:
           }});
           if (!response.ok) throw new Error(await response.text());
           const data = await response.json();
-          const workflowLink = `${{temporalUrl}}/namespaces/default/workflows/${{data.workflow_id}}`;
-          resultBox.innerHTML =
-            `workflow_id: <a href="${{workflowLink}}" target="_blank" rel="noreferrer">${{data.workflow_id}}</a>\\n` +
-            `cluster: ${{data.cluster_name}}\\n` +
-            `namespace: ${{data.namespace}}\\n` +
-            `task_queue: ${{data.task_queue}}`;
+          currentWorkflowId = data.workflow_id;
+          currentWorkflowCluster = data.cluster_name;
+          renderInput(data);
+          resultBox.textContent = "workflow 시작됨. result 조회 중...";
+          await pollWorkflowResult();
         }} catch (error) {{
           resultBox.textContent = `run error: ${{error}}`;
         }} finally {{
@@ -315,13 +555,27 @@ def index() -> str:
         }}
       }}
 
-      targetSelect.addEventListener("change", syncTargetCards);
+      clusterSegments.addEventListener("click", (event) => {{
+        if (!event.target.dataset.cluster) return;
+        selectedCluster = event.target.dataset.cluster;
+        syncTargetCards();
+      }});
+      namespaceSegments.addEventListener("click", (event) => {{
+        if (!event.target.dataset.namespace) return;
+        selectedNamespace = event.target.dataset.namespace;
+        syncTargetCards();
+      }});
       document.getElementById("refreshButton").addEventListener("click", refreshDashboard);
       document.getElementById("clearButton").addEventListener("click", () => {{
+        currentWorkflowId = "";
+        currentWorkflowCluster = "";
+        inputBox.textContent = "아직 실행된 워크플로우가 없습니다.";
         resultBox.textContent = "아직 실행된 워크플로우가 없습니다.";
+        renderIncidentState("ok");
       }});
       runButton.addEventListener("click", runWorkflow);
       refreshDashboard();
+      setInterval(refreshNamespaces, 3000);
     </script>
   </body>
 </html>
