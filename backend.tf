@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket       = "ilpumjinro-terraform-state-v4"
+    bucket       = "ilpumjinro-terraform-state-v5"
     key          = "global/terraform.tfstate"
     region       = "ap-northeast-2"
     encrypt      = true
