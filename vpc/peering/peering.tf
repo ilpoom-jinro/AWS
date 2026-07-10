@@ -162,6 +162,15 @@ resource "aws_route" "vpc2_db_to_vpc4" {
   vpc_peering_connection_id = aws_vpc_peering_connection.vpc4_vpc2.id
 }
 
+# VPC2 Private 라우팅 → VPC4 (on-prem OTel→Thanos Receive NLB 응답 경로)
+# monitoring subnet이 private RT를 사용하므로 NLB TCP 응답이 VPC4로 돌아가려면 필수
+# ADR-0001 갭 B 수정 — 이 route 없으면 TCP 연결 단방향으로 끊어짐
+resource "aws_route" "vpc2_private_to_vpc4" {
+  route_table_id            = var.vpc2_private_rt_id
+  destination_cidr_block    = var.vpc4_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.vpc4_vpc2.id
+}
+
 # ── DNS Resolution 설정 ────────────────────────────────────────────────────────
 # VPC3에서 VPC2 내부 DNS 조회 가능하도록 설정
 # EKS API 서버 등 VPC2 private DNS 접근 필요
