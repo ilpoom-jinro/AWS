@@ -220,6 +220,14 @@ resource "aws_eks_node_group" "ops" {
     aws_vpc_endpoint.s3,
     aws_vpc_endpoint.sts,
     aws_vpc_endpoint.ec2,
+    # 노드 이미지 레이어는 S3 게이트웨이 엔드포인트로 받는다. 그 S3 라우트는
+    # private 서브넷↔private RT 연결(route_table_association)로 배선되므로, 이
+    # 연결이 끝난 뒤에만 노드가 떠야 이미지 pull 이 된다. depends_on 이 없으면
+    # -target 적용(IAM 스텝의 pod_identity_association→node_group 체인) 시
+    # association 이 제외돼 노드가 S3 라우트 없이 부팅 → ImagePullBackOff →
+    # NodeCreationFailure 가 된다.
+    aws_route_table_association.private_a,
+    aws_route_table_association.private_b,
   ]
 }
 
