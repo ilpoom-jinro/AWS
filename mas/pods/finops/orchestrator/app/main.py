@@ -25,6 +25,7 @@ from app.agent_runtime import (
 )
 from app.chat_runtime import (
     build_pending_replan_response,
+    run_conversation_briefing_llm,
     run_explain_llm,
     run_planner_llm,
     run_report_chat,
@@ -69,6 +70,23 @@ FINOPS_SPOT_INSTANCE_TYPES = [
 ]
 COMMAND_COLLECTORS_ENABLED = os.getenv("FINOPS_COMMAND_COLLECTORS_ENABLED", "true").lower() == "true"
 COMMAND_COLLECTOR_TIMEOUT_SECONDS = float(os.getenv("FINOPS_COMMAND_COLLECTOR_TIMEOUT_SECONDS", "5"))
+AGENT_DISPLAY_NAMES = dict(AGENT_SEQUENCE)
+AGENT_DEPLOYMENTS = {
+    key: f"finops-{key.replace('_', '-')}-agent"
+    for key, _ in AGENT_SEQUENCE
+}
+DATA_REQUEST_LABELS = {
+    "allowed delay": "일반 사용자 발송 허용 지연 시간",
+    "peak reduction": "Push 분산에 따른 피크 감소율",
+    "target audience": "이벤트 대상자 정보",
+    "forecast RPS": "예상 peak RPS",
+    "required pods": "필요 Pod 수",
+    "target pods": "목표 Pod 수",
+    "estimated cost": "예상 비용",
+    "cost-to-value ratio": "비즈니스 가치 대비 비용 비율",
+    "forecast baseline": "사후 비교용 예측 기준",
+    "forecast cost": "사후 비교용 예측 비용",
+}
 
 app = FastAPI(title="FinOps Orchestrator", version="0.4.0")
 temporal_client: Client | None = None
@@ -145,6 +163,140 @@ def first_kubernetes_item(payload: dict[str, Any] | None) -> dict[str, Any]:
     if isinstance(items, list) and items:
         return items[0]
     return payload if payload.get("kind") else {}
+
+
+def agent_display_name(value: str | None) -> str:
+    if not value:
+        return "Agent"
+    return AGENT_DISPLAY_NAMES.get(value, value)
+
+
+def readable_data_label(label: str | None, field: str | None = None) -> str:
+    if label and label in DATA_REQUEST_LABELS:
+        return DATA_REQUEST_LABELS[label]
+    if field:
+        return field.replace("_", " ")
+    return label or "필요한 값"
+
+
+def dialogue_from_payload(
+    sender: str,
+    receiver: str,
+    message: str,
+    payload: Any,
+) -> dict[str, str]:
+    if not isinstance(payload, dict):
+        return {"sender": sender, "receiver": receiver, "message": message}
+
+    payload_type = payload.get("type")
+    if payload_type in {"data_request", "value_request"}:
+        requester = payload.get("requester_name") or agent_display_name(payload.get("requester_agent")) or sender
+        source = payload.get("source_name") or agent_display_name(payload.get("source_agent")) or receiver
+        label = readable_data_label(payload.get("label"), payload.get("field"))
+        return {
+            "sender": requester,
+            "receiver": source,
+            "message": f"{label}을 알려줘. 이 값으로 다음 계산을 진행할게.",
+        }
+
+    if payload_type == "value_response":
+        source = payload.get("source_name") or agent_display_name(payload.get("source_agent")) or sender
+        requester = payload.get("requester_name") or agent_display_name(payload.get("requester_agent")) or receiver
+        label = readable_data_label(payload.get("label"), payload.get("field"))
+        return {
+            "sender": source,
+            "receiver": requester,
+            "message": f"{label} 값은 {format_agent_value(payload.get('value'))}입니다. 이 값을 기준으로 진행하세요.",
+        }
+
+    if payload_type == "broker_data_request":
+        requester = agent_display_name(payload.get("requester_agent")) or sender
+        target = agent_display_name(payload.get("target_agent")) or receiver
+        operation = str(payload.get("operation") or "필요한 작업").replace("_", " ")
+        fields = ", ".join(payload.get("required_fields") or [])
+        suffix = f" 필요한 값은 {fields}입니다." if fields else ""
+        return {
+            "sender": requester,
+            "receiver": target,
+            "message": f"{operation} 작업을 진행할 수 있게 확인해줘.{suffix}",
+        }
+
+    return {"sender": sender, "receiver": receiver, "message": message}
+
+
+def summarize_agent_completion(agent: str, result: Any, fallback: str) -> str:
+    payload = result if isinstance(result, dict) else {}
+    nested = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+    if not isinstance(nested, dict):
+        return fallback
+
+    if agent == "Cluster State Agent":
+        return (
+            f"현재 클러스터를 확인했습니다. 전체 replica는 {nested.get('total_cluster_pods', '-')}개, "
+            f"이벤트 관련 Pod는 {nested.get('total_event_related_pods', '-')}개, "
+            f"유휴 후보는 {nested.get('idle_candidate_count', 0)}개입니다."
+        )
+    if agent == "Business Control Agent":
+        return (
+            f"이벤트 조건을 정리했습니다. 등급은 {nested.get('grade', '-')}이고 "
+            f"대상자는 {nested.get('target_users', '-')}명입니다. "
+            f"일반 사용자는 최대 {nested.get('max_delay_minutes', '-')}분까지 분산 가능합니다."
+        )
+    if agent == "Demand Shaping Agent":
+        return (
+            f"발송 분산 전략을 만들었습니다. 일반 사용자 {nested.get('general_count', '-')}명을 "
+            f"{nested.get('send_window_minutes', '-')}분 동안 분산해 초당 약 "
+            f"{nested.get('per_second_general', '-')}명씩 발송합니다."
+        )
+    if agent == "Traffic Forecast Agent":
+        return (
+            f"트래픽을 예측했습니다. 예상 peak RPS는 {nested.get('peak_rps_after', '-')}이고 "
+            f"필요한 App Pod는 {nested.get('required_app_pods', '-')}개입니다."
+        )
+    if agent == "Bottleneck Capacity Agent":
+        return (
+            f"병목을 검증했습니다. DB 위험도는 {nested.get('db_risk', nested.get('status', '-'))}, "
+            f"Pod 준비율은 {nested.get('pod_readiness_percent', '-')}입니다."
+        )
+    if agent == "Infra Capacity Planning Agent":
+        return (
+            f"인프라 용량 계획을 만들었습니다. 현재 {nested.get('current_app_pods', '-')}개에서 "
+            f"목표 {nested.get('target_app_pods', '-')}개로, "
+            f"추가 {nested.get('scale_out_pods', '-')}개 증설이 필요합니다."
+        )
+    if agent == "Cost Agent":
+        return (
+            f"비용을 계산했습니다. 예상 총비용은 ${nested.get('total', nested.get('estimated_cost_usd', '-'))}이고 "
+            f"유휴 자원 절감액은 ${nested.get('idle_saving_usd', nested.get('idle_resource_saving_usd', '-'))}입니다."
+        )
+    if agent == "Unit Economics Agent":
+        return (
+            f"경제성을 검토했습니다. 비용 비율은 {nested.get('cost_ratio', '-')}이고 "
+            f"최종 권고는 {nested.get('final_approval_recommendation', nested.get('approval_recommendation', '-'))}입니다."
+        )
+    if agent == "Policy & Fallback Guardrail Agent":
+        return "정책과 비상 대응 계획을 확인했습니다. 허용/금지 액션과 fallback 계획을 보고서에 반영했습니다."
+    if agent == "Postmortem Learning Agent":
+        return (
+            f"사후 학습 기준을 준비했습니다. 예측 peak RPS는 {nested.get('forecast_peak_rps', '-')}이고 "
+            f"예측 비용은 ${nested.get('forecast_cost_usd', '-')}입니다."
+        )
+    return fallback
+
+
+def conversation_row_to_dialogue(row: tuple[Any, ...]) -> dict[str, Any]:
+    phase, sender, receiver, message, payload, created_at = row
+    dialogue = dialogue_from_payload(sender, receiver, message, payload)
+    if sender != "Temporal Data Broker" and isinstance(payload, dict) and payload.get("result"):
+        dialogue["message"] = summarize_agent_completion(sender, payload, dialogue["message"])
+    return {
+        "phase": phase,
+        "sender": dialogue["sender"],
+        "receiver": dialogue["receiver"],
+        "message": dialogue["message"],
+        "payload": payload,
+        "created_at": created_at,
+    }
 
 
 def parse_kubectl_top_pods(stdout: str) -> dict[str, Any]:
@@ -253,6 +405,110 @@ def collect_kubernetes_live_context() -> dict[str, Any]:
             "alb_healthy_targets": ready_addresses,
         },
     }
+
+
+def pod_waiting_reason(pod: dict[str, Any]) -> str | None:
+    for status in pod.get("status", {}).get("containerStatuses", []) or []:
+        waiting = status.get("state", {}).get("waiting")
+        if waiting:
+            return waiting.get("reason") or waiting.get("message")
+    return None
+
+
+def runtime_status(desired: int, ready: int, pod_items: list[dict[str, Any]]) -> tuple[str, str]:
+    reasons = [pod_waiting_reason(pod) for pod in pod_items]
+    reasons = [reason for reason in reasons if reason]
+    if reasons:
+        return "Error", ", ".join(sorted(set(reasons)))
+    if desired == 0:
+        return "Sleeping", "replica가 0이라 대기 중입니다."
+    if ready >= desired:
+        return "Running", "필요한 replica가 Ready 상태입니다."
+    if pod_items:
+        phases = sorted(set(pod.get("status", {}).get("phase", "Unknown") for pod in pod_items))
+        return "Starting", f"Pod 상태: {', '.join(phases)}"
+    return "Starting", "Deployment는 켜졌지만 아직 Pod가 생성되지 않았습니다."
+
+
+def collect_agent_runtime_status() -> list[dict[str, Any]]:
+    deployments_result = run_readonly_command(
+        "agent_deployments",
+        [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "deploy",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "-o",
+            "json",
+        ],
+    )
+    pods_result = run_readonly_command(
+        "agent_pods",
+        [
+            FINOPS_KUBECTL_BIN,
+            "get",
+            "pods",
+            "-n",
+            FINOPS_NAMESPACE,
+            "-l",
+            FINOPS_APP_LABEL,
+            "-o",
+            "json",
+        ],
+    )
+    deployment_payload = parse_command_json(deployments_result)
+    pod_payload = parse_command_json(pods_result)
+    deployments = {
+        item.get("metadata", {}).get("name"): item
+        for item in (deployment_payload or {}).get("items", [])
+        if isinstance(item, dict)
+    }
+    pods_by_app: dict[str, list[dict[str, Any]]] = {}
+    for pod in (pod_payload or {}).get("items", []):
+        labels = pod.get("metadata", {}).get("labels", {})
+        app_name = labels.get("app.kubernetes.io/name") or labels.get("app")
+        if app_name:
+            pods_by_app.setdefault(app_name, []).append(pod)
+
+    statuses = []
+    for agent_key, agent_name in AGENT_SEQUENCE:
+        deployment_name = AGENT_DEPLOYMENTS[agent_key]
+        deployment = deployments.get(deployment_name, {})
+        spec = deployment.get("spec", {})
+        deployment_status = deployment.get("status", {})
+        containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+        pod_items = pods_by_app.get(deployment_name, [])
+        desired = int(spec.get("replicas") or 0)
+        ready = int(deployment_status.get("readyReplicas") or 0)
+        state, reason = runtime_status(desired, ready, pod_items)
+        restart_count = 0
+        pod_names = []
+        pod_phases = []
+        for pod in pod_items:
+            pod_names.append(pod.get("metadata", {}).get("name"))
+            pod_phases.append(pod.get("status", {}).get("phase"))
+            for container_status in pod.get("status", {}).get("containerStatuses", []) or []:
+                restart_count += int(container_status.get("restartCount") or 0)
+        statuses.append(
+            {
+                "agent_key": agent_key,
+                "agent_name": agent_name,
+                "deployment": deployment_name,
+                "desired_replicas": desired,
+                "ready_replicas": ready,
+                "available_replicas": int(deployment_status.get("availableReplicas") or 0),
+                "status": state,
+                "reason": reason,
+                "image": containers[0].get("image") if containers else None,
+                "pod_names": [name for name in pod_names if name],
+                "pod_phases": [phase for phase in pod_phases if phase],
+                "restart_count": restart_count,
+            }
+        )
+    return statuses
 
 
 def collect_aws_live_context() -> dict[str, Any]:
@@ -2168,6 +2424,15 @@ def workflow_broker_log(workflow_id: str) -> list[dict[str, Any]]:
     return normalize_broker_call_log(plan.get("broker_call_log", []), payloads)
 
 
+@app.get("/api/agents/runtime")
+def agent_runtime() -> dict[str, Any]:
+    return {
+        "namespace": FINOPS_NAMESPACE,
+        "collected_at": utcnow(),
+        "agents": collect_agent_runtime_status(),
+    }
+
+
 @app.post("/api/workflows/{workflow_id}/retry")
 async def retry_workflow(workflow_id: str) -> dict[str, str]:
     with connect() as conn:
@@ -2237,18 +2502,55 @@ def workflow_detail(workflow_id: str) -> dict[str, Any]:
             }
             for row in logs
         ],
-        "conversation": [
-            {
-                "phase": row[0],
-                "sender": row[1],
-                "receiver": row[2],
-                "message": row[3],
-                "payload": row[4],
-                "created_at": row[5],
-            }
-            for row in conversation
-        ],
+        "conversation": [conversation_row_to_dialogue(row) for row in conversation],
     }
+
+
+@app.get("/api/workflows/{workflow_id}/conversation/brief")
+async def workflow_conversation_brief(workflow_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        plan = conn.execute(
+            "select workflow_id, event_id, status, plan, updated_at from final_event_plan where workflow_id = %s",
+            (workflow_id,),
+        ).fetchone()
+        if not plan:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        logs = conn.execute(
+            """
+            select phase, agent, status, result, created_at
+            from agent_decision_log
+            where workflow_id = %s
+            order by phase, id
+            """,
+            (workflow_id,),
+        ).fetchall()
+        conversation_rows = conn.execute(
+            """
+            select phase, sender, receiver, message, payload, created_at
+            from agent_conversation_log
+            where workflow_id = %s
+            order by phase, id
+            """,
+            (workflow_id,),
+        ).fetchall()
+
+    timeline = [
+        {
+            "phase": row[0],
+            "agent": row[1],
+            "status": row[2],
+            "result": row[3],
+            "created_at": row[4],
+        }
+        for row in logs
+    ]
+    conversation = [conversation_row_to_dialogue(row) for row in conversation_rows]
+    return await run_conversation_briefing_llm(
+        workflow_id=plan[0],
+        status=plan[2],
+        conversation=conversation,
+        timeline=timeline,
+    )
 
 
 @app.get("/api/executions/{execution_workflow_id}")

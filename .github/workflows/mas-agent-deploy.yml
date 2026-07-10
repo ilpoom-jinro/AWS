@@ -617,7 +617,7 @@ jobs:
               print(f"  - {update['agent']} -> {update['tag']}")
           PY
 
-          updates_s3_uri="s3://ilpumjinro-terraform-state-v4/mas-manifest-updates/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          updates_s3_uri="s3://ilpumjinro-terraform-state-v5/mas-manifest-updates/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           aws s3 cp "${updates_file}" "${updates_s3_uri}"
           trap 'aws s3 rm "${updates_s3_uri}" >/dev/null 2>&1 || true' EXIT
 

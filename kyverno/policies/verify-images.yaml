@@ -72,8 +72,8 @@ spec:
                     # key-cosign KMS CMK(ECC_NIST_P256) 에서 추출한 공개키 PEM (오프라인 검증용)
                     publicKeys: |-
                       -----BEGIN PUBLIC KEY-----
-                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEE30HzepeEfGV2buLiHa+j1ibYbey
-                      /pUJPoAEnNjI1+qjJ+mgt48HNG5fE8irtbSfkwDD3laJy8Yw9uRvNIgxJA==
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZWp+qysrdDt91DnSOSCO6iUp8o8r
+                      XsBbiQnWvexkXBXUZyh/hFvfD2yjmrxTfk5uIIqUM0ILqfe7vOTJM9Yltw==
                       -----END PUBLIC KEY-----
                     rekor:
                       ignoreTlog: true
