@@ -20,6 +20,13 @@ ORCHESTRATOR_TIMEOUT_SECONDS = int(os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS", "60
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
 VISIBLE_SCENARIOS = {"fomc-briefing"}
+FOMC_FALLBACK_EVENT = {
+    "event_id": "fomc-briefing",
+    "title": "FOMC 주식 브리핑 푸시",
+    "grade": "S",
+    "target_users": 350000,
+    "scheduled_at": "08:30",
+}
 
 
 class ChatRequest(BaseModel):
@@ -64,84 +71,18 @@ def filter_visible_scenarios(items: Any) -> Any:
     ]
 
 
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
+def visible_scenarios_or_fallback(items: Any) -> list[dict[str, Any]]:
+    visible = filter_visible_scenarios(items)
+    if isinstance(visible, list) and visible:
+        return visible
+    return [FOMC_FALLBACK_EVENT]
 
 
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
+def safe_orchestrator_call(path: str, fallback: Any) -> Any:
+    try:
+        return call_orchestrator(path)
+    except HTTPException:
+        return fallback
 
 
 @app.get("/health")
@@ -151,10 +92,21 @@ def health() -> dict[str, str]:
 
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
-    workflows = call_orchestrator("/api/workflows")
-    calendar = filter_visible_scenarios(call_orchestrator("/api/events"))
+    errors: dict[str, str] = {}
+    try:
+        workflows = call_orchestrator("/api/workflows")
+    except HTTPException as exc:
+        workflows = []
+        errors["workflows"] = str(exc.detail)
+
+    try:
+        calendar = visible_scenarios_or_fallback(call_orchestrator("/api/events"))
+    except HTTPException as exc:
+        calendar = [FOMC_FALLBACK_EVENT]
+        errors["calendar"] = str(exc.detail)
+
     active = workflows[0] if workflows else None
-    return {
+    payload = {
         "scenario": "finops",
         "agent": "ui",
         "namespace": "finops-mas",
@@ -162,16 +114,23 @@ def dashboard() -> dict[str, Any]:
         "calendar": calendar,
         "active_workflow": active,
     }
+    if errors:
+        payload["warnings"] = errors
+    return payload
 
 
 @app.get("/api/calendar")
 def calendar() -> Any:
-    return filter_visible_scenarios(call_orchestrator("/api/calendar"))
+    return visible_scenarios_or_fallback(
+        safe_orchestrator_call("/api/calendar", [FOMC_FALLBACK_EVENT])
+    )
 
 
 @app.get("/api/events")
 def events() -> Any:
-    return filter_visible_scenarios(call_orchestrator("/api/events"))
+    return visible_scenarios_or_fallback(
+        safe_orchestrator_call("/api/events", [FOMC_FALLBACK_EVENT])
+    )
 
 
 @app.post("/api/workflows/run")
@@ -376,8 +335,8 @@ def index() -> str:
         overflow-wrap: break-word;
       }
       .chat-room {
-        min-height: 620px;
-        max-height: calc(100vh - 332px);
+        min-height: 360px;
+        max-height: 520px;
         overflow: auto;
         display: grid;
         gap: 10px;
@@ -678,6 +637,16 @@ def index() -> str:
         return items.filter(item => item && VISIBLE_SCENARIOS.has(item.event_id));
       }
 
+      function fallbackCalendarItems() {
+        return [{
+          event_id: "fomc-briefing",
+          title: "FOMC 주식 브리핑 푸시",
+          grade: "S",
+          target_users: 350000,
+          scheduled_at: "08:30"
+        }];
+      }
+
       function scenarioLabel(item) {
         const time = cleanScheduledAt(item.scheduled_at);
         const users = Number(item.target_users || 0).toLocaleString();
@@ -692,6 +661,7 @@ def index() -> str:
         try {
           const data = await api("/api/dashboard");
           calendarItems = filterVisibleScenarios(data.calendar || []);
+          if (!calendarItems.length) calendarItems = fallbackCalendarItems();
           const select = document.getElementById("event-select");
           select.innerHTML = calendarItems.map(item => `
             <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
@@ -709,8 +679,16 @@ def index() -> str:
             renderBrokerLog([]);
             renderEmptyConversation();
           }
-          await refreshAgentRuntime();
         } catch (error) {
+          calendarItems = fallbackCalendarItems();
+          const select = document.getElementById("event-select");
+          select.innerHTML = calendarItems.map(item => `
+            <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
+          `).join("");
+          renderCalendar(calendarItems);
+          syncAgentDetails([]);
+          renderBrokerLog([]);
+          renderEmptyConversation();
           showError(error);
         }
       }
