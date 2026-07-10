@@ -7,7 +7,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 
@@ -208,8 +208,8 @@ def chat(request: ChatRequest) -> Any:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return """
+def index() -> Response:
+    html = """
 <!doctype html>
 <html lang="en">
   <head>
@@ -501,7 +501,7 @@ def index() -> str:
     <header>
       <div>
         <h1>FinOps MAS Control</h1>
-        <div class="muted">Demand shaping first, infrastructure second.</div>
+        <div class="muted">Demand shaping first, infrastructure second. <span id="ui-code-version">ui-fallback-shell-v2</span></div>
       </div>
       <div class="toolbar">
         <select id="event-select" aria-label="FinOps 시나리오 선택"></select>
@@ -1955,3 +1955,11 @@ def index() -> str:
   </body>
 </html>
 """
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
