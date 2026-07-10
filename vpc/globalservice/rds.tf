@@ -21,6 +21,30 @@ resource "aws_db_parameter_group" "service" {
   name        = "financial-vpc1-pg16"
   family      = "postgres16"
   description = "PostgreSQL 16 parameter group for financial-service"
+  # gcp DMS에서 마이그레이션하기 위해 PostgreSQL logical replication 키기 -> AWS RDS가 DMS CDC source가 됨
+  parameter {
+    name         = "rds.logical_replication"
+    value        = "1"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "max_replication_slots"
+    value        = "10"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "max_wal_senders"
+    value        = "10"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "max_logical_replication_workers"
+    value        = "4"
+    apply_method = "pending-reboot"
+  }
 
   tags = {
     Name = "financial-vpc1-pg16"

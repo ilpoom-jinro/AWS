@@ -130,6 +130,44 @@ def index() -> str:
         grid-template-columns: 420px minmax(0, 1fr);
         gap: 18px;
       }}
+      .watch-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }}
+      .watch-item {{
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+        padding: 14px;
+        min-height: 104px;
+      }}
+      .watch-title {{
+        color: var(--muted);
+        font-size: 14px;
+        margin-bottom: 9px;
+      }}
+      .watch-status {{
+        font-size: 22px;
+        font-weight: 800;
+        margin-bottom: 7px;
+      }}
+      .watch-meta {{
+        color: var(--muted);
+        font-size: 13px;
+      }}
+      .watch-item.ok {{
+        border-color: #b9dfcc;
+        background: #f3fbf7;
+      }}
+      .watch-item.alert {{
+        border-color: #f0b6b6;
+        background: #fff6f6;
+      }}
+      .watch-item.pending {{
+        border-color: #c8d3ff;
+        background: #f6f8ff;
+      }}
       .panel {{
         background: var(--panel);
         border: 1px solid var(--line);
@@ -277,7 +315,7 @@ def index() -> str:
       .pending-text {{ color: #3150b8; }}
       a {{ color: #3150b8; font-weight: 700; text-decoration: none; }}
       @media (max-width: 900px) {{
-        .summary, .layout, .result-grid {{ grid-template-columns: 1fr; }}
+        .summary, .watch-grid, .layout, .result-grid {{ grid-template-columns: 1fr; }}
         header {{ align-items: flex-start; flex-direction: column; }}
       }}
     </style>
@@ -307,6 +345,27 @@ def index() -> str:
         <div class="card">
           <div class="label">Task Queue</div>
           <div id="queueValue" class="value">-</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>자동 감시 보드</h2>
+        <div class="watch-grid">
+          <div id="opsWatchCard" class="watch-item pending">
+            <div class="watch-title">Ops EKS</div>
+            <div id="opsWatchStatus" class="watch-status pending-text">확인 중</div>
+            <div id="opsWatchMeta" class="watch-meta">마지막 확인: -</div>
+          </div>
+          <div id="serviceWatchCard" class="watch-item pending">
+            <div class="watch-title">Service EKS</div>
+            <div id="serviceWatchStatus" class="watch-status pending-text">확인 중</div>
+            <div id="serviceWatchMeta" class="watch-meta">마지막 확인: -</div>
+          </div>
+          <div id="autoRefreshCard" class="watch-item pending">
+            <div class="watch-title">Namespace 자동 갱신</div>
+            <div id="autoRefreshStatus" class="watch-status pending-text">활성</div>
+            <div id="autoRefreshMeta" class="watch-meta">주기: 3초</div>
+          </div>
         </div>
       </section>
 
@@ -375,6 +434,15 @@ def index() -> str:
       const incidentBanner = document.getElementById("incidentBanner");
       const incidentMessage = document.getElementById("incidentMessage");
       const incidentChip = document.getElementById("incidentChip");
+      const opsWatchCard = document.getElementById("opsWatchCard");
+      const opsWatchStatus = document.getElementById("opsWatchStatus");
+      const opsWatchMeta = document.getElementById("opsWatchMeta");
+      const serviceWatchCard = document.getElementById("serviceWatchCard");
+      const serviceWatchStatus = document.getElementById("serviceWatchStatus");
+      const serviceWatchMeta = document.getElementById("serviceWatchMeta");
+      const autoRefreshCard = document.getElementById("autoRefreshCard");
+      const autoRefreshStatus = document.getElementById("autoRefreshStatus");
+      const autoRefreshMeta = document.getElementById("autoRefreshMeta");
       const runButton = document.getElementById("runButton");
       const namespaceByCluster = {{
         "financial-ops-eks": ["tetragon", "aiops-mas", "finops-mas", "secops-mas", "platform-mas"],
@@ -386,9 +454,55 @@ def index() -> str:
       let currentWorkflowId = "";
       let currentWorkflowCluster = "";
       let namespaceRefreshMessage = "";
+      const watchState = {{
+        "financial-ops-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "" }},
+        "financial-service-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "" }},
+      }};
 
       function incidentTextForCluster(clusterName) {{
         return clusterName === "financial-service-eks" ? "Service EKS 장애 발생" : "Ops EKS 장애 발생";
+      }}
+
+      function formatElapsed(timestamp) {{
+        if (!timestamp) return "-";
+        const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+        if (seconds < 2) return "방금 전";
+        return `${{seconds}}초 전`;
+      }}
+
+      function setWatchCard(card, statusElement, metaElement, state, title) {{
+        const cardState = state.ok ? state.incident : "failed";
+        if (cardState === "alert") {{
+          card.className = "watch-item alert";
+          statusElement.className = "watch-status err";
+          statusElement.textContent = title === "service" ? "Service EKS 장애 발생" : "Ops EKS 장애 발생";
+        }} else if (cardState === "checking") {{
+          card.className = "watch-item pending";
+          statusElement.className = "watch-status pending-text";
+          statusElement.textContent = "확인 중";
+        }} else if (cardState === "failed") {{
+          card.className = "watch-item alert";
+          statusElement.className = "watch-status err";
+          statusElement.textContent = "확인 실패";
+        }} else {{
+          card.className = "watch-item ok";
+          statusElement.className = "watch-status ok";
+          statusElement.textContent = "정상";
+        }}
+        const suffix = state.error ? ` / ${{state.error}}` : "";
+        metaElement.textContent = `마지막 확인: ${{formatElapsed(state.lastCheckedAt)}}${{suffix}}`;
+      }}
+
+      function updateWatchBoard() {{
+        const opsState = watchState["financial-ops-eks"];
+        const serviceState = watchState["financial-service-eks"];
+        setWatchCard(opsWatchCard, opsWatchStatus, opsWatchMeta, opsState, "ops");
+        setWatchCard(serviceWatchCard, serviceWatchStatus, serviceWatchMeta, serviceState, "service");
+        const allOk = opsState.ok && serviceState.ok;
+        autoRefreshCard.className = `watch-item ${{allOk ? "ok" : "pending"}}`;
+        autoRefreshStatus.className = `watch-status ${{allOk ? "ok" : "pending-text"}}`;
+        autoRefreshStatus.textContent = "활성";
+        autoRefreshMeta.textContent = allOk ? "주기: 3초 / 최근 갱신 성공" : "주기: 3초 / 갱신 확인 중";
       }}
 
       function renderIncidentState(state, clusterName = selectedCluster) {{
@@ -398,6 +512,10 @@ def index() -> str:
         if (state === "alert") {{
           incidentMessage.textContent = incidentTextForCluster(clusterName);
           incidentChip.textContent = clusterName === "financial-service-eks" ? "service" : "ops";
+          if (watchState[clusterName]) {{
+            watchState[clusterName].incident = "alert";
+            updateWatchBoard();
+          }}
           return;
         }}
         if (state === "pending") {{
@@ -407,6 +525,10 @@ def index() -> str:
         }}
         incidentMessage.textContent = "장애 없음";
         incidentChip.textContent = "normal";
+        if (watchState[clusterName]) {{
+          watchState[clusterName].incident = "normal";
+          updateWatchBoard();
+        }}
       }}
 
       function selectedTarget() {{
@@ -451,16 +573,29 @@ def index() -> str:
         if (Array.isArray(data.namespaces)) {{
           namespaceByCluster[clusterName] = data.namespaces;
         }}
+        watchState[clusterName].lastCheckedAt = Date.now();
+        watchState[clusterName].ok = true;
+        watchState[clusterName].error = "";
+        if (watchState[clusterName].incident === "checking") {{
+          watchState[clusterName].incident = "normal";
+        }}
       }}
 
       async function refreshNamespaces() {{
-        try {{
-          await Promise.all(clusters.map((clusterName) => refreshNamespacesForCluster(clusterName)));
-          namespaceRefreshMessage = "";
-          syncTargetCards();
-        }} catch (error) {{
-          namespaceRefreshMessage = `namespace refresh error: ${{error}}`;
-        }}
+        const errors = [];
+        await Promise.all(clusters.map(async (clusterName) => {{
+          try {{
+            await refreshNamespacesForCluster(clusterName);
+          }} catch (error) {{
+            watchState[clusterName].lastCheckedAt = Date.now();
+            watchState[clusterName].ok = false;
+            watchState[clusterName].error = String(error);
+            errors.push(`${{clusterName}}: ${{error}}`);
+          }}
+        }}));
+        namespaceRefreshMessage = errors.length ? `namespace refresh error: ${{errors.join("; ")}}` : "";
+        syncTargetCards();
+        updateWatchBoard();
       }}
 
       async function refreshDashboard() {{
@@ -574,8 +709,10 @@ def index() -> str:
         renderIncidentState("ok");
       }});
       runButton.addEventListener("click", runWorkflow);
+      updateWatchBoard();
       refreshDashboard();
       setInterval(refreshNamespaces, 3000);
+      setInterval(updateWatchBoard, 1000);
     </script>
   </body>
 </html>

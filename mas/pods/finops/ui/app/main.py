@@ -202,6 +202,11 @@ def workflow_broker_log(workflow_id: str) -> Any:
     return call_orchestrator(f"/api/workflows/{workflow_id}/broker-log")
 
 
+@app.get("/api/workflows/{workflow_id}/conversation/brief")
+def workflow_conversation_brief(workflow_id: str) -> Any:
+    return call_orchestrator(f"/api/workflows/{workflow_id}/conversation/brief")
+
+
 @app.get("/api/executions/{execution_workflow_id}")
 def execution_detail(execution_workflow_id: str) -> Any:
     return call_orchestrator(f"/api/executions/{execution_workflow_id}")
@@ -639,6 +644,9 @@ def index() -> str:
       let currentPlanSnapshot = null;
       let currentExecution = null;
       let executionPoller = null;
+      let latestWorkflowData = null;
+      const conversationBriefCache = {};
+      const conversationBriefLoading = new Set();
       const FINOPS_AGENTS = [
         ["business_control", "Business Control Agent"],
         ["demand_shaping", "Demand Shaping Agent"],
@@ -701,6 +709,7 @@ def index() -> str:
             renderBrokerLog([]);
             renderEmptyConversation();
           }
+          await refreshAgentRuntime();
         } catch (error) {
           showError(error);
         }
@@ -1057,12 +1066,63 @@ def index() -> str:
           .replaceAll("'", "&#039;");
       }
 
+      function formatMultiline(value) {
+        return escapeHtml(value).replaceAll("\n", "<br>");
+      }
+
+      async function summarizeConversationWithLlm() {
+        if (!currentWorkflow) {
+          document.getElementById("toast").textContent = "먼저 FinOps 분석을 실행해주세요.";
+          return;
+        }
+        const button = document.getElementById("conversation-brief");
+        try {
+          if (button) button.disabled = true;
+          document.getElementById("toast").textContent = "LLM이 Agent 대화 흐름을 정리하는 중입니다...";
+          const data = await api(`/api/workflows/${currentWorkflow}/conversation/brief`);
+          const el = document.getElementById("agent-chat");
+          el.innerHTML += `
+            <div class="bubble agent">
+              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">${escapeHtml(data.source || "llm")}</span></div>
+              <p>${formatMultiline(data.summary || "LLM 정리 결과가 없습니다.")}</p>
+            </div>
+          `;
+          el.scrollTop = el.scrollHeight;
+          document.getElementById("toast").textContent = "";
+        } catch (error) {
+          showError(error);
+        } finally {
+          updateChatAvailability();
+        }
+      }
+
+      async function loadConversationBrief(workflowId) {
+        if (!workflowId || conversationBriefCache[workflowId] || conversationBriefLoading.has(workflowId)) return;
+        conversationBriefLoading.add(workflowId);
+        try {
+          const data = await api(`/api/workflows/${workflowId}/conversation/brief`);
+          conversationBriefCache[workflowId] = data;
+          if (currentWorkflow === workflowId && latestWorkflowData) {
+            renderConversation(latestWorkflowData);
+          }
+        } catch (error) {
+          conversationBriefCache[workflowId] = {
+            source: "fallback",
+            summary: "LLM 흐름 정리를 가져오지 못했습니다. 기본 진행 요약을 표시합니다."
+          };
+        } finally {
+          conversationBriefLoading.delete(workflowId);
+        }
+      }
+
       function updateChatAvailability(status = null) {
         const disabled = !currentWorkflow || ["running", "starting"].includes(status || "");
         const textarea = document.getElementById("chat-message");
         const button = document.getElementById("chat-send");
+        const briefButton = document.getElementById("conversation-brief");
         if (textarea) textarea.disabled = disabled;
         if (button) button.disabled = disabled;
+        if (briefButton) briefButton.disabled = !currentWorkflow;
         if (!currentWorkflow) {
           document.getElementById("conversation-status").textContent = "no workflow";
         }
@@ -1319,6 +1379,64 @@ def index() -> str:
               <p>${escapeHtml(narrate(item))}</p>
             </div>
           `).join("");
+        el.innerHTML = eventIntroBubble("분석") + messages;
+        el.scrollTop = el.scrollHeight;
+        updateChatAvailability(data.status);
+      }
+
+      function workflowSummaryHtml(data) {
+        const timeline = data.timeline || [];
+        const completed = timeline.filter(item => item.status === "completed");
+        const blocked = timeline.filter(item => ["blocked", "failed", "requires_review"].includes(item.status));
+        const latest = timeline.length ? timeline[timeline.length - 1] : null;
+        const completedNames = completed.map(item => displayAgentName(item.agent));
+        const doneText = completedNames.length
+          ? completedNames.slice(-6).join(" → ")
+          : "아직 완료된 Agent가 없습니다.";
+        const latestText = latest
+          ? `${displayAgentName(latest.agent)} 단계가 ${latest.status} 상태입니다.`
+          : "아직 Agent 실행 결과가 없습니다.";
+        const issueText = blocked.length
+          ? blocked.map(item => `${escapeHtml(displayAgentName(item.agent))}: ${escapeHtml(item.status)}`).join("<br>")
+          : "현재 표시된 차단 지점은 없습니다.";
+        return `
+          <div class="bubble agent">
+            <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">요약</span></div>
+            <p>현재 FinOps 분석은 <strong>${escapeHtml(data.status || "running")}</strong> 상태입니다.</p>
+            <p><strong>완료된 흐름</strong><br>${escapeHtml(doneText)}</p>
+            <p><strong>최근 진행</strong><br>${escapeHtml(latestText)}</p>
+            <p><strong>확인 포인트</strong><br>${issueText}</p>
+          </div>
+        `;
+      }
+
+      function renderConversation(data) {
+        latestWorkflowData = data;
+        const el = document.getElementById("agent-chat");
+        document.getElementById("conversation-status").textContent = data.status || "running";
+        const workflowId = data.workflow_id || currentWorkflow;
+        const isRunning = ["running", "starting"].includes(data.status || "running");
+        const brief = workflowId ? conversationBriefCache[workflowId] : null;
+        let messages = "";
+        if (brief && brief.summary) {
+          messages = `
+            <div class="bubble agent">
+              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">${escapeHtml(brief.source || "llm")}</span></div>
+              <p>${formatMultiline(brief.summary)}</p>
+            </div>
+          `;
+        } else {
+          messages = workflowSummaryHtml(data);
+          if (!isRunning && workflowId) {
+            loadConversationBrief(workflowId);
+            messages += `
+              <div class="bubble agent">
+                <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">LLM 정리 중</span></div>
+                <p>Agent 대화 전체를 LLM으로 읽기 쉽게 정리하고 있습니다.</p>
+              </div>
+            `;
+          }
+        }
         el.innerHTML = eventIntroBubble("분석") + messages;
         el.scrollTop = el.scrollHeight;
         updateChatAvailability(data.status);
@@ -1608,6 +1726,52 @@ def index() -> str:
           const fields = (item.result_fields || []).join(", ") || "none";
           return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation || "-")}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status || "-")} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
         }).join("") : '<span class="muted">Agent 간 추가 데이터 요청이 없습니다.</span>';
+      }
+
+      async function refreshAgentRuntime() {
+        try {
+          const runtime = await api("/api/agents/runtime");
+          renderAgentRuntime(runtime);
+        } catch (error) {
+          const el = document.getElementById("agent-runtime");
+          if (el) el.innerHTML = `<div class="muted">Agent runtime 상태를 가져오지 못했습니다: ${escapeHtml(error.message || String(error))}</div>`;
+        }
+      }
+
+      function runtimeTone(status) {
+        if (status === "Running") return "green";
+        if (status === "Starting") return "blue";
+        if (status === "Error") return "red";
+        return "yellow";
+      }
+
+      function renderAgentRuntime(runtime) {
+        const el = document.getElementById("agent-runtime");
+        if (!el) return;
+        const collected = document.getElementById("runtime-collected-at");
+        if (collected) collected.textContent = runtime?.collected_at ? "updated" : "대기";
+        const agents = runtime?.agents || [];
+        el.innerHTML = agents.length ? agents.map(agent => {
+          const status = agent.status || "Unknown";
+          const image = agent.image || "-";
+          const tag = image.includes(":") ? image.split(":").pop() : image;
+          const pods = (agent.pod_names || []).join(", ") || "-";
+          const phases = (agent.pod_phases || []).join(", ") || "-";
+          return `
+            <div class="runtime-card status-${escapeHtml(status)}">
+              <div class="speaker">
+                <span>${escapeHtml(agent.agent_name || agent.agent_key || "Agent")}</span>
+                ${statusPill(status, runtimeTone(status))}
+              </div>
+              <div><strong>${escapeHtml(agent.ready_replicas ?? 0)}/${escapeHtml(agent.desired_replicas ?? 0)}</strong> ready</div>
+              <div class="runtime-meta">deployment: ${escapeHtml(agent.deployment || "-")}</div>
+              <div class="runtime-meta">pod: ${escapeHtml(pods)}</div>
+              <div class="runtime-meta">phase: ${escapeHtml(phases)} · restarts: ${escapeHtml(agent.restart_count ?? 0)}</div>
+              <div class="runtime-meta">image tag: ${escapeHtml(tag)}</div>
+              <div class="runtime-meta">${escapeHtml(agent.reason || "")}</div>
+            </div>
+          `;
+        }).join("") : '<div class="muted">Agent runtime 정보가 없습니다.</div>';
       }
 
       function numberOrDash(value, digits = 0) {
