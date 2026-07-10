@@ -1099,6 +1099,16 @@ def index() -> Response:
         return escapeHtml(value).replaceAll("\\n", "<br>");
       }
 
+      function isUsefulConversationBrief(brief) {
+        if (!brief || !brief.summary) return false;
+        const source = String(brief.source || "").toLowerCase();
+        const summary = String(brief.summary || "");
+        return source !== "fallback"
+          && !summary.includes("AccessDeniedException")
+          && !summary.includes("LLM 대화 정리를 생성하지 못했습니다")
+          && !summary.includes("기본 Agent 대화 로그");
+      }
+
       async function summarizeConversationWithLlm() {
         if (!currentWorkflow) {
           document.getElementById("toast").textContent = "먼저 FinOps 분석을 실행해주세요.";
@@ -1109,6 +1119,10 @@ def index() -> Response:
           if (button) button.disabled = true;
           document.getElementById("toast").textContent = "LLM이 Agent 대화 흐름을 정리하는 중입니다...";
           const data = await api(`/api/workflows/${currentWorkflow}/conversation/brief`);
+          if (!isUsefulConversationBrief(data)) {
+            document.getElementById("toast").textContent = "LLM 요약을 사용할 수 없어 Agent별 진행 기록을 유지합니다.";
+            return;
+          }
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
             <div class="bubble agent">
@@ -1137,7 +1151,8 @@ def index() -> Response:
         } catch (error) {
           conversationBriefCache[workflowId] = {
             source: "fallback",
-            summary: "LLM 흐름 정리를 가져오지 못했습니다. 기본 진행 요약을 표시합니다."
+            summary: "",
+            reason: error.message || String(error)
           };
         } finally {
           conversationBriefLoading.delete(workflowId);
@@ -1176,11 +1191,24 @@ def index() -> Response:
 
       function displayAgentName(name) {
         const labels = {
+          cluster_state: "클러스터 상태 Agent",
+          business_control: "비즈니스 일정 Agent",
+          demand_shaping: "수요 분산 Agent",
+          traffic_forecast: "트래픽 예측 Agent",
+          bottleneck_capacity: "병목 분석 Agent",
+          infra_execution: "인프라 용량 계획 Agent",
+          cost: "비용 분석 Agent",
+          unit_economics: "단위 경제성 Agent",
+          policy_guardrail: "정책/비상 대응 Agent",
+          fallback: "정책/비상 대응 Agent",
+          postmortem_learning: "사후 학습 Agent",
+          "Cluster State Agent": "클러스터 상태 Agent",
           "Business Control Agent": "비즈니스 일정 Agent",
           "Demand Shaping Agent": "수요 분산 Agent",
           "Traffic Forecast Agent": "트래픽 예측 Agent",
           "Bottleneck Capacity Agent": "병목 분석 Agent",
           "Infra Capacity Planning Agent": "인프라 용량 계획 Agent",
+          "Infra Execution Planner": "인프라 용량 계획 Agent",
           "Cost Agent": "비용 분석 Agent",
           "Unit Economics Agent": "단위 경제성 Agent",
           "Policy & Fallback Guardrail Agent": "정책/비상 대응 Agent",
@@ -1378,15 +1406,28 @@ def index() -> Response:
       function narrate(item) {
         const r = item.result || {};
         const summaries = {
+          "Cluster State Agent": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_replicas || r.total_deployment_replicas || "-"}개이고, 유휴 자원 후보는 ${r.idle_candidate_count || (r.idle_candidates || []).length || 0}개입니다.`,
+          "cluster_state": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_replicas || r.total_deployment_replicas || "-"}개이고, 유휴 자원 후보는 ${r.idle_candidate_count || (r.idle_candidates || []).length || 0}개입니다.`,
           "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "business_control": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
           "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
+          "demand_shaping": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
           "Traffic Forecast Agent": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
+          "traffic_forecast": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
           "Bottleneck Capacity Agent": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
+          "bottleneck_capacity": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
           "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
+          "Infra Execution Planner": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
+          "infra_execution": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
           "Cost Agent": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
+          "cost": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
           "Unit Economics Agent": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
+          "unit_economics": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
           "Policy & Fallback Guardrail Agent": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "policy_guardrail": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "fallback": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
           "Postmortem Learning Agent": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
+          "postmortem_learning": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
           "Dry-run Execution": "승인된 실행 계획을 실제 변경 없이 dry-run으로 검증했습니다."
         };
         return summaries[item.agent] || JSON.stringify(r);
@@ -1439,6 +1480,37 @@ def index() -> Response:
         `;
       }
 
+      function renderAgentTimelineMessages(data) {
+        const timeline = data.timeline || [];
+        if (timeline.length) {
+          return timeline.map(item => {
+            const agentName = displayAgentName(item.agent);
+            const status = item.status || "running";
+            const message = status === "completed"
+              ? narrate(item)
+              : `${agentName} 단계가 ${status} 상태입니다. 이전 Agent 결과를 기준으로 다음 판단을 준비하고 있습니다.`;
+            return `
+              <div class="bubble agent">
+                <div class="speaker"><span>${escapeHtml(agentName)}</span><span class="badge">${escapeHtml(status)}</span></div>
+                <p>${formatMultiline(message)}</p>
+              </div>
+            `;
+          }).join("");
+        }
+
+        const conversation = data.conversation || [];
+        if (conversation.length) {
+          return conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(displayAgentName(item.sender))}</span><span class="badge">→ ${escapeHtml(displayAgentName(item.receiver))}</span></div>
+              <p>${formatMultiline(item.message)}</p>
+            </div>
+          `).join("");
+        }
+
+        return workflowSummaryHtml(data);
+      }
+
       function renderConversation(data) {
         latestWorkflowData = data;
         const el = document.getElementById("agent-chat");
@@ -1446,25 +1518,16 @@ def index() -> Response:
         const workflowId = data.workflow_id || currentWorkflow;
         const isRunning = ["running", "starting"].includes(data.status || "running");
         const brief = workflowId ? conversationBriefCache[workflowId] : null;
-        let messages = "";
-        if (brief && brief.summary) {
-          messages = `
+        let messages = renderAgentTimelineMessages(data);
+        if (isUsefulConversationBrief(brief)) {
+          messages += `
             <div class="bubble agent">
-              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">${escapeHtml(brief.source || "llm")}</span></div>
+              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">전체 흐름 정리</span></div>
               <p>${formatMultiline(brief.summary)}</p>
             </div>
           `;
-        } else {
-          messages = workflowSummaryHtml(data);
-          if (!isRunning && workflowId) {
-            loadConversationBrief(workflowId);
-            messages += `
-              <div class="bubble agent">
-                <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">LLM 정리 중</span></div>
-                <p>Agent 대화 전체를 LLM으로 읽기 쉽게 정리하고 있습니다.</p>
-              </div>
-            `;
-          }
+        } else if (!isRunning && workflowId) {
+          loadConversationBrief(workflowId);
         }
         el.innerHTML = eventIntroBubble("분석") + messages;
         el.scrollTop = el.scrollHeight;
