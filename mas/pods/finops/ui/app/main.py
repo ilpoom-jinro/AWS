@@ -657,6 +657,20 @@ def index() -> str:
         agentDetails = Object.fromEntries((agents || []).map(item => [item.agent_key, item]));
       }
 
+      function renderFallbackDashboardShell() {
+        calendarItems = fallbackCalendarItems();
+        const select = document.getElementById("event-select");
+        if (select) {
+          select.innerHTML = calendarItems.map(item => `
+            <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
+          `).join("");
+        }
+        renderCalendar(calendarItems);
+        syncAgentDetails([]);
+        renderBrokerLog([]);
+        renderEmptyConversation();
+      }
+
       async function loadDashboard() {
         try {
           const data = await api("/api/dashboard");
@@ -680,15 +694,7 @@ def index() -> str:
             renderEmptyConversation();
           }
         } catch (error) {
-          calendarItems = fallbackCalendarItems();
-          const select = document.getElementById("event-select");
-          select.innerHTML = calendarItems.map(item => `
-            <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
-          `).join("");
-          renderCalendar(calendarItems);
-          syncAgentDetails([]);
-          renderBrokerLog([]);
-          renderEmptyConversation();
+          renderFallbackDashboardShell();
           showError(error);
         }
       }
@@ -1943,6 +1949,7 @@ def index() -> str:
         ].join("");
       }
 
+      renderFallbackDashboardShell();
       loadDashboard();
     </script>
   </body>
