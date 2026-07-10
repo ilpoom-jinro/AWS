@@ -212,12 +212,19 @@ resource "aws_eks_node_group" "service" {
   }
 
   depends_on = [
+    # CNI/kube-proxy 는 노드보다 먼저 설치돼야 노드가 Ready 가 된다.
+    # (addon 이 node_group 을 depends_on 하면 노드 Ready ↔ CNI 설치 순환 데드락.)
+    aws_eks_addon.vpc_cni,
+    aws_eks_addon.kube_proxy,
     aws_iam_role_policy_attachment.eks_node_worker,
     aws_iam_role_policy_attachment.eks_node_cni,
     aws_iam_role_policy_attachment.eks_node_ecr,
   ]
 }
 
+# vpc-cni / kube-proxy 는 노드그룹보다 먼저 생성 (DaemonSet 이라 노드 0개에서도
+# ACTIVE 로 수렴하고, 노드가 뜰 때 CNI 를 제공해 Ready 를 만든다). node_group 을
+# depends_on 하면 순환 데드락 → NodeCreationFailure.
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.service.name
   addon_name                  = "vpc-cni"
@@ -235,8 +242,6 @@ resource "aws_eks_addon" "vpc_cni" {
       }
     }
   })
-
-  depends_on = [aws_eks_node_group.service]
 }
 
 resource "aws_eks_addon" "coredns" {
@@ -253,8 +258,7 @@ resource "aws_eks_addon" "kube_proxy" {
   addon_name                  = "kube-proxy"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
-
-  depends_on = [aws_eks_node_group.service]
+  # 노드그룹보다 먼저 생성 (vpc_cni 주석 참고). coredns 는 Deployment 라 노드 필요 → 그대로 뒤.
 }
 
 resource "aws_eks_addon" "pod_identity_agent" {

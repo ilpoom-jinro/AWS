@@ -709,6 +709,7 @@ def index() -> str:
             renderBrokerLog([]);
             renderEmptyConversation();
           }
+          await refreshAgentRuntime();
         } catch (error) {
           showError(error);
         }
@@ -1725,6 +1726,52 @@ def index() -> str:
           const fields = (item.result_fields || []).join(", ") || "none";
           return `<div class="broker-flow"><strong>${escapeHtml(requester)}</strong> → [${escapeHtml(item.operation || "-")}] → <strong>${escapeHtml(target)}</strong><br>${cache} · ${escapeHtml(item.broker_status || "-")} · 반환: ${escapeHtml(fields)}<br><span class="muted">${escapeHtml(item.reason || "")}</span></div>`;
         }).join("") : '<span class="muted">Agent 간 추가 데이터 요청이 없습니다.</span>';
+      }
+
+      async function refreshAgentRuntime() {
+        try {
+          const runtime = await api("/api/agents/runtime");
+          renderAgentRuntime(runtime);
+        } catch (error) {
+          const el = document.getElementById("agent-runtime");
+          if (el) el.innerHTML = `<div class="muted">Agent runtime 상태를 가져오지 못했습니다: ${escapeHtml(error.message || String(error))}</div>`;
+        }
+      }
+
+      function runtimeTone(status) {
+        if (status === "Running") return "green";
+        if (status === "Starting") return "blue";
+        if (status === "Error") return "red";
+        return "yellow";
+      }
+
+      function renderAgentRuntime(runtime) {
+        const el = document.getElementById("agent-runtime");
+        if (!el) return;
+        const collected = document.getElementById("runtime-collected-at");
+        if (collected) collected.textContent = runtime?.collected_at ? "updated" : "대기";
+        const agents = runtime?.agents || [];
+        el.innerHTML = agents.length ? agents.map(agent => {
+          const status = agent.status || "Unknown";
+          const image = agent.image || "-";
+          const tag = image.includes(":") ? image.split(":").pop() : image;
+          const pods = (agent.pod_names || []).join(", ") || "-";
+          const phases = (agent.pod_phases || []).join(", ") || "-";
+          return `
+            <div class="runtime-card status-${escapeHtml(status)}">
+              <div class="speaker">
+                <span>${escapeHtml(agent.agent_name || agent.agent_key || "Agent")}</span>
+                ${statusPill(status, runtimeTone(status))}
+              </div>
+              <div><strong>${escapeHtml(agent.ready_replicas ?? 0)}/${escapeHtml(agent.desired_replicas ?? 0)}</strong> ready</div>
+              <div class="runtime-meta">deployment: ${escapeHtml(agent.deployment || "-")}</div>
+              <div class="runtime-meta">pod: ${escapeHtml(pods)}</div>
+              <div class="runtime-meta">phase: ${escapeHtml(phases)} · restarts: ${escapeHtml(agent.restart_count ?? 0)}</div>
+              <div class="runtime-meta">image tag: ${escapeHtml(tag)}</div>
+              <div class="runtime-meta">${escapeHtml(agent.reason || "")}</div>
+            </div>
+          `;
+        }).join("") : '<div class="muted">Agent runtime 정보가 없습니다.</div>';
       }
 
       function numberOrDash(value, digits = 0) {

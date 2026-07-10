@@ -204,6 +204,11 @@ resource "aws_eks_node_group" "ops" {
   }
 
   depends_on = [
+    # CNI/kube-proxy 는 노드보다 먼저 설치돼야 노드가 Ready 가 된다.
+    # (과거엔 addon 이 node_group 을 depends_on 하여 순환 데드락 → NodeCreationFailure.
+    #  격리 VPC 재생성 시 EKS 기본 self-managed CNI 가 안 붙어 노드가 CNI 없이 NotReady.)
+    aws_eks_addon.vpc_cni,
+    aws_eks_addon.kube_proxy,
     aws_iam_role_policy_attachment.eks_node_worker,
     aws_iam_role_policy_attachment.eks_node_cni,
     aws_iam_role_policy_attachment.eks_node_ecr,
@@ -215,6 +220,14 @@ resource "aws_eks_node_group" "ops" {
     aws_vpc_endpoint.s3,
     aws_vpc_endpoint.sts,
     aws_vpc_endpoint.ec2,
+    # 노드 이미지 레이어는 S3 게이트웨이 엔드포인트로 받는다. 그 S3 라우트는
+    # private 서브넷↔private RT 연결(route_table_association)로 배선되므로, 이
+    # 연결이 끝난 뒤에만 노드가 떠야 이미지 pull 이 된다. depends_on 이 없으면
+    # -target 적용(IAM 스텝의 pod_identity_association→node_group 체인) 시
+    # association 이 제외돼 노드가 S3 라우트 없이 부팅 → ImagePullBackOff →
+    # NodeCreationFailure 가 된다.
+    aws_route_table_association.private_a,
+    aws_route_table_association.private_b,
   ]
 }
 
@@ -244,13 +257,14 @@ resource "aws_eks_access_policy_association" "teleport_admin" {
   depends_on = [aws_eks_access_entry.teleport]
 }
 
+# vpc-cni / kube-proxy 는 노드그룹보다 먼저 생성한다. 이 두 애드온은 DaemonSet 이라
+# 노드 0개에서도 ACTIVE 로 수렴하며(desired 0), 노드가 뜰 때 CNI 를 제공해 Ready 를
+# 만든다. node_group 을 depends_on 하면 (노드 Ready ↔ CNI 설치) 순환 데드락이 된다.
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.ops.name
   addon_name                  = "vpc-cni"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
-
-  depends_on = [aws_eks_node_group.ops]
 }
 
 resource "aws_eks_addon" "coredns" {
@@ -267,8 +281,8 @@ resource "aws_eks_addon" "kube_proxy" {
   addon_name                  = "kube-proxy"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
-
-  depends_on = [aws_eks_node_group.ops]
+  # 노드그룹보다 먼저 생성 (vpc_cni 주석 참고). coredns 는 Deployment 라 노드가
+  # 있어야 하므로 그대로 node_group 뒤에 둔다.
 }
 
 resource "aws_eks_addon" "ebs_csi" {

@@ -399,7 +399,7 @@ spec:
             - name: ATHENA_CUR_TABLE
               value: financial_ops_cur
             - name: ATHENA_OUTPUT_LOCATION
-              value: s3://financial-ops-cur-609540154179-ap-northeast-2/athena-results/
+              value: s3://financial-ops-cur-REPLACE_WITH_ACCOUNT_ID-ap-northeast-2/athena-results/
             - name: FINOPS_SPOT_INSTANCE_TYPES
               value: m7i-flex.large,m7i.large,m6i.large
             - name: BEDROCK_MODEL

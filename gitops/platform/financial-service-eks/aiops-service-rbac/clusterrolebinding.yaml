@@ -10,5 +10,5 @@ roleRef:
   name: aiops-remote-reader
 subjects:
   - kind: User
-    name: arn:aws:iam::609540154179:role/financial-ops-mas-orchestrator-role
+    name: arn:aws:iam::REPLACE_WITH_ACCOUNT_ID:role/financial-ops-mas-orchestrator-role
     apiGroup: rbac.authorization.k8s.io
