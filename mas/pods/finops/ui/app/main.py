@@ -1218,6 +1218,19 @@ def index() -> Response:
         return labels[name] || name;
       }
 
+      function agentResultPayload(item) {
+        const raw = item?.result || {};
+        if (raw && typeof raw === "object" && raw.result && typeof raw.result === "object") {
+          return raw.result;
+        }
+        return raw;
+      }
+
+      function firstCandidate(result, key) {
+        const values = Array.isArray(result?.[key]) ? result[key] : [];
+        return values.length ? values[0] : {};
+      }
+
       function renderChatReply(data) {
         const sources = (data.sources || []).map(source =>
           `<span class="badge">${escapeHtml(agentLabel(source))}</span>`
@@ -1404,23 +1417,27 @@ def index() -> Response:
       }
 
       function narrate(item) {
-        const r = item.result || {};
+        const r = agentResultPayload(item);
+        const demandCandidate = firstCandidate(r, "candidates");
+        const forecastCandidate = firstCandidate(r, "candidate_forecasts");
+        const capacityCandidate = firstCandidate(r, "candidate_capacity_plans");
+        const costCandidate = firstCandidate(r, "candidate_costs");
         const summaries = {
-          "Cluster State Agent": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_replicas || r.total_deployment_replicas || "-"}개이고, 유휴 자원 후보는 ${r.idle_candidate_count || (r.idle_candidates || []).length || 0}개입니다.`,
-          "cluster_state": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_replicas || r.total_deployment_replicas || "-"}개이고, 유휴 자원 후보는 ${r.idle_candidate_count || (r.idle_candidates || []).length || 0}개입니다.`,
-          "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
-          "business_control": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
-          "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
-          "demand_shaping": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
+          "Cluster State Agent": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_cluster_pods || r.total_replicas || r.total_deployment_replicas || "-"}개, 이벤트 관련 Pod는 ${r.total_event_related_pods || "-"}개, 유휴 자원 후보는 ${r.idle_candidate_count ?? (r.idle_candidates || []).length ?? 0}개입니다. RDS CPU는 ${r.rds_cpu_percent ?? "-"}%입니다.`,
+          "cluster_state": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_cluster_pods || r.total_replicas || r.total_deployment_replicas || "-"}개, 이벤트 관련 Pod는 ${r.total_event_related_pods || "-"}개, 유휴 자원 후보는 ${r.idle_candidate_count ?? (r.idle_candidates || []).length ?? 0}개입니다. RDS CPU는 ${r.rds_cpu_percent ?? "-"}%입니다.`,
+          "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 대상자는 ${Number(r.target_users || 0).toLocaleString()}명입니다. VIP ${Number(r.vip_audience_count || 0).toLocaleString()}명, 일반 ${Number(r.general_audience_count || 0).toLocaleString()}명으로 나누고 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "business_control": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 대상자는 ${Number(r.target_users || 0).toLocaleString()}명입니다. VIP ${Number(r.vip_audience_count || 0).toLocaleString()}명, 일반 ${Number(r.general_audience_count || 0).toLocaleString()}명으로 나누고 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 선택된 발송 분산 시간은 ${r.send_window_minutes || demandCandidate.send_window_minutes || "-"}분이고, 일반 사용자는 초당 ${r.per_second_general || demandCandidate.per_second_general || "-"}명씩 분산 발송합니다.`,
+          "demand_shaping": `Push 분산 전략을 계산했습니다. 선택된 발송 분산 시간은 ${r.send_window_minutes || demandCandidate.send_window_minutes || "-"}분이고, 일반 사용자는 초당 ${r.per_second_general || demandCandidate.per_second_general || "-"}명씩 분산 발송합니다.`,
           "Traffic Forecast Agent": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
           "traffic_forecast": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
           "Bottleneck Capacity Agent": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
           "bottleneck_capacity": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
-          "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
-          "Infra Execution Planner": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
-          "infra_execution": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
-          "Cost Agent": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
-          "cost": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
+          "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "Infra Execution Planner": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "infra_execution": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "Cost Agent": `예상 증분 비용을 계산했습니다. 선택안 예상 비용은 $${r.estimated_cost_usd || costCandidate.estimated_cost_usd || r.total || "-"}이고, 유휴 자원 절감 반영 후 순비용은 $${r.net_cost_usd || costCandidate.net_cost_usd || "-"}입니다.`,
+          "cost": `예상 증분 비용을 계산했습니다. 선택안 예상 비용은 $${r.estimated_cost_usd || costCandidate.estimated_cost_usd || r.total || "-"}이고, 유휴 자원 절감 반영 후 순비용은 $${r.net_cost_usd || costCandidate.net_cost_usd || "-"}입니다.`,
           "Unit Economics Agent": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
           "unit_economics": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
           "Policy & Fallback Guardrail Agent": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
