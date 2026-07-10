@@ -67,9 +67,15 @@ def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -
     버튼 value에 workflow id와 scenario를 심는다 — 클릭 시 시나리오별 signal 분기에 사용.
     """
     value = json.dumps({"wf": temporal_workflow_id, "scenario": request.scenario})
+    title_by_scenario = {
+        "aiops": "AIOps 복구 승인 요청",
+        "secops": "보안 승인 요청",
+        "finops": "FinOps 승인 요청",
+    }
+    title = title_by_scenario.get(request.scenario, "승인 요청")
     return [
         {"type": "header",
-         "text": {"type": "plain_text", "text": f"🔐 보안 승인 요청 [{request.severity.upper()}]"}},
+         "text": {"type": "plain_text", "text": f"🔐 {title} [{request.severity.upper()}]"}},
         {"type": "section",
          "text": {"type": "mrkdwn", "text": f"*{request.summary}*\n{request.detail}"}},
         {"type": "context",
@@ -104,7 +110,7 @@ async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
     resp = await _slack.chat_postMessage(
         channel=SLACK_CHANNEL_ID,
         blocks=build_approval_blocks(request, wf_id),
-        text=f"보안 승인 요청: {request.summary}",   # 알림/폴백 텍스트
+        text=f"승인 요청: {request.summary}",   # 알림/폴백 텍스트
     )
     return ApprovalTicket(
         workflow_id=request.workflow_id,

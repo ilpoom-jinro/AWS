@@ -1,0 +1,13 @@
+name: secops-ui
+scenario: secops
+role: ui
+image_repository: financial/mas/secops/ui
+base_image_repository: financial/mas/base
+dockerfile: mas/pods/secops/ui/Dockerfile
+build_context: mas
+manifest_path: financial-ops-eks/secops-mas/kustomization.yaml
+target_container: secops-ui-image
+service_account_name: secops-ui
+service_name: secops-ui
+namespace: secops-mas
+target_cluster: financial-ops-eks

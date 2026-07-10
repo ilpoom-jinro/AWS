@@ -58,6 +58,16 @@ resource "aws_security_group" "thanos_receive_nlb" {
     cidr_blocks = var.service_eks_private_subnet_cidrs
   }
 
+  # on-prem OTel Collector → Thanos Receive (ADR-0001 갭 D)
+  # VPC4 Tailscale Subnet Router가 SNAT 후 eth0 IP(vpc4_cidr)로 패킷 전달
+  ingress {
+    description = "Allow on-prem OTel push via Tailscale Subnet Router (VPC4)"
+    from_port   = 19291
+    to_port     = 19291
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc4_cidr]
+  }
+
   egress {
     description = "Allow Thanos Receive NLB traffic to monitoring targets"
     from_port   = 19291
