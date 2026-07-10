@@ -591,6 +591,51 @@ def index() -> Response:
       </div>
     </div>
     <script>
+      (function renderStaticFomcFallback() {
+        const event = {
+          event_id: "fomc-briefing",
+          title: "FOMC 주식 브리핑 푸시",
+          grade: "S",
+          target_users: 350000,
+          scheduled_at: "08:30"
+        };
+        const escape = (value) => String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+        const select = document.getElementById("event-select");
+        if (select && !select.innerHTML.trim()) {
+          select.innerHTML = `<option value="${escape(event.event_id)}">${escape(event.title)} · ${escape(event.scheduled_at)} 예약 · ${escape(event.grade)}등급 · ${Number(event.target_users).toLocaleString()}명</option>`;
+        }
+        const monthBadge = document.getElementById("calendar-month");
+        const calendar = document.getElementById("calendar");
+        if (calendar && !calendar.innerHTML.trim()) {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          if (monthBadge) monthBadge.textContent = `${year}년 ${month + 1}월`;
+          const first = new Date(year, month, 1);
+          const last = new Date(year, month + 1, 0);
+          const names = ["일", "월", "화", "수", "목", "금", "토"];
+          const headers = names.map(name => `<div class="day-name">${name}</div>`).join("");
+          const days = [];
+          for (let i = 0; i < first.getDay(); i++) days.push('<div class="day empty"></div>');
+          for (let day = 1; day <= last.getDate(); day++) {
+            const isToday = day === now.getDate();
+            const eventHtml = isToday ? `<div class="event-pill">${escape(event.title)}<br>${escape(event.scheduled_at)} 예약 / ${escape(event.grade)}등급</div>` : "";
+            days.push(`<div class="day ${isToday ? "today" : ""}"><div class="date-number">${day}</div>${eventHtml}</div>`);
+          }
+          calendar.innerHTML = headers + days.join("");
+        }
+        window.addEventListener("error", (error) => {
+          const toast = document.getElementById("toast");
+          if (toast) toast.textContent = `UI script error: ${error.message || error.type || "unknown"}`;
+        });
+      })();
+    </script>
+    <script>
       let currentWorkflow = null;
       let calendarItems = [];
       const VISIBLE_SCENARIOS = new Set(["fomc-briefing"]);
@@ -1051,7 +1096,7 @@ def index() -> Response:
       }
 
       function formatMultiline(value) {
-        return escapeHtml(value).replaceAll("\n", "<br>");
+        return escapeHtml(value).replaceAll("\\n", "<br>");
       }
 
       async function summarizeConversationWithLlm() {
