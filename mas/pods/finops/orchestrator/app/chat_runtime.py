@@ -137,6 +137,25 @@ Tool 조회 결과에만 근거해서 설명하세요.
 한국어로 답변하세요.
 """
 
+CONVERSATION_BRIEFING_SYSTEM_PROMPT = """
+You are a FinOps workflow narrator for Korean operators.
+
+Rewrite the raw MAS agent conversation into an easy Korean briefing.
+Do not invent numbers or decisions. Use only the given conversation and
+timeline data. Keep agent names and numeric values exactly as provided.
+
+Output format:
+1. 전체 흐름 요약: 2~4 short sentences.
+2. Agent 대화 흐름: bullet list in chronological order.
+3. 현재 막힌 지점 또는 다음 확인 포인트: bullet list.
+
+Style:
+- Korean.
+- Natural and operator-friendly.
+- Explain who asked whom for what, and what answer was used.
+- Hide low-level implementation wording such as "Temporal Data Broker" unless it is the actual issue.
+"""
+
 TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "get_final_report": get_final_report,
     "get_agent_result": get_agent_result,
@@ -554,3 +573,90 @@ async def run_explain_llm(
             bedrock_messages.append({"role": "user", "content": tool_results})
     except Exception:
         return fallback_response(history)
+
+
+async def run_conversation_briefing_llm(
+    *,
+    workflow_id: str,
+    status: str,
+    conversation: list[dict[str, Any]],
+    timeline: list[dict[str, Any]],
+) -> dict[str, Any]:
+    compact_conversation = [
+        {
+            "phase": item.get("phase"),
+            "sender": item.get("sender"),
+            "receiver": item.get("receiver"),
+            "message": item.get("message"),
+        }
+        for item in conversation[-80:]
+    ]
+    compact_timeline = [
+        {
+            "phase": item.get("phase"),
+            "agent": item.get("agent"),
+            "status": item.get("status"),
+            "result": item.get("result"),
+        }
+        for item in timeline[-40:]
+    ]
+    user_payload = {
+        "workflow_id": workflow_id,
+        "status": status,
+        "conversation": compact_conversation,
+        "timeline": compact_timeline,
+    }
+
+    try:
+        from shared.bedrock import ClaudeModel, get_bedrock_client
+
+        client = get_bedrock_client()
+        model_id = os.getenv("BEDROCK_MODEL", ClaudeModel.HAIKU.value)
+
+        def invoke() -> dict[str, Any]:
+            return client.converse(
+                modelId=model_id,
+                system=[{"text": CONVERSATION_BRIEFING_SYSTEM_PROMPT}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "text": json.dumps(
+                                    user_payload,
+                                    ensure_ascii=False,
+                                    default=str,
+                                )
+                            }
+                        ],
+                    }
+                ],
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            response = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(executor, invoke),
+                timeout=CHAT_TIMEOUT_SECONDS,
+            )
+        content = response.get("output", {}).get("message", {}).get("content", [])
+        summary = _extract_text(content)
+        if not summary:
+            raise ValueError("empty LLM briefing response")
+        return {
+            "workflow_id": workflow_id,
+            "source": "llm",
+            "summary": summary,
+            "conversation_count": len(conversation),
+            "timeline_count": len(timeline),
+        }
+    except Exception as exc:
+        return {
+            "workflow_id": workflow_id,
+            "source": "fallback",
+            "summary": (
+                "LLM 대화 정리를 생성하지 못했습니다. "
+                f"기본 Agent 대화 로그를 확인해 주세요. reason={exc}"
+            ),
+            "conversation_count": len(conversation),
+            "timeline_count": len(timeline),
+        }

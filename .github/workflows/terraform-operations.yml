@@ -275,6 +275,64 @@ jobs:
         if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve -input=false -lock-timeout=5m -target=module.vpc_peering
 
+      # EKS 클러스터가 살아있는 동안 LB만 지우면 aws-load-balancer-controller가
+      # Ingress/Service 를 보고 수 초 내 LB 를 재생성 → 이후 서브넷/IGW destroy 가
+      # 고아 LB ENI 에 막힌다. 그래서 LB 를 지우기 전에 LB 를 "소유"한 k8s 오브젝트
+      # (Ingress, type=LoadBalancer Service)를 먼저 삭제한다. 살아있는 컨트롤러가
+      # finalizer 를 통해 LB 를 스스로 정리하고 재생성도 하지 않는다. 컨트롤러가
+      # 멈춰 finalizer 가 안 풀리는 경우 대비해 강제 finalizer 제거 폴백을 둔다.
+      - name: Delete Kubernetes LB-owning resources before load balancer cleanup
+        if: inputs.action == 'destroy'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+
+          drain_lb_owners() {
+            local cluster="$1"
+            echo "=== ${cluster}: LB 소유 오브젝트(Ingress/LoadBalancer Service) 정리 시작 ==="
+
+            if ! aws eks update-kubeconfig --name "${cluster}" --region "${AWS_REGION}"; then
+              echo "::warning::${cluster} kubeconfig 갱신 실패 — 이미 삭제됐거나 접근 불가. 스킵."
+              return
+            fi
+
+            # 1) 모든 Ingress 삭제 → ALB 컨트롤러가 ALB 를 정리하고 finalizer 해제
+            kubectl delete ingress --all --all-namespaces --timeout=120s || true
+
+            # 2) type=LoadBalancer Service 삭제 → NLB/CLB 컨트롤러가 정리
+            #    (ClusterIP/NodePort 는 LB 를 만들지 않으므로 건드리지 않는다)
+            local lb_svcs
+            lb_svcs=$(kubectl get svc --all-namespaces \
+              -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null)
+            for entry in ${lb_svcs}; do
+              ns="${entry%%/*}"; name="${entry##*/}"
+              echo "  삭제: svc ${ns}/${name}"
+              kubectl delete svc "${name}" -n "${ns}" --timeout=120s || true
+            done
+
+            # 3) 폴백: finalizer 가 안 풀려 아직 남은 오브젝트는 finalizer 강제 제거
+            #    (컨트롤러가 이미 죽었으면 재생성 주체가 없으므로 강제 제거해도 안전)
+            for entry in ${lb_svcs}; do
+              ns="${entry%%/*}"; name="${entry##*/}"
+              if kubectl get svc "${name}" -n "${ns}" >/dev/null 2>&1; then
+                echo "  finalizer 강제 제거: svc ${ns}/${name}"
+                kubectl patch svc "${name}" -n "${ns}" --type=merge -p '{"metadata":{"finalizers":[]}}' || true
+              fi
+            done
+            for entry in $(kubectl get ingress --all-namespaces \
+              -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+              ns="${entry%%/*}"; name="${entry##*/}"
+              echo "  finalizer 강제 제거: ingress ${ns}/${name}"
+              kubectl patch ingress "${name}" -n "${ns}" --type=merge -p '{"metadata":{"finalizers":[]}}' || true
+            done
+
+            echo "=== ${cluster}: LB 소유 오브젝트 정리 완료 ==="
+          }
+
+          drain_lb_owners financial-ops-eks
+          drain_lb_owners financial-service-eks
+
       - name: Delete load balancers outside Terraform state
         if: inputs.action == 'destroy'
         shell: bash
