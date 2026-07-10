@@ -74,6 +74,9 @@ resource "aws_instance" "headscale_router" {
 
     # SNAT 설정 (GKE Pod → AWS 통신 시 라우터 IP로 위장)
     iptables -t nat -A POSTROUTING -o tailscale0 -j MASQUERADE
+    # on-prem → VPC 서브넷 라우팅: Tailscale CGNAT src → eth0 IP로 SNAT (ADR-0001 갭 C)
+    # 이 규칙 없으면 VPC2 NLB가 100.x.x.x src를 받아도 return route가 없어 TCP 연결 실패
+    iptables -t nat -A POSTROUTING -s 100.64.0.0/10 -o eth0 -j MASQUERADE
 
     # MTU 문제 방지 TCP MSS 조정
     iptables -t mangle -A FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
