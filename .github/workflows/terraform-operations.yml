@@ -578,6 +578,25 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # WorkGroup만 삭제하면 결과 S3 버킷, Glue 카탈로그, SIEM 쿼리 역할이 남으므로
+      # 관련 Terraform 리소스를 명시한다. CloudTrail·SNS·Prowler 등
+      # 나머지 module.security 보안 기반 리소스는 의도적으로 보존한다.
+      - name: Destroy SIEM Athena resources
+        if: inputs.action == 'destroy'
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=module.security.aws_athena_workgroup.siem
+          -target=module.security.aws_glue_catalog_table.cloudtrail
+          -target=module.security.aws_glue_catalog_table.alb
+          -target=module.security.aws_glue_catalog_table.prowler
+          -target=module.security.aws_glue_catalog_database.siem
+          -target=module.security.aws_iam_role_policy.siem_athena_query
+          -target=module.security.aws_iam_role.siem_athena_query
+          -target=module.security.aws_s3_bucket_lifecycle_configuration.siem_athena_results
+          -target=module.security.aws_s3_bucket_server_side_encryption_configuration.siem_athena_results
+          -target=module.security.aws_s3_bucket_public_access_block.siem_athena_results
+          -target=module.security.aws_s3_bucket.siem_athena_results
+
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >
