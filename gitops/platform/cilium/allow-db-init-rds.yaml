@@ -1,0 +1,37 @@
+# audit-db-init / compliance-db-init / postmortem-db-init → RDS(financial-ops-db) egress 허용
+#
+# 확인한 사실(job.yaml 실측, 추측 아님):
+#   - audit-db-init Job pod 라벨: app.kubernetes.io/name: audit-db-init (namespace: audit-db-init)
+#   - compliance-db-init Job pod 라벨: app.kubernetes.io/name: compliance-db-init (namespace: compliance-db-init)
+#   - postmortem-db-init Job pod 라벨: app.kubernetes.io/name: postmortem-db-init (namespace: postmortem-db-init)
+#     (compliance-db-init/job.yaml 미러링이라고 파일 자체 주석에 명시, PGHOST 구조 동일 확인)
+#   - PGHOST는 셋 다 secretKeyRef(ops-rds-master.host)로 주입됨 → secrets.tf 기준
+#     module.vpc2.rds_address(RDS DNS 엔드포인트)이 source of truth. 리터럴 IP가
+#     코드 어디에도 없어 고정 /32를 못 씀 → RDS 서브넷 CIDR(db_a/db_b)로 대체.
+#   - toCIDR는 toFQDNs와 달리 DNS 프록시(L7 rules.dns) 없이도 동작함 — coredns:53
+#     접근만 열리면 됨(이름→IP 변환 후 IP만 CIDR로 매칭). DNS 조회 자체는
+#     allow-dns.yaml(endpointSelector: {}, 전체 pod 대상, L4 포트 53만 open)이 이미
+#     커버하고, coredns의 상위 리졸버(10.20.0.2) egress도 allow-dns-ingress.yaml에
+#     기존재 → 이 파일엔 DNS 관련 규칙 추가 불필요.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-db-init-rds
+spec:
+  description: "audit/compliance/postmortem-db-init → RDS(financial-ops-db):5432 egress 허용"
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - audit-db-init
+          - compliance-db-init
+          - postmortem-db-init
+  egress:
+    - toCIDR:
+        - 10.20.21.0/24  # financial-vpc2-db-a
+        - 10.20.22.0/24  # financial-vpc2-db-b
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

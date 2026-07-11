@@ -5,6 +5,12 @@ image:
   pullPolicy: Always
 
 alloy:
+  # Cilium enforce 전(#79): Grafana Labs 익명 사용 통계 전송(GCP:443)이 enforce 시
+  # DROP됨. 관측 스택 외부 egress는 감사상 제거 대상이라 정책으로 여는 대신 끈다.
+  # (chart values.yaml:88 alloy.enableReporting → false 시 템플릿이 alloy run에
+  # --disable-reporting 플래그를 자동으로 붙임, templates/containers/_agent.yaml:12-14)
+  enableReporting: false
+
   extraPorts:
     - name: otlp-grpc
       port: 4317

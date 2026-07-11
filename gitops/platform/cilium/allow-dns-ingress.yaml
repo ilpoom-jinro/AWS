@@ -25,6 +25,18 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+    - fromCIDR:                 # 신규 - unmanaged 소스(db-init Job 등)가 cluster/endpoint
+                                # selector로도 안 잡히는 케이스 대응. chaining mode에서
+                                # 이런 소스가 cidr:10.20.0.0/16 + reserved:world 단일 CIDR
+                                # identity(16777220)로 잡힘 → world 전면 개방 대신 VPC2
+                                # CIDR로 한정, DNS 포트만 허용.
+        - 10.20.0.0/16
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
   egress:
     - toCIDR:
         - 10.20.0.2/32  # ops VPC DNS
