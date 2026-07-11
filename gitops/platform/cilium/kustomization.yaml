@@ -30,6 +30,7 @@ resources:
   - allow-aiops-cross-cluster-egress.yaml
   - allow-kyverno-cosign-egress-ops.yaml
   - allow-db-init-rds.yaml
+  - allow-observability-velero-metrics.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
