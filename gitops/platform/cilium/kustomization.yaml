@@ -25,9 +25,11 @@ resources:
   - allow-alloy-ztunnel.yaml
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
+  - allow-teleport-finops-ui.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
   - allow-kyverno-cosign-egress-ops.yaml
+  - allow-db-init-rds.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
@@ -43,6 +45,7 @@ resources:
   - allow-fqdn-eso.yaml
   - allow-fqdn-stock-api-rds.yaml
   - allow-fqdn-trivy.yaml
+  - allow-platform-mas-slack.yaml
 
   # default-deny는 반드시 마지막 (policyAuditMode=true 동안 AUDIT만, enforce 전환 시 여기서 통제)
   - default-deny.yaml
