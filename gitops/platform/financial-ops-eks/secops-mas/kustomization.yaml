@@ -4,12 +4,18 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - serviceaccount.yaml
+  - ui-serviceaccount.yaml
   - external-secret.yaml
   - configmap.yaml
   - deployment.yaml
-  # service.yaml 없음 — SecOps는 순수 워커(수신 포트 없음)
+  - orchestrator-service.yaml   # UI가 orchestrator API(8000) 호출용
+  - ui-deployment.yaml
+  - ui-service.yaml
 
 images:
   - name: secops-orchestrator-image
     newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/secops/orchestrator
+    newTag: latest
+  - name: secops-ui-image
+    newName: REPLACE_WITH_ECR_REGISTRY/financial/mas/secops/ui
     newTag: latest
