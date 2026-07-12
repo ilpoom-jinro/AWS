@@ -388,3 +388,51 @@ resource "aws_wafv2_web_acl_association" "slack_broker_api" {
   resource_arn = aws_api_gateway_stage.slack_broker.arn
   web_acl_arn  = aws_wafv2_web_acl.service_alb.arn
 }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 커스텀 도메인 — https://slack-hitl.ilpumjinro.store/callback 로 URL 고정.
+# API Gateway가 재배포될 때마다 바뀌는 execute-api 기본 URL 대신 고정 도메인을
+# Slack Interactivity Request URL에 등록할 수 있게 한다.
+#
+# REGIONAL 필수: 이 REST API가 REGIONAL 엔드포인트(위 aws_api_gateway_rest_api.slack_broker
+# 참고)이므로 커스텀 도메인도 REGIONAL 인증서/엔드포인트로 맞춘다(EDGE와는 서로 호환 안 됨).
+# 인증서는 route53.tf의 기존 와일드카드 인증서(aws_acm_certificate.main,
+# *.ilpumjinro.store, ap-northeast-2)를 그대로 재사용 — 신규 인증서 발급 없음.
+# ══════════════════════════════════════════════════════════════════════════════
+
+resource "aws_api_gateway_domain_name" "slack_broker" {
+  domain_name              = "slack-hitl.ilpumjinro.store"
+  regional_certificate_arn = aws_acm_certificate.main.arn
+  security_policy          = "TLS_1_2"
+
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
+
+  # regional_certificate_arn은 ISSUED 인증서만 받는다. aws_acm_certificate.main.arn
+  # 참조만으로는 검증 완료를 보장 못 하므로(값은 PENDING_VALIDATION 상태에도 존재)
+  # 검증 리소스에 명시적으로 의존해 순서를 강제한다.
+  depends_on = [aws_acm_certificate_validation.main]
+}
+
+# base_path를 비워 루트 매핑 — https://slack-hitl.ilpumjinro.store/callback 형태가 되도록
+# (base_path 지정 시 https://도메인/{base_path}/callback 형태가 되어 요구사항과 어긋남)
+resource "aws_api_gateway_base_path_mapping" "slack_broker" {
+  api_id      = aws_api_gateway_rest_api.slack_broker.id
+  stage_name  = aws_api_gateway_stage.slack_broker.stage_name
+  domain_name = aws_api_gateway_domain_name.slack_broker.domain_name
+}
+
+# API Gateway 커스텀 도메인의 regional_domain_name/regional_zone_id를 가리키는 Alias 레코드.
+# route53.tf의 기존 aws_route53_zone.main(ilpumjinro.store)에 추가.
+resource "aws_route53_record" "slack_broker" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "slack-hitl.ilpumjinro.store"
+  type    = "A"
+
+  alias {
+    name                   = aws_api_gateway_domain_name.slack_broker.regional_domain_name
+    zone_id                = aws_api_gateway_domain_name.slack_broker.regional_zone_id
+    evaluate_target_health = false
+  }
+}
