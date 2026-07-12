@@ -19,7 +19,7 @@ ORCHESTRATOR_TIMEOUT_SECONDS = int(os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS", "60
 
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
-VISIBLE_SCENARIOS = {"fomc-briefing"}
+VISIBLE_SCENARIOS = {"fomc-briefing", "vip-small-briefing"}
 FOMC_FALLBACK_EVENT = {
     "event_id": "fomc-briefing",
     "title": "FOMC 주식 브리핑 푸시",
@@ -638,7 +638,7 @@ def index() -> Response:
     <script>
       let currentWorkflow = null;
       let calendarItems = [];
-      const VISIBLE_SCENARIOS = new Set(["fomc-briefing"]);
+      const VISIBLE_SCENARIOS = new Set(["fomc-briefing", "vip-small-briefing"]);
       let workflowPoller = null;
       let agentDetails = {};
       let conversationHistory = [];
