@@ -515,7 +515,7 @@
             name: stock-api-rds-init
             namespace: stock-demo
           spec:
-            backoffLimit: 1
+            backoffLimit: 3
             ttlSecondsAfterFinished: 3600
             template:
               spec:
@@ -547,7 +547,23 @@
                       - |
                         set -eu
                         # user=financial_admin: SingleUser rotation replaces only the password; username never changes.
-                        psql "host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=15" \
+                        DB_DSN="host={{ service_rds_endpoint.stdout }} port=5432 dbname=financial_service user=financial_admin sslmode=require connect_timeout=10"
+
+                        for attempt in $(seq 1 30); do
+                          if psql "${DB_DSN}" -c 'select 1' >/dev/null 2>&1; then
+                            break
+                          fi
+
+                          echo "Waiting for RDS to accept PostgreSQL connections (${attempt}/30)..."
+                          sleep 10
+
+                          if [ "${attempt}" = "30" ]; then
+                            echo "RDS did not become ready in time."
+                            exit 1
+                          fi
+                        done
+
+                        psql "${DB_DSN}" \
                           -v ON_ERROR_STOP=1 <<'SQL'
                         CREATE TABLE IF NOT EXISTS recommendations (
                           id SERIAL PRIMARY KEY,
