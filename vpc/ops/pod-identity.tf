@@ -686,3 +686,65 @@ resource "aws_eks_pod_identity_association" "trivy_operator" {
 
   depends_on = [aws_eks_addon.pod_identity_agent]
 }
+
+# ── Slack HITL 봇(라우터) ─────────────────────────────────────────────────────
+# platform-mas/slack-hitl ServiceAccount. 기존에는 Pod Identity association이
+# 없었음(봇이 AWS API 직접 호출 안 함 — gitops의 serviceaccount.yaml 주석 참고).
+# 봇이 라우터로 전환되며 inbound SQS 폴링 + outbound SQS 전송이 필요해져 추가.
+
+resource "aws_iam_role" "slack_hitl" {
+  name        = "financial-ops-slack-hitl-role"
+  description = "slack-hitl bot(router) - inbound/outbound SQS access"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowEKSPodIdentity"
+      Effect = "Allow"
+      Principal = {
+        Service = "pods.eks.amazonaws.com"
+      }
+      Action = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+
+  tags = {
+    ManagedBy = "terraform"
+  }
+}
+
+resource "aws_iam_role_policy" "slack_hitl" {
+  name = "slack-hitl-sqs-access"
+  role = aws_iam_role.slack_hitl.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "InboundQueueConsume"
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+        ]
+        Resource = var.slack_hitl_inbound_queue_arn
+      },
+      {
+        Sid      = "OutboundQueueSend"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = var.slack_hitl_outbound_queue_arn
+      }
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "slack_hitl" {
+  cluster_name    = aws_eks_cluster.ops.name
+  namespace       = "platform-mas"
+  service_account = "slack-hitl"
+  role_arn        = aws_iam_role.slack_hitl.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}

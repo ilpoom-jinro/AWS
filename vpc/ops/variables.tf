@@ -180,3 +180,15 @@ variable "kms_key_s3_arn" {
   description = "S3 버킷 암호화에 사용할 KMS CMK ARN (alias/key-s3) — Velero IAM 정책에서 백업 버킷 SSE-KMS 접근 권한 부여에 사용"
   type        = string
 }
+
+# slack-hitl 봇(platform-mas)이 라우터로 전환되며 SQS를 직접 폴링/전송해야 해서 추가.
+# 큐 자체는 루트 slack-broker.tf에 있어 모듈 경계를 넘어 ARN을 변수로 받는다.
+variable "slack_hitl_inbound_queue_arn" {
+  description = "financial-slack-hitl-inbound SQS 큐 ARN — slack-hitl 봇의 폴링(ReceiveMessage/DeleteMessage) 권한 스코프"
+  type        = string
+}
+
+variable "slack_hitl_outbound_queue_arn" {
+  description = "financial-slack-hitl-outbound SQS 큐 ARN — slack-hitl 봇의 발행(SendMessage) 권한 스코프"
+  type        = string
+}
