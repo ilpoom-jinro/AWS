@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secops-ui
+  namespace: secops-mas
+  labels:
+    app.kubernetes.io/name: secops-ui
+    app.kubernetes.io/part-of: secops-mas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: secops-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: secops-ui
+        app.kubernetes.io/part-of: secops-mas
+    spec:
+      serviceAccountName: secops-ui
+      containers:
+        - name: secops-ui
+          image: secops-ui-image
+          imagePullPolicy: Always
+          env:
+            # orchestrator API(api.py) 주소 — 포트 8000 (orchestrator-service)
+            - name: ORCHESTRATOR_URL
+              value: http://secops-orchestrator.secops-mas.svc.cluster.local:8000
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
