@@ -1,0 +1,17 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-teleport-app-service-to-proxy
+spec:
+  description: "teleport-app-service -> VPC3 Teleport proxy:3080 egress allow"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: teleport-apps
+      app.kubernetes.io/name: teleport-app-service
+  egress:
+    - toCIDR:
+        - 10.30.11.0/24
+      toPorts:
+        - ports:
+            - port: "3080"
+              protocol: TCP
