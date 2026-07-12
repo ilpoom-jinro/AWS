@@ -597,13 +597,17 @@ jobs:
           -target=module.security.aws_s3_bucket_public_access_block.siem_athena_results
           -target=module.security.aws_s3_bucket.siem_athena_results
 
-      # slack-broker.tf 리소스 정리. 생성 역순: wafv2_web_acl_association(API GW stage를
-      # 참조)을 먼저 제거한 뒤 API Gateway → Lambda → SQS 순으로 제거한다.
+      # slack-broker.tf 리소스 정리. 생성 역순: 커스텀 도메인(route53_record →
+      # base_path_mapping → domain_name)을 가장 먼저 제거한 뒤, wafv2_web_acl_association
+      # (API GW stage를 참조), API Gateway → Lambda → SQS 순으로 제거한다.
       # data.archive_file은 데이터 소스라 destroy 대상이 아니므로 타겟하지 않는다.
       - name: Destroy Slack broker
         if: inputs.action == 'destroy'
         run: >
           terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=aws_route53_record.slack_broker
+          -target=aws_api_gateway_base_path_mapping.slack_broker
+          -target=aws_api_gateway_domain_name.slack_broker
           -target=aws_wafv2_web_acl_association.slack_broker_api
           -target=aws_api_gateway_stage.slack_broker
           -target=aws_api_gateway_deployment.slack_broker
@@ -775,6 +779,9 @@ jobs:
           -target=aws_lambda_permission.apigw_invoke_slack_inbound
           -target=aws_api_gateway_deployment.slack_broker
           -target=aws_api_gateway_stage.slack_broker
+          -target=aws_api_gateway_domain_name.slack_broker
+          -target=aws_api_gateway_base_path_mapping.slack_broker
+          -target=aws_route53_record.slack_broker
           -target=aws_wafv2_web_acl_association.slack_broker_api
           $TF_MOVED_RESOURCE_TARGETS
 
