@@ -15,3 +15,5 @@ spec:
         - ports:
             - port: "3080"
               protocol: TCP
+            - port: "3024"
+              protocol: TCP
