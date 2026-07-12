@@ -463,6 +463,39 @@
               # → aiops high_latency / error_rate 탐지의 데이터 소스
               istio.io/use-waypoint: stock-demo-waypoint
 
+    - name: Wait for stock-api-db ExternalSecret to exist in Service EKS
+      kubernetes.core.k8s_info:
+        context: "{{ service_kube_context }}"
+        api_version: external-secrets.io/v1beta1
+        kind: ExternalSecret
+        name: stock-api-db
+        namespace: stock-demo
+      register: stock_api_db_externalsecret_info
+      until: stock_api_db_externalsecret_info.resources | length > 0
+      retries: 60
+      delay: 10
+      
+    - name: Force refresh stock-api-db ExternalSecret in Service EKS
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n stock-demo
+          annotate externalsecret stock-api-db
+          force-sync={{ lookup('pipe', 'date +%s') }}
+          --overwrite
+      changed_when: true
+      failed_when: false
+
+    - name: Wait for stock-api-db ExternalSecret to be ready in Service EKS
+      ansible.builtin.command:
+        cmd: >
+          kubectl --context {{ service_kube_context }}
+          -n stock-demo
+          wait externalsecret/stock-api-db
+          --for=condition=Ready
+          --timeout=300s
+      changed_when: false
+      
     - name: Wait for ESO to create stock-api-db secret in Service EKS
       kubernetes.core.k8s_info:
         context: "{{ service_kube_context }}"
@@ -507,7 +540,7 @@
         wait_condition:
           type: Complete
           status: "True"
-        wait_timeout: 300
+        wait_timeout: 900
         definition:
           apiVersion: batch/v1
           kind: Job
