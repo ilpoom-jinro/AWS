@@ -551,6 +551,9 @@
             backoffLimit: 3
             ttlSecondsAfterFinished: 3600
             template:
+              metedata:
+                labels: 
+                  app.kubernetes.io/name: stock-api-rds-init
               spec:
                 restartPolicy: Never
                 securityContext:
