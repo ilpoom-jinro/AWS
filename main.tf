@@ -50,6 +50,11 @@ module "vpc2" {
   single_az_mode             = var.single_az_mode
   rds_backup_retention       = var.rds_backup_retention
 
+  # slack-hitl 봇 Pod Identity role(vpc/ops/pod-identity.tf)에 큐 ARN 스코프를 넘기기 위함
+  # — 큐 자체는 루트 slack-broker.tf 리소스라 모듈 경계를 변수로 넘어야 함.
+  slack_hitl_inbound_queue_arn  = aws_sqs_queue.slack_hitl_inbound.arn
+  slack_hitl_outbound_queue_arn = aws_sqs_queue.slack_hitl_outbound.arn
+
   depends_on = [module.iam] # mas-policy가 먼저 생성된 후 policy attachment 실행
 
   # providers 인자를 쓰면 default aws 상속이 취소되므로 aws도 명시적으로 전달.
