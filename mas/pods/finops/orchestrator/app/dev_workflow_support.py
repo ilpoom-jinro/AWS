@@ -24,6 +24,10 @@ TEST_EVENT_SEEDS = [
     "rds_cpu_percent": 12,
     "redis_cache_hit_ratio_percent": 98,
     "event_incremental_budget_usd": 51.0,
+    "eks_cost_usd": 0.6,
+    "network_cost_usd": 0.2,
+    "log_cost_usd": 0.05,
+    "push_cost_usd": 0.15,
 },
 ]
 
