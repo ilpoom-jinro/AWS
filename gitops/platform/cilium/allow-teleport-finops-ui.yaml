@@ -1,0 +1,28 @@
+# teleport-app-service → finops-ui:8000 egress 허용
+#
+# 확인한 실제 라벨(deployment manifest 실측, allow-teleport-argocd.yaml과 동일 라벨 재사용):
+#   teleport-app-service: namespace teleport-apps, app.kubernetes.io/name: teleport-app-service
+#   finops-ui: namespace finops-mas, app.kubernetes.io/name: finops-ui, containerPort 8000
+#
+# ingress 쪽 대응 규칙은 allow-finops-mas.yaml의 allow-finops-ui-from-teleport 참고.
+# allow-teleport-argocd.yaml(목적지: argocd-server)과 목적지가 달라 파일을 분리함
+# (기존 구조 — 목적지 1개당 파일 1개, ingress는 목적지 소유 파일에 둠).
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-teleport-to-finops-ui
+spec:
+  description: "teleport-app-service → finops-ui:8000 egress 허용 (Teleport finops-ui 프록시)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: teleport-apps
+      app.kubernetes.io/name: teleport-app-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: finops-mas
+            app.kubernetes.io/name: finops-ui
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

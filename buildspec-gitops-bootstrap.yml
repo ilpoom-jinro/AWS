@@ -101,6 +101,14 @@ phases:
           kubectl --context financial-ops-eks get pods -n git -o wide || true
           kubectl --context financial-ops-eks get pods -n argocd -o wide || true
           kubectl --context financial-ops-eks get applications.argoproj.io -n argocd || true
+
+          echo "Collecting Service cluster stock-demo diagnostics..."
+          aws eks update-kubeconfig --region ap-northeast-2 --name financial-service-eks --alias financial-service-eks || true
+          kubectl --context financial-service-eks get pods,jobs,svc,secret -n stock-demo -o wide || true
+          kubectl --context financial-service-eks describe jobs -n stock-demo || true
+          kubectl --context financial-service-eks describe pods -n stock-demo || true
+          kubectl --context financial-service-eks logs -n stock-demo job/stock-api-rds-init --tail=200 || true
+          kubectl --context financial-service-eks get events -n stock-demo --sort-by=.lastTimestamp || true
           exit 1
         }
       - aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks --alias financial-ops-eks

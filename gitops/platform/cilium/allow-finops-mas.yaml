@@ -32,6 +32,32 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: finops-mas
 ---
+# finops-ui INGRESS: teleport-app-service 경유 노출
+# 확인한 실제 라벨(job/deployment manifest 실측):
+#   finops-ui: namespace finops-mas, app.kubernetes.io/name: finops-ui, containerPort 8000
+#   teleport-app-service: namespace teleport-apps, app.kubernetes.io/name: teleport-app-service
+#     (allow-teleport-argocd.yaml과 동일 라벨 재사용)
+# teleport-apps는 default-deny 대상, finops-mas는 intra 정책만 있어 타 ns 소스 미커버 → 명시 필요.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-finops-ui-from-teleport
+spec:
+  description: "finops-ui:8000 ingress 허용 (teleport-app-service에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: finops-mas
+      app.kubernetes.io/name: finops-ui
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: teleport-apps
+            app.kubernetes.io/name: teleport-app-service
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+---
 # finops-mas → observability(alloy) OTLP trace (매니페스트에 명시 없음, 향후 추가 시 활성화)
 # 현재 finops-mas 워크로드에서 OTLP export 설정 미발견 → audit 후 확인 예정
 # apiVersion: cilium.io/v2

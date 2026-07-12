@@ -4,6 +4,11 @@ loki:
   auth_enabled: false
   # TODO: Replace this test schema with a production schema before long-term storage is enabled.
   useTestSchema: true
+  # Cilium enforce 전(#79): 외부 usage-reporting(stats.grafana.org:443, GCP 호스팅)이
+  # egress로 나가면 enforce 시 DROP됨. 관측 스택 외부 egress는 감사상 제거 대상이라
+  # 정책으로 여는 대신 기능 자체를 끈다. (chart values.yaml:583 loki.analytics 스키마)
+  analytics:
+    reporting_enabled: false
   commonConfig:
     replication_factor: 1
   #limits_config:

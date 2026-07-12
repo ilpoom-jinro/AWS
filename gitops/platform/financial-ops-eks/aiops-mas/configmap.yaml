@@ -17,3 +17,5 @@ data:
   # 민수님 worker.py가 읽는 Temporal 환경변수 (TEMPORAL_ADDRESS, TASK_QUEUE)
   TEMPORAL_ADDRESS:          "temporal-frontend.temporal.svc.cluster.local:7233"
   TEMPORAL_TASK_QUEUE:       "aiops-task-queue"
+  # 공용 Slack HITL Bot의 Temporal Activity queue와 일치해야 한다.
+  HITL_TASK_QUEUE:           "hitl-approval-queue"

@@ -1,0 +1,49 @@
+# slack-hitl(platform-mas) → *.slack.com:443 egress 허용
+#
+# 확인한 사실(deployment manifest 실측, 추측 아님):
+#   - slack-hitl pod 라벨: app: slack-hitl (namespace: platform-mas)
+#     ※ app.kubernetes.io/name 아님 — 이 워크로드는 구 라벨 스킴(app:)을 씀.
+#   - platform-mas는 default-deny.yaml exclusion 목록에 없음 → enforce 시 DROP 대상.
+#   - platform-mas 전용 Cilium 정책은 이 파일 추가 전까지 0개였음.
+#
+# toFQDNs 동작 조건 (allow-fqdn-finops-mas.yaml 패턴 그대로 따름):
+#   allow-dns.yaml(전역 DNS allow)은 포트(53)만 여는 L4 규칙이라 DNS 프록시가 응답을
+#   가로채지 못함 → FQDN→IP 매핑을 못 배워서 toFQDNs가 매칭 안 되고 DROP됨.
+#   이 파일에 slack-hitl 전용 DNS egress(toPorts.rules.dns.matchPattern)를 별도로
+#   둬야 함 — 기존 toFQDNs 정책(bedrock/athena/velero/albc/eso/rds) 전부 이 패턴.
+#
+# Slack Socket Mode(wss) + Web API 둘 다 slack.com 서브도메인 대상이고 IP 대역이
+# 변동되므로 toCIDR 대신 FQDN 기반으로 고정.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-platform-mas-slack
+spec:
+  description: "slack-hitl → *.slack.com:443 egress 허용 (Socket Mode + Web API)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: platform-mas
+      app: slack-hitl
+  egress:
+    # DNS 프록시 활성화 — slack.com 응답을 인터셉트해 FQDN→IP 매핑 학습
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.slack.com"
+              - matchName: "slack.com"
+    - toFQDNs:
+        - matchPattern: "*.slack.com"
+        - matchName: "slack.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

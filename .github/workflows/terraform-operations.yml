@@ -339,32 +339,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          vpc_resources=(
-            module.vpc1.aws_vpc.this
-            module.vpc2.aws_vpc.this
-            module.vpc3.aws_vpc.this
-            module.vpc4.aws_vpc.this
+          # terraform state에 해당 VPC 리소스가 없더라도, 이전 부분 apply나
+          # 실패한 destroy가 남긴 LB/NLB는 AWS에 존재할 수 있다. State 유무로
+          # 정리 대상을 건너뛰면 고아 ENI가 subnet/IGW/SG 삭제를 막는다.
+          expected_vpc_names=(
+            financial-vpc1-service
+            financial-vpc2-ops
+            financial-vpc3-teleport
+            financial-vpc4-headscale
           )
-
           vpc_ids=()
-          for resource in "${vpc_resources[@]}"; do
-            if ! terraform state list | grep -Fxq "${resource}"; then
-              echo "State does not contain ${resource}; skipping."
+          for vpc_name in "${expected_vpc_names[@]}"; do
+            mapfile -t matched_vpcs < <(
+              aws ec2 describe-vpcs \
+                --filters "Name=tag:Name,Values=${vpc_name}" \
+                --query 'Vpcs[].VpcId' \
+                --output text | tr '\t' '\n' | sed '/^$/d'
+            )
+
+            if [ "${#matched_vpcs[@]}" -eq 0 ]; then
+              echo "VPC ${vpc_name} does not exist; skipping."
               continue
             fi
 
-            vpc_id="$(terraform state show -no-color "${resource}" | grep -m1 '^\s*id\s*=' | awk -F'"' '{print $2}')"
-            if [ -z "${vpc_id}" ] || [ "${vpc_id}" = "null" ]; then
-              echo "Could not resolve VPC ID for ${resource}; skipping."
-              continue
+            if [ "${#matched_vpcs[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one VPC named ${vpc_name}, found ${#matched_vpcs[@]}."
+              exit 1
             fi
 
-            if ! aws ec2 describe-vpcs --vpc-ids "${vpc_id}" >/dev/null 2>&1; then
-              echo "VPC ${vpc_id} no longer exists; skipping."
-              continue
-            fi
-
-            vpc_ids+=("${vpc_id}")
+            echo "Resolved ${vpc_name} to ${matched_vpcs[0]}."
+            vpc_ids+=("${matched_vpcs[0]}")
           done
 
           if [ "${#vpc_ids[@]}" -eq 0 ]; then
@@ -449,22 +453,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          vpc_resources=(
-            module.vpc1.aws_vpc.this
-            module.vpc2.aws_vpc.this
-            module.vpc3.aws_vpc.this
-            module.vpc4.aws_vpc.this
+          # LB 정리 단계와 같은 기준으로 AWS의 실제 VPC를 조회한다. Terraform
+          # state가 일부만 남은 상황에서도 삭제를 막는 ENI/SG를 진단해야 한다.
+          expected_vpc_names=(
+            financial-vpc1-service
+            financial-vpc2-ops
+            financial-vpc3-teleport
+            financial-vpc4-headscale
           )
-
           vpc_ids=()
-          for resource in "${vpc_resources[@]}"; do
-            if ! terraform state list | grep -Fxq "${resource}"; then
-              continue
-            fi
+          for vpc_name in "${expected_vpc_names[@]}"; do
+            mapfile -t matched_vpcs < <(
+              aws ec2 describe-vpcs \
+                --filters "Name=tag:Name,Values=${vpc_name}" \
+                --query 'Vpcs[].VpcId' \
+                --output text | tr '\t' '\n' | sed '/^$/d'
+            )
 
-            vpc_id="$(terraform state show -no-color "${resource}" | grep -m1 '^\s*id\s*=' | awk -F'"' '{print $2}')"
-            if [ -n "${vpc_id}" ] && [ "${vpc_id}" != "null" ] && aws ec2 describe-vpcs --vpc-ids "${vpc_id}" >/dev/null 2>&1; then
-              vpc_ids+=("${vpc_id}")
+            if [ "${#matched_vpcs[@]}" -eq 1 ]; then
+              vpc_ids+=("${matched_vpcs[0]}")
+            elif [ "${#matched_vpcs[@]}" -gt 1 ]; then
+              echo "::error::Expected exactly one VPC named ${vpc_name}, found ${#matched_vpcs[@]}."
+              exit 1
             fi
           done
 
@@ -557,6 +567,35 @@ jobs:
 
             sleep 10
           done
+
+      # EKS/NLB 삭제는 1시간 이상 걸릴 수 있다. 초기 OIDC 자격증명(기본 1시간)이
+      # 만료되면 Terraform이 S3 state lock을 해제하지 못하므로, 마지막 destroy
+      # 직전에 새 자격증명을 발급한다.
+      - name: Refresh AWS credentials before VPC destroy
+        if: inputs.action == 'destroy'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # WorkGroup만 삭제하면 결과 S3 버킷, Glue 카탈로그, SIEM 쿼리 역할이 남으므로
+      # 관련 Terraform 리소스를 명시한다. CloudTrail·SNS·Prowler 등
+      # 나머지 module.security 보안 기반 리소스는 의도적으로 보존한다.
+      - name: Destroy SIEM Athena resources
+        if: inputs.action == 'destroy'
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=module.security.aws_athena_workgroup.siem
+          -target=module.security.aws_glue_catalog_table.cloudtrail
+          -target=module.security.aws_glue_catalog_table.alb
+          -target=module.security.aws_glue_catalog_table.prowler
+          -target=module.security.aws_glue_catalog_database.siem
+          -target=module.security.aws_iam_role_policy.siem_athena_query
+          -target=module.security.aws_iam_role.siem_athena_query
+          -target=module.security.aws_s3_bucket_lifecycle_configuration.siem_athena_results
+          -target=module.security.aws_s3_bucket_server_side_encryption_configuration.siem_athena_results
+          -target=module.security.aws_s3_bucket_public_access_block.siem_athena_results
+          -target=module.security.aws_s3_bucket.siem_athena_results
 
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'

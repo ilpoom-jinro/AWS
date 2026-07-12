@@ -7,7 +7,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 
@@ -20,6 +20,13 @@ ORCHESTRATOR_TIMEOUT_SECONDS = int(os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS", "60
 app = FastAPI(title="FinOps UI Agent", version="0.4.0")
 
 VISIBLE_SCENARIOS = {"fomc-briefing"}
+FOMC_FALLBACK_EVENT = {
+    "event_id": "fomc-briefing",
+    "title": "FOMC 주식 브리핑 푸시",
+    "grade": "S",
+    "target_users": 350000,
+    "scheduled_at": "08:30",
+}
 
 
 class ChatRequest(BaseModel):
@@ -64,84 +71,18 @@ def filter_visible_scenarios(items: Any) -> Any:
     ]
 
 
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
+def visible_scenarios_or_fallback(items: Any) -> list[dict[str, Any]]:
+    visible = filter_visible_scenarios(items)
+    if isinstance(visible, list) and visible:
+        return visible
+    return [FOMC_FALLBACK_EVENT]
 
 
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
-
-
-def filter_visible_scenarios(items: Any) -> Any:
-    if not isinstance(items, list):
-        return items
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("event_id") in VISIBLE_SCENARIOS
-    ]
+def safe_orchestrator_call(path: str, fallback: Any) -> Any:
+    try:
+        return call_orchestrator(path)
+    except HTTPException:
+        return fallback
 
 
 @app.get("/health")
@@ -151,10 +92,21 @@ def health() -> dict[str, str]:
 
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
-    workflows = call_orchestrator("/api/workflows")
-    calendar = filter_visible_scenarios(call_orchestrator("/api/events"))
+    errors: dict[str, str] = {}
+    try:
+        workflows = call_orchestrator("/api/workflows")
+    except HTTPException as exc:
+        workflows = []
+        errors["workflows"] = str(exc.detail)
+
+    try:
+        calendar = visible_scenarios_or_fallback(call_orchestrator("/api/events"))
+    except HTTPException as exc:
+        calendar = [FOMC_FALLBACK_EVENT]
+        errors["calendar"] = str(exc.detail)
+
     active = workflows[0] if workflows else None
-    return {
+    payload = {
         "scenario": "finops",
         "agent": "ui",
         "namespace": "finops-mas",
@@ -162,16 +114,23 @@ def dashboard() -> dict[str, Any]:
         "calendar": calendar,
         "active_workflow": active,
     }
+    if errors:
+        payload["warnings"] = errors
+    return payload
 
 
 @app.get("/api/calendar")
 def calendar() -> Any:
-    return filter_visible_scenarios(call_orchestrator("/api/calendar"))
+    return visible_scenarios_or_fallback(
+        safe_orchestrator_call("/api/calendar", [FOMC_FALLBACK_EVENT])
+    )
 
 
 @app.get("/api/events")
 def events() -> Any:
-    return filter_visible_scenarios(call_orchestrator("/api/events"))
+    return visible_scenarios_or_fallback(
+        safe_orchestrator_call("/api/events", [FOMC_FALLBACK_EVENT])
+    )
 
 
 @app.post("/api/workflows/run")
@@ -249,8 +208,8 @@ def chat(request: ChatRequest) -> Any:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return """
+def index() -> Response:
+    html = """
 <!doctype html>
 <html lang="en">
   <head>
@@ -376,8 +335,8 @@ def index() -> str:
         overflow-wrap: break-word;
       }
       .chat-room {
-        min-height: 620px;
-        max-height: calc(100vh - 332px);
+        min-height: 360px;
+        max-height: 520px;
         overflow: auto;
         display: grid;
         gap: 10px;
@@ -542,7 +501,7 @@ def index() -> str:
     <header>
       <div>
         <h1>FinOps MAS Control</h1>
-        <div class="muted">Demand shaping first, infrastructure second.</div>
+        <div class="muted">Demand shaping first, infrastructure second. <span id="ui-code-version">ui-fallback-shell-v2</span></div>
       </div>
       <div class="toolbar">
         <select id="event-select" aria-label="FinOps 시나리오 선택"></select>
@@ -632,6 +591,51 @@ def index() -> str:
       </div>
     </div>
     <script>
+      (function renderStaticFomcFallback() {
+        const event = {
+          event_id: "fomc-briefing",
+          title: "FOMC 주식 브리핑 푸시",
+          grade: "S",
+          target_users: 350000,
+          scheduled_at: "08:30"
+        };
+        const escape = (value) => String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+        const select = document.getElementById("event-select");
+        if (select && !select.innerHTML.trim()) {
+          select.innerHTML = `<option value="${escape(event.event_id)}">${escape(event.title)} · ${escape(event.scheduled_at)} 예약 · ${escape(event.grade)}등급 · ${Number(event.target_users).toLocaleString()}명</option>`;
+        }
+        const monthBadge = document.getElementById("calendar-month");
+        const calendar = document.getElementById("calendar");
+        if (calendar && !calendar.innerHTML.trim()) {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          if (monthBadge) monthBadge.textContent = `${year}년 ${month + 1}월`;
+          const first = new Date(year, month, 1);
+          const last = new Date(year, month + 1, 0);
+          const names = ["일", "월", "화", "수", "목", "금", "토"];
+          const headers = names.map(name => `<div class="day-name">${name}</div>`).join("");
+          const days = [];
+          for (let i = 0; i < first.getDay(); i++) days.push('<div class="day empty"></div>');
+          for (let day = 1; day <= last.getDate(); day++) {
+            const isToday = day === now.getDate();
+            const eventHtml = isToday ? `<div class="event-pill">${escape(event.title)}<br>${escape(event.scheduled_at)} 예약 / ${escape(event.grade)}등급</div>` : "";
+            days.push(`<div class="day ${isToday ? "today" : ""}"><div class="date-number">${day}</div>${eventHtml}</div>`);
+          }
+          calendar.innerHTML = headers + days.join("");
+        }
+        window.addEventListener("error", (error) => {
+          const toast = document.getElementById("toast");
+          if (toast) toast.textContent = `UI script error: ${error.message || error.type || "unknown"}`;
+        });
+      })();
+    </script>
+    <script>
       let currentWorkflow = null;
       let calendarItems = [];
       const VISIBLE_SCENARIOS = new Set(["fomc-briefing"]);
@@ -678,6 +682,16 @@ def index() -> str:
         return items.filter(item => item && VISIBLE_SCENARIOS.has(item.event_id));
       }
 
+      function fallbackCalendarItems() {
+        return [{
+          event_id: "fomc-briefing",
+          title: "FOMC 주식 브리핑 푸시",
+          grade: "S",
+          target_users: 350000,
+          scheduled_at: "08:30"
+        }];
+      }
+
       function scenarioLabel(item) {
         const time = cleanScheduledAt(item.scheduled_at);
         const users = Number(item.target_users || 0).toLocaleString();
@@ -688,10 +702,25 @@ def index() -> str:
         agentDetails = Object.fromEntries((agents || []).map(item => [item.agent_key, item]));
       }
 
+      function renderFallbackDashboardShell() {
+        calendarItems = fallbackCalendarItems();
+        const select = document.getElementById("event-select");
+        if (select) {
+          select.innerHTML = calendarItems.map(item => `
+            <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
+          `).join("");
+        }
+        renderCalendar(calendarItems);
+        syncAgentDetails([]);
+        renderBrokerLog([]);
+        renderEmptyConversation();
+      }
+
       async function loadDashboard() {
         try {
           const data = await api("/api/dashboard");
           calendarItems = filterVisibleScenarios(data.calendar || []);
+          if (!calendarItems.length) calendarItems = fallbackCalendarItems();
           const select = document.getElementById("event-select");
           select.innerHTML = calendarItems.map(item => `
             <option value="${escapeHtml(item.event_id)}">${escapeHtml(scenarioLabel(item))}</option>
@@ -709,8 +738,8 @@ def index() -> str:
             renderBrokerLog([]);
             renderEmptyConversation();
           }
-          await refreshAgentRuntime();
         } catch (error) {
+          renderFallbackDashboardShell();
           showError(error);
         }
       }
@@ -1067,7 +1096,17 @@ def index() -> str:
       }
 
       function formatMultiline(value) {
-        return escapeHtml(value).replaceAll("\n", "<br>");
+        return escapeHtml(value).replaceAll("\\n", "<br>");
+      }
+
+      function isUsefulConversationBrief(brief) {
+        if (!brief || !brief.summary) return false;
+        const source = String(brief.source || "").toLowerCase();
+        const summary = String(brief.summary || "");
+        return source !== "fallback"
+          && !summary.includes("AccessDeniedException")
+          && !summary.includes("LLM 대화 정리를 생성하지 못했습니다")
+          && !summary.includes("기본 Agent 대화 로그");
       }
 
       async function summarizeConversationWithLlm() {
@@ -1080,6 +1119,10 @@ def index() -> str:
           if (button) button.disabled = true;
           document.getElementById("toast").textContent = "LLM이 Agent 대화 흐름을 정리하는 중입니다...";
           const data = await api(`/api/workflows/${currentWorkflow}/conversation/brief`);
+          if (!isUsefulConversationBrief(data)) {
+            document.getElementById("toast").textContent = "LLM 요약을 사용할 수 없어 Agent별 진행 기록을 유지합니다.";
+            return;
+          }
           const el = document.getElementById("agent-chat");
           el.innerHTML += `
             <div class="bubble agent">
@@ -1108,7 +1151,8 @@ def index() -> str:
         } catch (error) {
           conversationBriefCache[workflowId] = {
             source: "fallback",
-            summary: "LLM 흐름 정리를 가져오지 못했습니다. 기본 진행 요약을 표시합니다."
+            summary: "",
+            reason: error.message || String(error)
           };
         } finally {
           conversationBriefLoading.delete(workflowId);
@@ -1147,11 +1191,24 @@ def index() -> str:
 
       function displayAgentName(name) {
         const labels = {
+          cluster_state: "클러스터 상태 Agent",
+          business_control: "비즈니스 일정 Agent",
+          demand_shaping: "수요 분산 Agent",
+          traffic_forecast: "트래픽 예측 Agent",
+          bottleneck_capacity: "병목 분석 Agent",
+          infra_execution: "인프라 용량 계획 Agent",
+          cost: "비용 분석 Agent",
+          unit_economics: "단위 경제성 Agent",
+          policy_guardrail: "정책/비상 대응 Agent",
+          fallback: "정책/비상 대응 Agent",
+          postmortem_learning: "사후 학습 Agent",
+          "Cluster State Agent": "클러스터 상태 Agent",
           "Business Control Agent": "비즈니스 일정 Agent",
           "Demand Shaping Agent": "수요 분산 Agent",
           "Traffic Forecast Agent": "트래픽 예측 Agent",
           "Bottleneck Capacity Agent": "병목 분석 Agent",
           "Infra Capacity Planning Agent": "인프라 용량 계획 Agent",
+          "Infra Execution Planner": "인프라 용량 계획 Agent",
           "Cost Agent": "비용 분석 Agent",
           "Unit Economics Agent": "단위 경제성 Agent",
           "Policy & Fallback Guardrail Agent": "정책/비상 대응 Agent",
@@ -1159,6 +1216,19 @@ def index() -> str:
           "Orchestrator": "Orchestrator"
         };
         return labels[name] || name;
+      }
+
+      function agentResultPayload(item) {
+        const raw = item?.result || {};
+        if (raw && typeof raw === "object" && raw.result && typeof raw.result === "object") {
+          return raw.result;
+        }
+        return raw;
+      }
+
+      function firstCandidate(result, key) {
+        const values = Array.isArray(result?.[key]) ? result[key] : [];
+        return values.length ? values[0] : {};
       }
 
       function renderChatReply(data) {
@@ -1347,17 +1417,34 @@ def index() -> str:
       }
 
       function narrate(item) {
-        const r = item.result || {};
+        const r = agentResultPayload(item);
+        const demandCandidate = firstCandidate(r, "candidates");
+        const forecastCandidate = firstCandidate(r, "candidate_forecasts");
+        const capacityCandidate = firstCandidate(r, "candidate_capacity_plans");
+        const costCandidate = firstCandidate(r, "candidate_costs");
         const summaries = {
-          "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
-          "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 발송 분산 시간은 ${r.send_window_minutes || "-"}분이고, 예상 Peak 감소율은 ${r.peak_reduction_percent || "-"}%입니다.`,
+          "Cluster State Agent": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_cluster_pods || r.total_replicas || r.total_deployment_replicas || "-"}개, 이벤트 관련 Pod는 ${r.total_event_related_pods || "-"}개, 유휴 자원 후보는 ${r.idle_candidate_count ?? (r.idle_candidates || []).length ?? 0}개입니다. RDS CPU는 ${r.rds_cpu_percent ?? "-"}%입니다.`,
+          "cluster_state": `현재 클러스터 상태를 확인했습니다. 전체 replica는 ${r.total_cluster_pods || r.total_replicas || r.total_deployment_replicas || "-"}개, 이벤트 관련 Pod는 ${r.total_event_related_pods || "-"}개, 유휴 자원 후보는 ${r.idle_candidate_count ?? (r.idle_candidates || []).length ?? 0}개입니다. RDS CPU는 ${r.rds_cpu_percent ?? "-"}%입니다.`,
+          "Business Control Agent": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 대상자는 ${Number(r.target_users || 0).toLocaleString()}명입니다. VIP ${Number(r.vip_audience_count || 0).toLocaleString()}명, 일반 ${Number(r.general_audience_count || 0).toLocaleString()}명으로 나누고 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "business_control": `비즈니스 일정을 확인했습니다. 이벤트 등급은 ${r.grade || "미확인"}이고, 대상자는 ${Number(r.target_users || 0).toLocaleString()}명입니다. VIP ${Number(r.vip_audience_count || 0).toLocaleString()}명, 일반 ${Number(r.general_audience_count || 0).toLocaleString()}명으로 나누고 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "Demand Shaping Agent": `Push 분산 전략을 계산했습니다. 선택된 발송 분산 시간은 ${r.send_window_minutes || demandCandidate.send_window_minutes || "-"}분이고, 일반 사용자는 초당 ${r.per_second_general || demandCandidate.per_second_general || "-"}명씩 분산 발송합니다.`,
+          "demand_shaping": `Push 분산 전략을 계산했습니다. 선택된 발송 분산 시간은 ${r.send_window_minutes || demandCandidate.send_window_minutes || "-"}분이고, 일반 사용자는 초당 ${r.per_second_general || demandCandidate.per_second_general || "-"}명씩 분산 발송합니다.`,
           "Traffic Forecast Agent": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
+          "traffic_forecast": `트래픽을 예측했습니다. Peak는 ${r.peak_rps_before || "-"} RPS에서 ${r.peak_rps_after || "-"} RPS로 조정되고, 필요한 App Pod는 ${r.required_app_pods || "-"}개입니다.`,
           "Bottleneck Capacity Agent": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
-          "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. Scale-out은 ${r.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || "-"} 기준으로 준비합니다.`,
-          "Cost Agent": `예상 증분 비용을 계산했습니다. 총 비용은 $${r.estimated_cost_usd || r.total || "-"}입니다.`,
+          "bottleneck_capacity": `병목 가능성을 확인했습니다. DB CPU는 ${r.db_cpu || "-"}%, Cache hit ratio는 ${r.cache_hit_ratio || "-"}%이고 상태는 ${r.status || "미확인"}입니다.`,
+          "Infra Capacity Planning Agent": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "Infra Execution Planner": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "infra_execution": `인프라 용량 계획을 만들었습니다. 목표 App Pod는 ${r.target_app_pods || capacityCandidate.target_app_pods || "-"}개이고, 추가 증설 Pod는 ${r.scale_out_pods || capacityCandidate.scale_out_pods || "-"}개입니다. Scale-out은 ${r.scale_out_at || capacityCandidate.scale_out_at || "-"}, Prewarm은 ${r.prewarm_at || capacityCandidate.prewarm_at || "-"} 기준입니다.`,
+          "Cost Agent": `예상 증분 비용을 계산했습니다. 선택안 예상 비용은 $${r.estimated_cost_usd || costCandidate.estimated_cost_usd || r.total || "-"}이고, 유휴 자원 절감 반영 후 순비용은 $${r.net_cost_usd || costCandidate.net_cost_usd || "-"}입니다.`,
+          "cost": `예상 증분 비용을 계산했습니다. 선택안 예상 비용은 $${r.estimated_cost_usd || costCandidate.estimated_cost_usd || r.total || "-"}이고, 유휴 자원 절감 반영 후 순비용은 $${r.net_cost_usd || costCandidate.net_cost_usd || "-"}입니다.`,
           "Unit Economics Agent": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
+          "unit_economics": `비용 대비 비즈니스 가치를 검토했습니다. 비용 비율은 ${r.cost_ratio || "-"}입니다.`,
           "Policy & Fallback Guardrail Agent": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "policy_guardrail": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
+          "fallback": `정책 가드레일과 비상 대응안을 확인했습니다. 운영자 승인 필요 여부는 ${r.approval_required ? "필요" : "불필요"}입니다.`,
           "Postmortem Learning Agent": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
+          "postmortem_learning": `이벤트 종료 후 학습 계획을 준비했습니다. 프로필 업데이트 상태는 ${r.profile_update || "대기"}입니다.`,
           "Dry-run Execution": "승인된 실행 계획을 실제 변경 없이 dry-run으로 검증했습니다."
         };
         return summaries[item.agent] || JSON.stringify(r);
@@ -1410,6 +1497,37 @@ def index() -> str:
         `;
       }
 
+      function renderAgentTimelineMessages(data) {
+        const timeline = data.timeline || [];
+        if (timeline.length) {
+          return timeline.map(item => {
+            const agentName = displayAgentName(item.agent);
+            const status = item.status || "running";
+            const message = status === "completed"
+              ? narrate(item)
+              : `${agentName} 단계가 ${status} 상태입니다. 이전 Agent 결과를 기준으로 다음 판단을 준비하고 있습니다.`;
+            return `
+              <div class="bubble agent">
+                <div class="speaker"><span>${escapeHtml(agentName)}</span><span class="badge">${escapeHtml(status)}</span></div>
+                <p>${formatMultiline(message)}</p>
+              </div>
+            `;
+          }).join("");
+        }
+
+        const conversation = data.conversation || [];
+        if (conversation.length) {
+          return conversation.map(item => `
+            <div class="bubble agent">
+              <div class="speaker"><span>${escapeHtml(displayAgentName(item.sender))}</span><span class="badge">→ ${escapeHtml(displayAgentName(item.receiver))}</span></div>
+              <p>${formatMultiline(item.message)}</p>
+            </div>
+          `).join("");
+        }
+
+        return workflowSummaryHtml(data);
+      }
+
       function renderConversation(data) {
         latestWorkflowData = data;
         const el = document.getElementById("agent-chat");
@@ -1417,25 +1535,16 @@ def index() -> str:
         const workflowId = data.workflow_id || currentWorkflow;
         const isRunning = ["running", "starting"].includes(data.status || "running");
         const brief = workflowId ? conversationBriefCache[workflowId] : null;
-        let messages = "";
-        if (brief && brief.summary) {
-          messages = `
+        let messages = renderAgentTimelineMessages(data);
+        if (isUsefulConversationBrief(brief)) {
+          messages += `
             <div class="bubble agent">
-              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">${escapeHtml(brief.source || "llm")}</span></div>
+              <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">전체 흐름 정리</span></div>
               <p>${formatMultiline(brief.summary)}</p>
             </div>
           `;
-        } else {
-          messages = workflowSummaryHtml(data);
-          if (!isRunning && workflowId) {
-            loadConversationBrief(workflowId);
-            messages += `
-              <div class="bubble agent">
-                <div class="speaker"><span>FinOps Orchestrator</span><span class="badge">LLM 정리 중</span></div>
-                <p>Agent 대화 전체를 LLM으로 읽기 쉽게 정리하고 있습니다.</p>
-              </div>
-            `;
-          }
+        } else if (!isRunning && workflowId) {
+          loadConversationBrief(workflowId);
         }
         el.innerHTML = eventIntroBubble("분석") + messages;
         el.scrollTop = el.scrollHeight;
@@ -1965,8 +2074,17 @@ def index() -> str:
         ].join("");
       }
 
+      renderFallbackDashboardShell();
       loadDashboard();
     </script>
   </body>
 </html>
 """
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )

@@ -1,0 +1,50 @@
+# alloy-ops → velero/node-agent:8085 (metrics scrape) 양방향 허용
+#
+# 확인한 사실(chart 템플릿/기존 정책 실측, 추측 아님):
+#   - alloy-ops 라벨: namespace observability, app.kubernetes.io/name: alloy,
+#     app.kubernetes.io/instance: observability-alloy-ops (allow-alloy-ztunnel.yaml과 동일 라벨 재사용)
+#   - velero node-agent 라벨: namespace velero, name: node-agent
+#     (helmChart/charts/velero/templates/node-agent-daemonset.yaml:28 — app.kubernetes.io/name은
+#     velero 컴포넌트 전체에 공통이라 name: node-agent로 좁힘)
+#   - 컨테이너 포트 http-monitoring = 8085 (같은 템플릿:93-94, Velero 백업 메트릭 노출 포트)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-ops-to-velero-metrics
+spec:
+  description: "alloy-ops → velero/node-agent:8085 scrape egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-ops
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: velero
+            name: node-agent
+      toPorts:
+        - ports:
+            - port: "8085"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-velero-metrics-from-alloy-ops
+spec:
+  description: "velero/node-agent:8085 ingress 허용 (alloy-ops에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: velero
+      name: node-agent
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
+      toPorts:
+        - ports:
+            - port: "8085"
+              protocol: TCP
