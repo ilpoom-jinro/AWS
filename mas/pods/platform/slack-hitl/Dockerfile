@@ -1,15 +1,18 @@
-# pinned 2026-07-02, controlled bump via scheduled EOL workflow
+# pinned 2026-07-13, controlled bump via scheduled EOL workflow
 ARG MAS_BASE_IMAGE=python:3.12.13-slim
 FROM ${MAS_BASE_IMAGE}
 
 WORKDIR /app
 
-# slack_sdk는 slack_bolt 1.28.0 요구사항(>=3.38.0,<4)에 맞춰 3.38.0으로 상향.
-# 3.35.0은 미달로 pip ResolutionImpossible 빌드 실패했음.
+# SQS 라우터 전환(Socket Mode 제거)에 맞춰 정리:
+#   - slack_bolt/slack_sdk 제거 — AsyncApp/AsyncSocketModeHandler/AsyncWebClient를
+#     안 쓰게 되며(전부 outbound/inbound SQS로 대체) bot.py에 import 자체가 없음.
+#   - aiohttp 제거 — bot.py가 직접 쓰지 않음. slack_bolt/slack_sdk의 비동기 HTTP
+#     트랜스포트로 필요했던 전이 의존성이라, 그 둘을 빼면서 같이 정리.
+#   - boto3 추가 — outbound(SendMessage)/inbound(Receive/DeleteMessage) SQS 폴링에 필요.
+#   - temporalio/pydantic은 계속 사용(Worker/Activity, contracts.models의 pydantic 모델) — 유지.
 RUN pip install --no-cache-dir \
-    "slack_bolt==1.28.0" \
-    "slack_sdk==3.38.0" \
-    "aiohttp==3.14.1" \
+    "boto3==1.43.46" \
     "temporalio==1.27.2" \
     "pydantic==2.10.4"
 
@@ -17,6 +20,6 @@ RUN pip install --no-cache-dir \
 COPY pods/platform/slack-hitl/bot.py ./bot.py
 COPY contracts ./contracts
 
-# SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_CHANNEL_ID,
-# TEMPORAL_ADDRESS, HITL_TASK_QUEUE 는 Secret/ConfigMap으로 주입
+# SLACK_CHANNEL_ID, TEMPORAL_ADDRESS, HITL_TASK_QUEUE,
+# OUTBOUND_QUEUE_URL, INBOUND_QUEUE_URL 는 Secret/ConfigMap으로 주입
 CMD ["python", "bot.py"]
