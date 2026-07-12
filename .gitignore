@@ -32,6 +32,10 @@ override.tf.json
 .terraformrc
 terraform.rc
 
+# archive_file이 terraform plan/apply 시마다 생성하는 Lambda 패키징 zip
+# (slack-broker.tf) — 소스(handler.py)만 커밋하고 산출물은 커밋하지 않음
+lambda/**/build/
+
 # ── Packer ───────────────────────────────────────────────────
 packer/manifest.json
 packer/manifest.json.lock
