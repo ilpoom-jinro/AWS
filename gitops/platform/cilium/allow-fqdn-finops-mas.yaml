@@ -47,6 +47,9 @@ spec:
         - matchName: "bedrock.ap-northeast-2.amazonaws.com"
         - matchName: "sts.ap-northeast-2.amazonaws.com"
         - matchName: "sts.amazonaws.com"
+        - matchName: "ec2.ap-northeast-2.amazonaws.com"
+        - matchName: "monitoring.ap-northeast-2.amazonaws.com"
+        - matchName: "eks.ap-northeast-2.amazonaws.com"
       toPorts:
         - ports:
             - port: "443"
