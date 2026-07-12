@@ -33,3 +33,34 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-stock-api-rds-init-rds
+spec:
+  description: "stock-api-rds-init Job → RDS(financial-service-db):5432 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+      app.kubernetes.io/name: stock-api-rds-init
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+            io.kubernetes.pod.namespace: kube-system
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.rds.amazonaws.com"
+    - toFQDNs:
+        - matchPattern: "financial-service-db.*.ap-northeast-2.rds.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
