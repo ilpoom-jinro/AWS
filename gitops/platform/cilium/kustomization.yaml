@@ -26,6 +26,7 @@ resources:
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
   - allow-teleport-finops-ui.yaml
+  - allow-teleport-app-service-to-proxy.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
   - allow-kyverno-cosign-egress-ops.yaml
