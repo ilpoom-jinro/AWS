@@ -13,5 +13,10 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.9"
     }
+    # slack-broker.tf의 Lambda 소스 zip 패키징(archive_file)에 필요
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
