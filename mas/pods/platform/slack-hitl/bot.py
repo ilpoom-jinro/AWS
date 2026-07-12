@@ -1,29 +1,42 @@
 """
 Slack HITL 봇 — mas/pods/platform/slack-hitl/bot.py  (계약이 가리키던 위치)
 ============================================================
-공통 컴포넌트. 3개 시나리오(FinOps/AIOps/SecOps) 워크플로우가 전부 이 봇으로 승인받는다.
+공통 컴포넌트. AIOps/SecOps 워크플로우가 이 봇으로 승인받는다.
+(FinOps는 REST /approve 엔드포인트 방식 → 이 봇 미사용 — scenario="finops"는
+build_approval_blocks의 title_by_scenario에만 남아있고 실제로 이 경로를 타지 않는다)
 
-두 가지를 동시에 한다:
+2단계(SQS 라우터 전환) 이후 세 가지를 한다:
   ① Temporal 워커  : 공통 Activity `send_approval_request` / `send_reminder` 를 등록.
-                     워크플로우가 호출하면 슬랙에 승인/거부 버튼 메시지를 올리고 티켓 반환.
-  ② Slack Socket Mode 리스너 : 버튼 클릭 이벤트를 받아 해당 워크플로우에 시나리오별
-                     시그널을 쏜다.
+                     워크플로우가 호출하면 outbound SQS에 Slack 메시지 요청을 올리고
+                     티켓 반환(실제 Slack 게시는 financial-slack-outbound Lambda가 수행).
+  ② inbound SQS 폴링 : financial-slack-hitl-inbound 큐를 롱폴링해 Slack 버튼 클릭
+                     payload(financial-slack-inbound Lambda가 서명 검증 후 넣어준 것)를
+                     받아 해당 워크플로우에 시나리오별 시그널을 쏜다.
+  ③ ①·②를 같은 asyncio 이벤트루프에서 동시 실행.
+
+Socket Mode는 더 이상 쓰지 않는다 — ops VPC(격리망, IGW/NAT 없음)에서 slack.com에
+직접 못 붙는 문제를, API Gateway + Lambda 2개 + SQS 2개로 구성된 공용 브로커
+(slack-broker.tf)가 대신 처리한다. bot.py는 그 브로커의 SQS 큐만 상대한다.
 
 시나리오별 signal 이름·페이로드 (워크플로우 구현과 반드시 정합):
   aiops  → signal "approval_result",  args=[ApprovalResult(...)]
   secops → signal "submit_approval",  args=[bool, reviewer_id, reason]
-  (FinOps는 REST /approve 엔드포인트 방식 → 이 봇 미사용)
 
 전용 task queue(HITL_TASK_QUEUE)에서 돈다. 워크플로우는 이 큐로 승인 Activity를 라우팅한다.
 
 필요 환경변수:
-    SLACK_BOT_TOKEN   xoxb-...   (Bot User OAuth Token)
-    SLACK_APP_TOKEN   xapp-...   (App-Level Token, Socket Mode)
-    SLACK_CHANNEL_ID  C...       (승인 메시지 올릴 채널)
-    TEMPORAL_ADDRESS  (기본 localhost:7233)
-    HITL_TASK_QUEUE   (기본 hitl-approval-queue — 워크플로우와 반드시 동일)
+    SLACK_CHANNEL_ID     C...       (승인 메시지 올릴 채널)
+    TEMPORAL_ADDRESS     (기본 localhost:7233)
+    HITL_TASK_QUEUE      (기본 hitl-approval-queue — 워크플로우와 반드시 동일)
+    OUTBOUND_QUEUE_URL   financial-slack-hitl-outbound SQS 큐 URL
+                         (Slack 게시/갱신 요청을 이 큐로 올림 — 실제 호출은 outbound Lambda)
+    INBOUND_QUEUE_URL    financial-slack-hitl-inbound SQS 큐 URL
+                         (Slack 버튼 클릭 payload를 이 큐에서 폴링)
 
-설치:  pip install slack_bolt aiohttp temporalio
+SLACK_BOT_TOKEN/SLACK_APP_TOKEN은 더 이상 이 프로세스에 필요 없다 — 봇은 Slack API를
+직접 호출하지 않는다(전부 outbound Lambda가 자기 몫의 시크릿으로 처리).
+
+설치:  pip install boto3 temporalio
 실행 (mas/ 에서):  python pods/platform/slack-hitl/bot.py
 """
 
@@ -38,24 +51,21 @@ from pathlib import Path
 # mas/ 를 import 경로에 (이 파일은 mas/pods/platform/slack-hitl/bot.py)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
+import boto3
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Worker
 
-from slack_bolt.async_app import AsyncApp
-from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-from slack_sdk.web.async_client import AsyncWebClient
-
 from contracts.models import ApprovalRequest, ApprovalResult, ApprovalTicket
 
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID")
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 HITL_TASK_QUEUE = os.getenv("HITL_TASK_QUEUE", "hitl-approval-queue")
+OUTBOUND_QUEUE_URL = os.getenv("OUTBOUND_QUEUE_URL")
+INBOUND_QUEUE_URL = os.getenv("INBOUND_QUEUE_URL")
 
-_slack = AsyncWebClient(token=SLACK_BOT_TOKEN)
+_sqs = boto3.client("sqs")
 _temporal_client: Client | None = None
 
 
@@ -100,33 +110,70 @@ def decision_text(approved: bool, reviewer_slack_id: str) -> str:
     return f"{'✅ 승인됨' if approved else '⛔ 거부됨'} — by <@{reviewer_slack_id}>"
 
 
+def _approved_from_body(body: dict) -> bool:
+    """Slack block_actions payload의 action_id로 승인/거부 판별.
+
+    Socket Mode 시절엔 @app.action("hitl_approve")/("hitl_reject") 핸들러가 각각
+    approved=True/False를 고정해서 넘겼다(register_handlers, 제거됨). 라우터 전환 후엔
+    이 봇이 직접 action_id를 보고 판별해야 한다.
+    """
+    action_id = body["actions"][0]["action_id"]
+    return action_id == "hitl_approve"
+
+
+# =====================================================================
+# outbound SQS — 실제 Slack API 호출은 financial-slack-outbound Lambda가 수행.
+# 여기서는 요청 payload를 큐에 올리기만 한다(blocking boto3 호출은 스레드로 오프로드 —
+# mas/pods/secops/orchestrator/app/poller.py와 동일 패턴).
+# =====================================================================
+async def _enqueue_outbound(payload: dict) -> None:
+    await asyncio.to_thread(
+        _sqs.send_message,
+        QueueUrl=OUTBOUND_QUEUE_URL,
+        MessageBody=json.dumps(payload),
+    )
+
+
 # =====================================================================
 # 공통 Temporal Activities (봇이 소유 — 계약: SecOpsActivities/CommonActivities)
 # =====================================================================
 @activity.defn(name="send_approval_request")
 async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
-    """슬랙에 승인 요청 메시지 게시 후 티켓 반환. 즉시 반환(대기는 워크플로우가 signal로)."""
+    """승인 요청 메시지를 outbound SQS에 올린 뒤 티켓 반환.
+    즉시 반환(대기는 워크플로우가 signal로).
+
+    알려진 갭: 실제 Slack 게시는 outbound Lambda가 비동기로 수행하므로, 여기서는
+    Slack이 부여할 ts를 알 방법이 없다 — slack_message_ts를 빈 문자열로 둔다.
+    channel_id는 항상 SLACK_CHANNEL_ID로 게시하므로 그대로 채울 수 있다.
+    (영향: send_reminder가 스레드 답글 대신 새 메시지로 나감 — 아래 send_reminder 참고)
+    """
     wf_id = activity.info().workflow_id          # 호출한 워크플로우의 Temporal id
-    resp = await _slack.chat_postMessage(
-        channel=SLACK_CHANNEL_ID,
-        blocks=build_approval_blocks(request, wf_id),
-        text=f"승인 요청: {request.summary}",   # 알림/폴백 텍스트
-    )
+    await _enqueue_outbound({
+        "channel": SLACK_CHANNEL_ID,
+        "blocks": build_approval_blocks(request, wf_id),
+        "text": f"승인 요청: {request.summary}",   # 알림/폴백 텍스트
+    })
     return ApprovalTicket(
         workflow_id=request.workflow_id,
-        slack_message_ts=resp["ts"],
-        channel_id=resp["channel"],
+        slack_message_ts="",
+        channel_id=SLACK_CHANNEL_ID,
     )
 
 
 @activity.defn(name="send_reminder")
 async def send_reminder(ticket: ApprovalTicket) -> None:
-    """리마인더 — 원 메시지 스레드에 재알림."""
-    await _slack.chat_postMessage(
-        channel=ticket.channel_id,
-        thread_ts=ticket.slack_message_ts,
-        text="⏰ 아직 미결입니다. 승인/거부를 기다리고 있어요.",
-    )
+    """리마인더 — 원 메시지 스레드에 재알림.
+
+    send_approval_request가 slack_message_ts를 채우지 못하는 현재 구조상, ts가
+    없으면 스레드 답글이 아니라 채널에 새 메시지로 보낸다(하위호환 — 에러로 만들지 않음).
+    """
+    payload = {
+        "channel": ticket.channel_id,
+        "text": "⏰ 아직 미결입니다. 승인/거부를 기다리고 있어요.",
+    }
+    if ticket.slack_message_ts:
+        payload["thread_ts"] = ticket.slack_message_ts
+    await _enqueue_outbound(payload)
 
 
 # =====================================================================
@@ -153,26 +200,15 @@ async def _signal_decision(body: dict, approved: bool) -> None:
 
 
 async def _update_message(body: dict, approved: bool) -> None:
-    """결정 후 버튼 제거 + 결과 표시 (중복 클릭 방지)."""
-    await _slack.chat_update(
-        channel=body["channel"]["id"],
-        ts=body["message"]["ts"],
-        text=decision_text(approved, body["user"]["id"]),
-        blocks=[{"type": "section",
-                 "text": {"type": "mrkdwn", "text": decision_text(approved, body["user"]["id"])}}],
-    )
-
-
-def register_handlers(app: AsyncApp) -> None:
-    @app.action("hitl_approve")
-    async def _on_approve(ack, body):  # noqa: ANN001
-        await ack()
-        await _handle_decision(body, True)
-
-    @app.action("hitl_reject")
-    async def _on_reject(ack, body):  # noqa: ANN001
-        await ack()
-        await _handle_decision(body, False)
+    """결정 후 버튼 제거 + 결과 표시 (중복 클릭 방지) — outbound SQS에 chat.update 요청."""
+    await _enqueue_outbound({
+        "method": "update",
+        "channel": body["channel"]["id"],
+        "ts": body["message"]["ts"],
+        "text": decision_text(approved, body["user"]["id"]),
+        "blocks": [{"type": "section",
+                     "text": {"type": "mrkdwn", "text": decision_text(approved, body["user"]["id"])}}],
+    })
 
 
 async def _handle_decision(body: dict, approved: bool) -> None:
@@ -196,30 +232,67 @@ async def _handle_decision(body: dict, approved: bool) -> None:
             label = f"❌ 처리 중 오류 발생: {error_str[:120]}"
 
         try:
-            await _slack.chat_update(
-                channel=body["channel"]["id"],
-                ts=body["message"]["ts"],
-                text=label,
-                blocks=[{"type": "section",
-                         "text": {"type": "mrkdwn", "text": label}}],
-            )
+            await _enqueue_outbound({
+                "method": "update",
+                "channel": body["channel"]["id"],
+                "ts": body["message"]["ts"],
+                "text": label,
+                "blocks": [{"type": "section",
+                            "text": {"type": "mrkdwn", "text": label}}],
+            })
         except Exception:
-            pass  # Slack 업데이트 실패는 무시 (봇 입장에서 할 수 있는 게 없음)
+            pass  # outbound enqueue 실패는 무시 (봇 입장에서 할 수 있는 게 없음)
         return
 
     # signal 성공 → 버튼 제거 + 결정 결과 표시
     try:
         await _update_message(body, approved)
     except Exception:
-        pass  # 메시지 업데이트 실패는 무시 (결정 자체는 이미 전달됨)
+        pass  # 메시지 업데이트 요청 실패는 무시 (결정 자체는 이미 전달됨)
 
 
 # =====================================================================
-# main: Temporal 워커 + Slack Socket Mode 동시 실행
+# inbound SQS 폴링 — Slack 버튼 클릭 payload 수신 (Socket Mode 대체)
+# financial-slack-inbound Lambda가 서명 검증 후 이 큐에 원본 payload(JSON 문자열)를
+# 그대로 넣어준다. mas/pods/secops/orchestrator/app/poller.py와 동일한 롱폴링 패턴.
+# =====================================================================
+async def poll_inbound_loop() -> None:
+    """inbound SQS 롱폴링 루프. 메시지 → signal 처리 → 성공 시에만 삭제(실패 시 재수신 → DLQ)."""
+    if not INBOUND_QUEUE_URL:
+        print("[slack-hitl] INBOUND_QUEUE_URL 미설정 — inbound poller 비활성")
+        return
+
+    print(f"[slack-hitl] inbound poller 시작: {INBOUND_QUEUE_URL}")
+    while True:
+        resp = await asyncio.to_thread(
+            _sqs.receive_message,
+            QueueUrl=INBOUND_QUEUE_URL,
+            MaxNumberOfMessages=5,
+            WaitTimeSeconds=20,   # 롱폴링
+            VisibilityTimeout=300,
+        )
+        for msg in resp.get("Messages", []):
+            receipt = msg["ReceiptHandle"]
+            try:
+                body = json.loads(msg["Body"])
+                approved = _approved_from_body(body)
+                await _handle_decision(body, approved)
+                # _handle_decision은 내부 오류를 스스로 흡수하므로(위 함수 참고),
+                # 여기까지 오면 signal 성공/실패 여부와 무관하게 메시지를 삭제한다
+                # (재시도해도 같은 결과 — 이미 처리됨/만료됨 라벨만 반복 게시됨).
+                await asyncio.to_thread(
+                    _sqs.delete_message, QueueUrl=INBOUND_QUEUE_URL, ReceiptHandle=receipt
+                )
+            except Exception as exc:  # noqa: BLE001  파싱 등 실패 → 삭제 안 함(재수신→DLQ)
+                print(f"[slack-hitl] inbound 처리 실패, 재시도 예정: {exc}")
+
+
+# =====================================================================
+# main: Temporal 워커 + inbound SQS 폴링 동시 실행
 # =====================================================================
 async def main() -> None:
     global _temporal_client
-    missing = [k for k in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CHANNEL_ID")
+    missing = [k for k in ("SLACK_CHANNEL_ID", "OUTBOUND_QUEUE_URL", "INBOUND_QUEUE_URL")
                if not os.getenv(k)]
     if missing:
         raise SystemExit(f"환경변수 누락: {', '.join(missing)}")
@@ -230,13 +303,10 @@ async def main() -> None:
         task_queue=HITL_TASK_QUEUE,
         activities=[send_approval_request, send_reminder],
     )
-    app = AsyncApp(token=SLACK_BOT_TOKEN)
-    register_handlers(app)
-    handler = AsyncSocketModeHandler(app, SLACK_APP_TOKEN)
 
-    print(f"[slack-hitl] Temporal 워커(queue='{HITL_TASK_QUEUE}') + Slack Socket Mode 시작. Ctrl+C로 종료.")
+    print(f"[slack-hitl] Temporal 워커(queue='{HITL_TASK_QUEUE}') + inbound SQS 라우터 시작. Ctrl+C로 종료.")
     async with worker:
-        await handler.start_async()   # 소켓 연결 유지하며 버튼 이벤트 수신
+        await poll_inbound_loop()   # inbound 큐를 계속 폴링하며 버튼 이벤트 수신
 
 
 if __name__ == "__main__":

@@ -8,3 +8,10 @@ data:
   TEMPORAL_ADDRESS: "temporal-frontend.temporal.svc.cluster.local:7233"
   # HITL 전용 큐 — 봇/워크플로우 기본값(hitl-approval-queue)과 반드시 일치
   HITL_TASK_QUEUE: "hitl-approval-queue"
+  # outbound/inbound SQS 큐(slack-broker.tf). URL은 결정적(리전+계정+큐명) →
+  # REPLACE_WITH_ACCOUNT_ID를 gitops seed가 치환 (secops-mas/configmap.yaml의
+  # SECOPS_TRIGGER_QUEUE_URL과 동일 패턴). 봇은 outbound에 게시/갱신 요청을 올리고
+  # (실제 Slack 호출은 financial-slack-outbound Lambda), inbound를 폴링해 버튼
+  # 클릭 payload를 받는다(financial-slack-inbound Lambda가 서명 검증 후 넣어줌).
+  OUTBOUND_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-slack-hitl-outbound"
+  INBOUND_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-slack-hitl-inbound"
