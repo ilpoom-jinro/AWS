@@ -300,7 +300,7 @@ resource "aws_s3_bucket_policy" "flowlogs_archive" {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
           }
           ArnLike = {
-            "aws:SourceArn" = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+            "aws:SourceArn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
           }
         }
       },
@@ -319,7 +319,7 @@ resource "aws_s3_bucket_policy" "flowlogs_archive" {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
           }
           ArnLike = {
-            "aws:SourceArn" = "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"
+            "aws:SourceArn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*"
           }
         }
       }
@@ -343,6 +343,10 @@ resource "aws_flow_log" "s3_archive" {
     hive_compatible_partitions = true
     per_hour_partition         = true
   }
+  depends_on = [
+    aws_s3_bucket_policy.flowlogs_archive,
+    aws_s3_bucket_server_side_encryption_configuration.flowlogs_archive,
+  ]
 
   tags = {
     Name    = "flowlog-s3-${each.key}"
