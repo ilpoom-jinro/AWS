@@ -543,7 +543,7 @@ def index() -> Response:
             </div>
           <p class="muted">Agent 진행 로그와 운영자 채팅을 한 곳에서 확인합니다.</p>
           <div id="agent-chat" class="chat-room" style="margin-top: 12px;"></div>
-          <textarea id="chat-message">왜 Pod가 22개 필요한가?</textarea>
+          <textarea id="chat-message"> </textarea>
             <div class="row" style="margin-top: 10px;">
               <button id="chat-send" class="secondary" onclick="sendChat()" disabled>보고서에 질문</button>
               <div id="toast"></div>
