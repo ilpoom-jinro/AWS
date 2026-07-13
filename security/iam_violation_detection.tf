@@ -82,6 +82,7 @@ resource "aws_sns_topic_policy" "security_violation_alert" {
             "aws:SourceArn" = [
               aws_cloudwatch_event_rule.iam_violation.arn,
               aws_cloudwatch_event_rule.destructive_violation.arn,
+              aws_cloudwatch_event_rule.privilege_escalation.arn,
             ]
           }
           StringEquals = {
@@ -168,5 +169,48 @@ resource "aws_cloudwatch_event_rule" "destructive_violation" {
 resource "aws_cloudwatch_event_target" "destructive_violation_to_sns" {
   rule      = aws_cloudwatch_event_rule.destructive_violation.name
   target_id = "DestructiveViolationToSNS"
+  arn       = aws_sns_topic.security_violation_alert.arn
+}
+
+# =============================================
+# EventBridge Rule C — 권한 상승/지속성 확보 탐지 (계정 탈취 체인)
+#   iam_violation/destructive_violation과 달리 errorCode 조건 없음.
+#   계정 탈취는 "성공한" 권한부여·AccessKey 생성으로 지속성을 확보하는 체인이라
+#   거부(AccessDenied)만 잡는 기존 룰로는 놓친다 — 성공 이벤트를 잡아야 함.
+# =============================================
+resource "aws_cloudwatch_event_rule" "privilege_escalation" {
+  name        = "detect-privilege-escalation"
+  description = "계정 탈취 대응 — 성공한 IAM 권한부여/AccessKey 생성 탐지"
+
+  event_pattern = jsonencode({
+    "detail-type" = ["AWS API Call via CloudTrail"]
+    detail = {
+      "$or" = [
+        {
+          eventSource = ["iam.amazonaws.com"]
+          eventName = [
+            "AttachUserPolicy",
+            "PutUserPolicy",
+            "AttachRolePolicy",
+            "AttachGroupPolicy",
+            "CreateAccessKey",
+          ]
+        }
+      ]
+    }
+  })
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "EventBridge"
+    Environment = "all"
+  }
+}
+
+resource "aws_cloudwatch_event_target" "privilege_escalation_to_sns" {
+  rule      = aws_cloudwatch_event_rule.privilege_escalation.name
+  target_id = "PrivilegeEscalationToSNS"
   arn       = aws_sns_topic.security_violation_alert.arn
 }
