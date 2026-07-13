@@ -540,7 +540,9 @@
         wait_condition:
           type: Complete
           status: "True"
-        wait_timeout: 900
+        # RDS 재기동 또는 초기 생성 직후에는 PostgreSQL 접속 가능 시점이 늦어질 수 있다.
+        # Job의 재시도 전체 시간보다 짧게 기다리면 성공 직전에 bootstrap이 실패한다.
+        wait_timeout: 2700
         definition:
           apiVersion: batch/v1
           kind: Job
@@ -549,6 +551,7 @@
             namespace: stock-demo
           spec:
             backoffLimit: 3
+            activeDeadlineSeconds: 2400
             ttlSecondsAfterFinished: 3600
             template:
               metadata:
