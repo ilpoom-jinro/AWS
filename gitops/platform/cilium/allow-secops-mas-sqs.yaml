@@ -1,0 +1,41 @@
+# secops-mas orchestrator → SQS VPC Endpoint egress 허용
+#
+# 배경: secops-orchestrator가 financial-secops-trigger SQS 큐를 폴링해야 하는데
+# (poller.py), secops-mas가 allow-mas-to-temporal(allow-temporal-cluster.yaml)에
+# selector로 잡혀 egress 화이트리스트 모드(temporal:7233만 허용)라 SQS가 없어
+# timeout — 실측: ConnectTimeoutError sqs.ap-northeast-2.amazonaws.com.
+#
+# 기존 allow-fqdn-secops-mas.yaml의 allow-fqdn-secops-aws에 이미 toFQDNs 기반
+# SQS 규칙(matchName "sqs.ap-northeast-2.amazonaws.com")이 있으나, RDS 때와
+# 동일하게 timeout이 실측된 상태 — DNS 인터셉션(toFQDNs)이 이 환경에서 안
+# 먹히는 것으로 추정된다. toCIDR은 DNS 프록시 없이 IP 대역만으로 매칭되므로
+# 이 문제 자체를 회피한다(allow-mas-rds.yaml/allow-platform-mas-sqs.yaml과
+# 동일한 판단·패턴).
+#
+# 대상 서브넷: SQS Interface VPC Endpoint(vpc/ops/endpoints.tf의
+# aws_vpc_endpoint.sqs)가 배치되는 private_a/private_b — 10.20.11.0/24,
+# 10.20.12.0/24(allow-platform-mas-sqs.yaml에서 봇에 쓴 것과 동일 서브넷,
+# 큐가 다를 뿐 엔드포인트는 공유).
+#
+# aiops-mas는 제외 — aiops orchestrator는 SQS를 쓰지 않음(Alertmanager
+# HTTP 웹훅으로 트리거되는 구조, configmap에도 SQS 큐 URL 없음. 확인 완료).
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-secops-mas-sqs
+spec:
+  description: "secops-mas orchestrator → SQS VPC Endpoint(10.20.11.0/24, 10.20.12.0/24) 443 egress 허용"
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - secops-mas
+  egress:
+    - toCIDR:
+        - 10.20.11.0/24  # financial-vpc2-private-a (SQS endpoint ENI)
+        - 10.20.12.0/24  # financial-vpc2-private-b (SQS endpoint ENI)
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

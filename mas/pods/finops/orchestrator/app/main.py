@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 import uuid
+import boto3
 from datetime import datetime, timezone
 from typing import Any
 
@@ -47,7 +48,9 @@ from app.execution_workflows import EventExecutionWorkflow
 from app.workflows import FinOpsEventWorkflow
 from contracts.models import ExecutionMode, ExecutionPlan, ExecutionStep, AgentResponse, ReplanIntent
 
-
+FINOPS_SLACK_OUTBOUND_QUEUE_URL = os.getenv("FINOPS_SLACK_OUTBOUND_QUEUE_URL", "")
+FINOPS_SLACK_CHANNEL_ID = os.getenv("FINOPS_SLACK_CHANNEL_ID", "")
+FINOPS_SLACK_REPORT_ENABLED = os.getenv("FINOPS_SLACK_REPORT_ENABLED", "true").lower() == "true"
 DB_HOST = os.getenv("DB_HOST", "finops-db")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "finops")
@@ -1876,7 +1879,130 @@ async def record_agent_step_completed(
             ),
         )
     return context
+    
+async def send_finops_report_to_slack(workflow_id: str, status: str, plan: dict[str, Any]) -> None:
+    if not FINOPS_SLACK_OUTBOUND_QUEUE_URL or not FINOPS_SLACK_CHANNEL_ID:
+        return
 
+    report = plan.get("report", {})
+    event = report.get("event", {})
+    traffic = report.get("traffic", {})
+    capacity = report.get("capacity", {})
+    cost = report.get("cost", {})
+    operations = report.get("operations", {})
+    quality = plan.get("quality_gate_result", {})
+    history = report.get("event_history", {})
+
+    estimated_cost = cost.get("estimated_event_cost_usd", plan.get("estimated_cost_usd"))
+    budget = cost.get("event_budget_usd")
+    budget_usage = "-"
+    if estimated_cost is not None and budget:
+        try:
+            budget_usage = f"{(float(estimated_cost) / float(budget)) * 100:.1f}%"
+        except (TypeError, ValueError, ZeroDivisionError):
+            budget_usage = "-"
+    
+    def money(value: Any) -> str:
+        if value is None:
+            return "-"
+        try:
+            return f"${float(value):.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    ready_pods = capacity.get("ready_app_pods", "-")
+    required_pods = traffic.get("required_app_pods", plan.get("required_app_pods", "-"))
+    quality_label = "통과" if quality.get("passed") else "검토 필요"
+    issues = quality.get("issues") or []
+    warnings = quality.get("warnings") or []
+
+    risk_lines = []
+    if issues:
+        risk_lines.extend([f"- {item}" for item in issues[:3]])
+    if warnings:
+        risk_lines.extend([f"- {item}" for item in warnings[:3]])
+    if not risk_lines:
+        risk_lines.append("- 주요 차단 이슈 없음")
+
+    next_action = (
+        "FinOps UI에서 Dry-run 승인 또는 재계획 여부를 결정하세요."
+        if status != "plan_ready"
+        else "FinOps UI에서 Dry-run 승인을 진행하세요."
+    )
+
+    payload = {
+        "channel": FINOPS_SLACK_CHANNEL_ID,
+        "text": f"FinOps 계획 보고서: {workflow_id}",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "FinOps 계획 보고서"},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*workflow_id:* `{workflow_id}`\n"
+                        f"*상태:* `{status}` · *품질 검증:* `{quality_label}`"
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*이벤트*\n{event.get('title', '-')}"},
+                    {"type": "mrkdwn", "text": f"*등급 / 대상자*\n{event.get('grade', '-')} / {event.get('target_users', '-')}명"},
+                    {"type": "mrkdwn", "text": f"*조정 후 Peak RPS*\n{traffic.get('peak_rps_after', plan.get('peak_rps_after', '-'))}"},
+                    {"type": "mrkdwn", "text": f"*필요 Pod*\n{required_pods}개"},
+                    {"type": "mrkdwn", "text": f"*Ready Pod*\n{ready_pods}/{required_pods}"},
+                    {"type": "mrkdwn", "text": f"*예상 비용 / 예산*\n{money(estimated_cost)} / {money(budget)} ({budget_usage})"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*주요 리스크*\n" + "\n".join(risk_lines),
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*Fallback*\n"
+                        f"VIP only: `{operations.get('fallback', {}).get('vip_only', '-')}` · "
+                        f"General hold: `{operations.get('fallback', {}).get('general_hold', '-')}`"
+                    ),
+                },
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"역사 평균 Peak RPS: `{history.get('historical_avg_peak_rps', '-')}` · "
+                            f"현재 예측: `{history.get('this_forecast_peak_rps', '-')}`"
+                        ),
+                    }
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*다음 액션*\n{next_action}"},
+            },
+        ],
+    }
+
+    sqs = boto3.client("sqs", region_name=AWS_REGION)
+    response = await asyncio.to_thread(
+        sqs.send_message,
+        QueueUrl=FINOPS_SLACK_OUTBOUND_QUEUE_URL,
+        MessageBody=json.dumps(payload),
+    )
+    print(f"[finops-slack] report queued: workflow_id={workflow_id}, message_id={response.get('MessageId')}")
 
 @activity.defn(name="finalize_finops_plan")
 async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -1939,7 +2065,14 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
                 utcnow(),
             ),
         )
+    try:
+        if FINOPS_SLACK_REPORT_ENABLED:
+            await send_finops_report_to_slack(workflow_id, status, plan)
+    except Exception as exc:
+        print(f"[finops-slack] report send failed: {exc}")
+
     return {"workflow_id": workflow_id, "status": status, "plan": plan}
+    
 
 
 @activity.defn(name="load_execution_plan")

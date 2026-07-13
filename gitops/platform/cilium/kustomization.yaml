@@ -37,6 +37,9 @@ resources:
   - allow-observability-velero-metrics.yaml
   - allow-alloy-egress.yaml
   - allow-platform-mas-sqs.yaml
+  - allow-mas-rds.yaml
+  - allow-secops-mas-sqs.yaml
+  - allow-finops-orchestrator-sqs.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
@@ -54,6 +57,6 @@ resources:
   - allow-fqdn-stock-api-rds.yaml
   - allow-fqdn-trivy.yaml
   - allow-platform-mas-slack.yaml
-
+    
   # default-deny는 반드시 마지막 (policyAuditMode=true 동안 AUDIT만, enforce 전환 시 여기서 통제)
   - default-deny.yaml

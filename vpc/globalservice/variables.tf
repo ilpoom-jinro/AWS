@@ -67,7 +67,9 @@ variable "eks_node_disk_size" {
 variable "eks_node_desired_size" {
   description = "Desired number of service EKS nodes"
   type        = number
-  default     = 2
+  # 3 시도했으나 계정 vCPU 한도(16) 초과로 노드 못 뜸(DEGRADED) → 2 유지.
+  # 스케일업하려면 먼저 Service Quota(vCPU) 증설 필요.
+  default = 2
 }
 
 variable "eks_node_min_size" {

@@ -1,0 +1,45 @@
+# secops-mas / aiops-mas orchestrator → 외부 RDS(financial-ops-db):5432 egress 허용
+#
+# 배경: secops-mas/aiops-mas는 allow-mas-to-temporal(allow-temporal-cluster.yaml)에
+# selector로 잡혀 egress 화이트리스트 모드(temporal:7233만 허용)인데, 두 orchestrator
+# 다 asyncpg로 외부 RDS(financial-ops-db)에 붙어야 해서(감사로그 등) 5432가
+# 화이트리스트에 없어 timeout — secops 실측: socket 5432 timeout → Worker 미기동.
+#
+# toCIDR을 쓰는 이유: allow-db-init-rds.yaml/allow-temporal-db-init-rds(봉근 작성,
+# temporal 스키마/서버 RDS 갭 대응)와 동일한 계열·패턴. toCIDR은 toFQDNs와 달리
+# DNS 프록시(L7 rules.dns) 인터셉트 없이도 동작한다(이름→IP 변환 후 IP만 CIDR로
+# 매칭) — RDS 서브넷 자체가 대상이라 이 방식이 더 단순하고 확실하다.
+#
+# 대상 서브넷: RDS 서브넷(vpc/ops/subnets.tf) db_a=10.20.21.0/24, db_b=10.20.22.0/24.
+# SG(financial-vpc2-rds-sg)는 이미 EKS cluster SG를 통해 5432를 허용 중이라
+# (secops-mas/aiops-mas 파드 포함) 이 갭은 순수하게 Cilium 쪽 문제.
+#
+# finops-mas는 제외 — 외부 RDS가 아니라 클러스터 내부 Postgres pod(finops-db)를
+# 쓰므로 이 정책과 무관(allow-finops-mas.yaml 참고).
+#
+# 참고: secops-mas는 allow-fqdn-secops-mas.yaml에 이미 toFQDNs 기반
+# allow-fqdn-secops-rds(matchPattern "*.rds.amazonaws.com")가 있다. 그런데도
+# timeout이 실측됐다는 배경이라, 이 CIDR 기반 규칙을 추가로 둔다(두 규칙이
+# 겹쳐도 Cilium 정책은 허용 규칙끼리 합집합이라 충돌은 없음 — 다만 중복 커버는
+# 발생함, 아래 보고 참고).
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-mas-rds
+spec:
+  description: "secops-mas/aiops-mas orchestrator → RDS(financial-ops-db):5432 egress 허용"
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - secops-mas
+          - aiops-mas
+  egress:
+    - toCIDR:
+        - 10.20.21.0/24  # financial-vpc2-db-a
+        - 10.20.22.0/24  # financial-vpc2-db-b
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
