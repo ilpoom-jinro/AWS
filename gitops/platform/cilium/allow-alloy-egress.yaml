@@ -1,0 +1,54 @@
+# alloy-ops(observability-alloy-ops, ops 클러스터 데몬셋) egress 허용
+#
+# 배경: alloy-ops는 ops 클러스터 전체를 스크레이핑하는 메트릭 수집기다. Cilium
+# enforce 모드에서 아래 egress가 전부 DROP 확인됨: kube-state-metrics:8080,
+# aws-load-balancer-controller:8080, temporal 각 컴포넌트:9090, velero:8085
+# (전부 cluster 엔드포인트), istiod:15014 / istio-cni-node:15014(reserved:unmanaged).
+#
+# 확인한 사실(alloy-ops values.yaml 실측, 추측 아님):
+#   - helmChart/alloy-ops/values.yaml의 discovery.relabel "annotated_pod_metrics"가
+#     prometheus.io/scrape=true 애노테이션 붙은 파드를 전부 스크레이핑 대상으로 삼는다
+#     (포트도 애노테이션에서 옴) → 대상 파드/포트가 코드 변경 없이 계속 늘어날 수 있어
+#     toEntities:cluster를 포트 제한 없이 열어야 매번 정책 수정을 안 해도 된다.
+#   - kubelet/cadvisor 스크레이핑은 실제로는 kubernetes.default.svc.cluster.local:443
+#     (kube-apiserver 프록시)로 나간다 — 이미 allow-kube-apiserver.yaml(전체 파드 대상)로
+#     커버됨. host/remote-node 규칙은 향후 노드 직접 스크레이핑 대비 방어적으로 추가.
+#   - alloy-ops 라벨: namespace observability, app.kubernetes.io/name: alloy,
+#     app.kubernetes.io/instance: observability-alloy-ops (allow-alloy-ztunnel.yaml 등
+#     기존 alloy-ops 정책과 동일 라벨 재사용).
+#
+# DNS(53)는 이 정책에 안 넣음 — allow-dns.yaml이 endpointSelector: {}(전체 파드 대상)라
+# observability/alloy-ops도 이미 커버됨(별도 확인 완료).
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alloy-egress
+spec:
+  description: "alloy-ops(observability-alloy-ops) 클러스터 내부 스크레이핑 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: observability-alloy-ops
+  egress:
+    # 1) cluster 엔드포인트 전부 — kube-state-metrics:8080, aws-load-balancer-controller:8080,
+    #    temporal 각 컴포넌트:9090, velero:8085 등 애노테이션 기반 스크레이핑 대상이 늘어도
+    #    정책 수정 없이 커버하기 위해 포트 제한을 두지 않는다.
+    - toEntities:
+        - cluster
+
+    # 2) istiod / istio-cni-node:15014 — reserved:unmanaged 엔드포인트라 toEndpoints/toCIDR로
+    #    매칭이 안 되어 별도로 unmanaged 엔티티를 연다.
+    - toEntities:
+        - unmanaged
+      toPorts:
+        - ports:
+            - port: "15014"
+              protocol: TCP
+
+    # 3) 노드(host/remote-node) — kubelet/cadvisor를 향후 노드에서 직접 스크레이핑하게
+    #    바뀌는 경우 대비. 현재 설정은 kube-apiserver 프록시 경유라 이미 별도로 커버되지만
+    #    방어적으로 열어둔다(포트 제한 없음, allow-node-local.yaml과 동일 패턴).
+    - toEntities:
+        - host
+        - remote-node

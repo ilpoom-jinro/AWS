@@ -1,0 +1,38 @@
+# slack-hitl(platform-mas) → SQS VPC Endpoint egress 허용
+#
+# 배경: slack-hitl 봇이 라우터로 전환되며 inbound(financial-slack-hitl-inbound)
+# 폴링(ReceiveMessage/DeleteMessage) + outbound(financial-slack-hitl-outbound)
+# 발행(SendMessage)으로 SQS를 직접 호출해야 하는데, platform-mas는
+# default-deny.yaml 예외 목록에 없어 egress default-deny가 적용되어 TimeoutError
+# 확인됨.
+#
+# toFQDNs 대신 toCIDR을 쓰는 이유: SQS는 Interface VPC Endpoint
+# (vpc/ops/endpoints.tf의 aws_vpc_endpoint.sqs, private_dns_enabled=true)로
+# 접근하므로 목적지가 VPC 내부 프라이빗 IP(엔드포인트 ENI)다. ENI는 서브넷
+# private_a/private_b(10.20.11.0/24, 10.20.12.0/24)에 할당됨 — 이 두 대역을
+# 그대로 허용한다. allow-platform-mas-slack.yaml의 toFQDNs(*.slack.com)
+# 패턴은 외부 공인 도메인용이라 이 내부 프라이빗 엔드포인트에는 안 맞는다.
+#
+# DNS(53) 관련: 추가 규칙 불필요 — allow-dns.yaml이 전체 파드(endpointSelector: {})에
+# L4 53/UDP+TCP를 이미 열어놔서 private DNS 리졸브(sqs.ap-northeast-2.amazonaws.com
+# → 엔드포인트 프라이빗 IP)는 이걸로 된다. toCIDR은 FQDN→IP 매핑을 배우지 않으므로
+# (toFQDNs가 아니므로) allow-platform-mas-slack.yaml처럼 별도 L7 DNS 인터셉션
+# (rules.dns.matchPattern)도 필요 없다.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-platform-mas-sqs
+spec:
+  description: "slack-hitl(platform-mas) → SQS VPC Endpoint(10.20.11.0/24, 10.20.12.0/24) 443 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: platform-mas
+      app: slack-hitl
+  egress:
+    - toCIDR:
+        - "10.20.11.0/24"
+        - "10.20.12.0/24"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
