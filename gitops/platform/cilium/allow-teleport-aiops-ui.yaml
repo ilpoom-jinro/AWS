@@ -1,0 +1,44 @@
+# teleport-app-service ↔ aiops-ui:8000 (Teleport aiops-ui 프록시)
+# finops/secops-ui와 동일 패턴인데 aiops만 egress·ingress 정책이 모두 누락돼
+# teleport→aiops-ui가 default-deny에 막혀 UI 접속 시 Context Deadline Exceeded 발생.
+# egress(teleport 측) + ingress(aiops-ui 측) 둘 다 필요.
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-teleport-to-aiops-ui
+spec:
+  description: "teleport-app-service → aiops-ui:8000 egress 허용 (Teleport aiops-ui 프록시)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: teleport-apps
+      app.kubernetes.io/name: teleport-app-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aiops-mas
+            app.kubernetes.io/name: aiops-ui
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-aiops-ui-from-teleport
+spec:
+  description: "aiops-ui:8000 ingress 허용 (teleport-app-service에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: aiops-mas
+      app.kubernetes.io/name: aiops-ui
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: teleport-apps
+            app.kubernetes.io/name: teleport-app-service
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

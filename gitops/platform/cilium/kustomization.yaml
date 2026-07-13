@@ -28,6 +28,7 @@ resources:
   - allow-teleport-argocd.yaml
   - allow-teleport-finops-ui.yaml
   - allow-teleport-secops-ui.yaml
+  - allow-teleport-aiops-ui.yaml
   - allow-teleport-app-service-to-proxy.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
