@@ -67,7 +67,10 @@ variable "eks_node_disk_size" {
 variable "eks_node_desired_size" {
   description = "Desired number of service EKS nodes"
   type        = number
-  default     = 2
+  # 2→3: service 클러스터 CPU 포화(노드1 95% requests)로 istio 게이트웨이/waypoint
+  # istio-proxy가 startup을 못 끝내 CrashLoop → ALB 타겟 없음 → aws.ilpumjinro.store 503.
+  # 노드 1대 추가로 istio 데이터플레인 기동 여유 확보.
+  default = 3
 }
 
 variable "eks_node_min_size" {
