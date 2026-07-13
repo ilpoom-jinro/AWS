@@ -14,3 +14,8 @@ variable "dev_mode" {
   type        = bool
   default     = false
 }
+
+variable "route53_zone_arn" {
+  description = "Route 53 hosted zone ARN used by the GCP DR DNS-01 role"
+  type        = string
+}

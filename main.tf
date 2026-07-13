@@ -1,6 +1,7 @@
 module "iam" {
-  source   = "./iam"
-  dev_mode = var.dev_mode
+  source           = "./iam"
+  dev_mode         = var.dev_mode
+  route53_zone_arn = aws_route53_zone.main.arn
 }
 
 module "security" {
