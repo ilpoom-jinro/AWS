@@ -10,17 +10,17 @@ resource "aws_security_group" "headscale_router" {
   vpc_id      = aws_vpc.this.id
 
   ingress {
-    description = "Allow WireGuard UDP from GCP fixed IP"
-    from_port   = 51820
-    to_port     = 51820
+    description = "Allow Tailscale UDP from GCP fixed IP"
+    from_port   = 41641
+    to_port     = 41641
     protocol    = "udp"
     cidr_blocks = [var.gcp_fixed_ip]
   }
 
   egress {
-    description = "Allow WireGuard UDP to GCP"
-    from_port   = 51820
-    to_port     = 51820
+    description = "Allow Tailscale UDP to GCP"
+    from_port   = 41641
+    to_port     = 41641
     protocol    = "udp"
     cidr_blocks = [var.gcp_fixed_ip]
   }
