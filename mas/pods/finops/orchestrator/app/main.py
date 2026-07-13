@@ -1984,7 +1984,14 @@ async def finalize_finops_plan(workflow_id: str, context: dict[str, Any]) -> dic
                 utcnow(),
             ),
         )
+    try:
+        if FINOPS_SLACK_REPORT_ENABLED:
+            await send_finops_report_to_slack(workflow_id, status, plan)
+    except Exception as exc:
+        print(f"[finops-slack] report send failed: {exc}")
+
     return {"workflow_id": workflow_id, "status": status, "plan": plan}
+    
 
 
 @activity.defn(name="load_execution_plan")
