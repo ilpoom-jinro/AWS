@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 import uuid
+import boto3
 from datetime import datetime, timezone
 from typing import Any
 
