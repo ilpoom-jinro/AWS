@@ -1,4 +1,5 @@
-# SecOps 워커 Pod가 Istio AuthorizationPolicy를 apply하려면 ServiceAccount에 RBAC 필요.
+# SecOps 워커 Pod가 CiliumNetworkPolicy를 apply하려면 ServiceAccount에 RBAC 필요.
+# (민수님 확인: 이 프로젝트는 Cilium enforce → 격리도 CiliumNetworkPolicy로 적용)
 # 실제 SA 이름/네임스페이스는 배포 설정에 맞게 조정 (Platform/민수님 소유).
 # 격리 대상 네임스페이스마다 Role+RoleBinding. (여러 ns면 ClusterRole로 확장)
 apiVersion: rbac.authorization.k8s.io/v1
@@ -7,8 +8,8 @@ metadata:
   name: secops-isolation-applier
   namespace: financial-api          # 격리 대상 네임스페이스 (예시)
 rules:
-  - apiGroups: ["security.istio.io"]
-    resources: ["authorizationpolicies"]
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnetworkpolicies"]
     verbs: ["create", "get", "list", "update", "patch"]   # replace=update
 ---
 apiVersion: rbac.authorization.k8s.io/v1

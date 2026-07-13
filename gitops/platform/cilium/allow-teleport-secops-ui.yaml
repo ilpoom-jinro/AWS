@@ -1,0 +1,22 @@
+# teleport-app-service → secops-ui:8000 egress 허용
+# (allow-teleport-finops-ui.yaml과 동일 패턴, 목적지만 secops-ui)
+# ingress 쪽 대응 규칙은 allow-secops-mas.yaml의 allow-secops-ui-from-teleport 참고.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-teleport-to-secops-ui
+spec:
+  description: "teleport-app-service → secops-ui:8000 egress 허용 (Teleport secops-ui 프록시)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: teleport-apps
+      app.kubernetes.io/name: teleport-app-service
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: secops-mas
+            app.kubernetes.io/name: secops-ui
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

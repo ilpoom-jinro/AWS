@@ -1,0 +1,94 @@
+# secops-mas 네임스페이스 Cilium 정책 (ops 클러스터)
+#
+# 확인된 의존성 (manifest/코드 기반):
+#   secops-ui           → secops-orchestrator:8000 (HTTP API)
+#   secops-orchestrator → temporal-frontend.temporal:7233 (gRPC, 공용 Temporal)
+#   secops-orchestrator → RDS PostgreSQL:5432 (compliance_reports/audit_logs, 외부 RDS → FQDN 파일)
+#   secops-orchestrator → SQS/Bedrock/CloudWatch/CloudTrail (external → FQDN 파일)
+#   secops-orchestrator → k8s API server (CiliumNetworkPolicy apply, 격리) → kube-apiserver entity
+#   teleport-app-service → secops-ui:8000 (Teleport UI 프록시)
+#
+# 공통 레이블: app.kubernetes.io/part-of: secops-mas
+# finops와 달리 Temporal은 클러스터 내부 공용(temporal ns), DB는 외부 RDS.
+---
+# intra-secops-mas: 같은 네임스페이스 파드 간 전체 허용 (ui→orchestrator)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-secops-mas
+spec:
+  description: "secops-mas 내부 파드 간 통신 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: secops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: secops-mas
+---
+# secops-orchestrator → 공용 Temporal (temporal ns, 7233 gRPC)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-secops-to-temporal
+spec:
+  description: "secops-orchestrator → temporal-frontend:7233 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+      app.kubernetes.io/part-of: secops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: temporal
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP
+---
+# secops-orchestrator → k8s API server (격리 CiliumNetworkPolicy apply)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-secops-to-kube-apiserver
+spec:
+  description: "secops-orchestrator → kube-apiserver egress 허용 (격리 정책 apply)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+      app.kubernetes.io/part-of: secops-mas
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "6443"
+              protocol: TCP
+---
+# secops-ui INGRESS: teleport-app-service 경유 노출
+# teleport-apps는 default-deny 대상, secops-mas는 intra 정책만 있어 타 ns 소스 미커버 → 명시 필요.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-secops-ui-from-teleport
+spec:
+  description: "secops-ui:8000 ingress 허용 (teleport-app-service에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+      app.kubernetes.io/name: secops-ui
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: teleport-apps
+            app.kubernetes.io/name: teleport-app-service
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP

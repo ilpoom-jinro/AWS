@@ -1,0 +1,83 @@
+# secops-mas FQDN egress 정책
+#
+# toFQDNs 동작 조건은 allow-fqdn-finops-mas.yaml 주석 참고 (DNS 프록시 인터셉트 필요).
+# secops-orchestrator의 외부(AWS) 통신 대상:
+#   - Bedrock Runtime/KB retrieve (규제 분석 + RAG)
+#   - SQS (financial-secops-trigger 폴링)
+#   - CloudWatch Logs (Flow Logs 재조회), CloudTrail (증적)
+#   - STS (Pod Identity assume)
+#   - RDS PostgreSQL (compliance_reports/audit_logs) — RDS는 프라이빗 IP라 toFQDNs 또는 toCIDR
+---
+# secops-orchestrator → AWS 서비스 (Bedrock/SQS/CloudWatch/CloudTrail/STS)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-secops-aws
+spec:
+  description: "secops-mas → AWS 서비스(Bedrock/SQS/CloudWatch/CloudTrail/STS) egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+      app.kubernetes.io/part-of: secops-mas
+  egress:
+    # DNS 프록시 활성화 — *.amazonaws.com 응답 인터셉트해 FQDN→IP 매핑 학습
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    # AWS 서비스 FQDN egress (VPC interface endpoint)
+    - toFQDNs:
+        - matchName: "bedrock-runtime.ap-northeast-2.amazonaws.com"
+        - matchName: "bedrock-agent-runtime.ap-northeast-2.amazonaws.com"
+        - matchName: "bedrock.ap-northeast-2.amazonaws.com"
+        - matchName: "sqs.ap-northeast-2.amazonaws.com"
+        - matchName: "logs.ap-northeast-2.amazonaws.com"
+        - matchName: "cloudtrail.ap-northeast-2.amazonaws.com"
+        - matchName: "sts.ap-northeast-2.amazonaws.com"
+        - matchName: "sts.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# secops-orchestrator → RDS PostgreSQL (5432)
+# RDS 엔드포인트 FQDN은 배포 환경 값으로 치환 (gitops seed). 프라이빗 IP → toFQDNs 동작.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-fqdn-secops-rds
+spec:
+  description: "secops-orchestrator → RDS PostgreSQL:5432 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+      app.kubernetes.io/part-of: secops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.rds.amazonaws.com"
+    - toFQDNs:
+        - matchPattern: "*.rds.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
