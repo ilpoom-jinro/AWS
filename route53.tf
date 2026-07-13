@@ -75,6 +75,24 @@ resource "aws_route53_health_check" "aws_primary" {
   }
 }
 
+# GCP secondary도 독립적으로 HTTPS 상태를 확인한다. Primary가 실패했더라도
+# GCP Gateway가 준비되지 않은 상태면 Route 53이 정상 서비스처럼 응답하지 않는다.
+resource "aws_route53_health_check" "gcp_secondary" {
+  count = var.gcp_service_ip != "" ? 1 : 0
+
+  fqdn              = "gcp.ilpumjinro.store"
+  port              = 443
+  type              = "HTTPS"
+  resource_path     = "/"
+  failure_threshold = 3
+  request_interval  = 30
+  enable_sni        = true
+
+  tags = {
+    Name = "financial-gcp-stock-web-health-check"
+  }
+}
+
 # ── ilpumjinro.store — Failover (PRIMARY: AWS / SECONDARY: GCP) ──────────────
 
 resource "aws_route53_record" "root_primary" {
@@ -103,9 +121,10 @@ resource "aws_route53_record" "root_secondary" {
   name    = "ilpumjinro.store"
   type    = "A"
 
-  set_identifier = "gcp-secondary"
-  ttl            = 60
-  records        = [var.gcp_service_ip]
+  set_identifier  = "gcp-secondary"
+  health_check_id = aws_route53_health_check.gcp_secondary[0].id
+  ttl             = 60
+  records         = [var.gcp_service_ip]
 
   failover_routing_policy {
     type = "SECONDARY"

@@ -56,6 +56,7 @@ env:
   TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
   TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_gcp_service_ip: ${{ vars.GCP_SERVICE_IP || '' }}
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
   TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}
@@ -886,8 +887,11 @@ jobs:
           fi
           terraform apply -auto-approve -input=false -lock-timeout=5m -refresh=true \
             -target=aws_route53_health_check.aws_primary \
+            -target=aws_route53_health_check.gcp_secondary \
             -target=aws_route53_record.root_primary \
-            -target=aws_route53_record.aws_direct
+            -target=aws_route53_record.root_secondary \
+            -target=aws_route53_record.aws_direct \
+            -target=aws_route53_record.gcp_direct
 
   codebuild-update:
     name: Update selected Ops VPC CodeBuild
