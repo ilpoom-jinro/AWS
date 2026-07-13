@@ -2,8 +2,9 @@
 Slack HITL 봇 — mas/pods/platform/slack-hitl/bot.py  (계약이 가리키던 위치)
 ============================================================
 공통 컴포넌트. AIOps/SecOps 워크플로우가 이 봇으로 승인받는다.
-(FinOps는 REST /approve 엔드포인트 방식 → 이 봇 미사용 — scenario="finops"는
-build_approval_blocks의 title_by_scenario에만 남아있고 실제로 이 경로를 타지 않는다)
+(FinOps는 현재 REST /approve 엔드포인트 방식 → 이 봇 미사용. 다만 공용 브로커로서
+scenario="finops" 채널 매핑은 미리 준비해둔다 — SCENARIO_CHANNELS/build_approval_blocks의
+title_by_scenario 참고. FinOps가 이 경로로 들어오면 바로 쓸 수 있음)
 
 2단계(SQS 라우터 전환) 이후 세 가지를 한다:
   ① Temporal 워커  : 공통 Activity `send_approval_request` / `send_reminder` 를 등록.
@@ -25,7 +26,9 @@ Socket Mode는 더 이상 쓰지 않는다 — ops VPC(격리망, IGW/NAT 없음
 전용 task queue(HITL_TASK_QUEUE)에서 돈다. 워크플로우는 이 큐로 승인 Activity를 라우팅한다.
 
 필요 환경변수:
-    SLACK_CHANNEL_ID     C...       (승인 메시지 올릴 채널)
+    SLACK_CHANNEL_SECOPS C...       (secops 시나리오 승인 메시지 채널)
+    SLACK_CHANNEL_AIOPS  C...       (aiops 시나리오 승인 메시지 채널)
+    SLACK_CHANNEL_FINOPS C...       (finops 시나리오 승인 메시지 채널 — 현재 미사용, 대비용)
     TEMPORAL_ADDRESS     (기본 localhost:7233)
     HITL_TASK_QUEUE      (기본 hitl-approval-queue — 워크플로우와 반드시 동일)
     OUTBOUND_QUEUE_URL   financial-slack-hitl-outbound SQS 큐 URL
@@ -59,7 +62,12 @@ from temporalio.worker import Worker
 
 from contracts.models import ApprovalRequest, ApprovalResult, ApprovalTicket
 
-SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID")
+# 공용 브로커라 시나리오별로 다른 채널에 카드를 보낸다 — 단일 SLACK_CHANNEL_ID 고정 폐기.
+SCENARIO_CHANNELS = {
+    "secops": os.getenv("SLACK_CHANNEL_SECOPS"),
+    "aiops": os.getenv("SLACK_CHANNEL_AIOPS"),
+    "finops": os.getenv("SLACK_CHANNEL_FINOPS"),
+}
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 HITL_TASK_QUEUE = os.getenv("HITL_TASK_QUEUE", "hitl-approval-queue")
 OUTBOUND_QUEUE_URL = os.getenv("OUTBOUND_QUEUE_URL")
@@ -67,6 +75,17 @@ INBOUND_QUEUE_URL = os.getenv("INBOUND_QUEUE_URL")
 
 _sqs = boto3.client("sqs")
 _temporal_client: Client | None = None
+
+
+def _channel_for_scenario(scenario: str) -> str:
+    """scenario → Slack 채널 ID 조회. 매핑에 없는 scenario나 env 미설정 시 조용히
+    엉뚱한 채널로 보내지 않고 즉시 에러를 낸다(Temporal Activity 실패로 표면화됨)."""
+    if scenario not in SCENARIO_CHANNELS:
+        raise ValueError(f"알 수 없는 scenario '{scenario}' — SCENARIO_CHANNELS에 매핑 없음")
+    channel = SCENARIO_CHANNELS[scenario]
+    if not channel:
+        raise ValueError(f"scenario '{scenario}'에 대응하는 채널 env가 설정되지 않음")
+    return channel
 
 
 # =====================================================================
@@ -139,24 +158,28 @@ async def _enqueue_outbound(payload: dict) -> None:
 # =====================================================================
 @activity.defn(name="send_approval_request")
 async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
-    """승인 요청 메시지를 outbound SQS에 올린 뒤 티켓 반환.
+    """승인 요청 메시지를 scenario에 맞는 채널의 outbound SQS에 올린 뒤 티켓 반환.
     즉시 반환(대기는 워크플로우가 signal로).
+
+    채널은 request.scenario로 SCENARIO_CHANNELS에서 조회한다 — 매핑에 없거나 env가
+    비어있으면 _channel_for_scenario가 예외를 던져 Activity 자체가 실패한다(잘못된
+    채널로 조용히 새지 않도록).
 
     알려진 갭: 실제 Slack 게시는 outbound Lambda가 비동기로 수행하므로, 여기서는
     Slack이 부여할 ts를 알 방법이 없다 — slack_message_ts를 빈 문자열로 둔다.
-    channel_id는 항상 SLACK_CHANNEL_ID로 게시하므로 그대로 채울 수 있다.
     (영향: send_reminder가 스레드 답글 대신 새 메시지로 나감 — 아래 send_reminder 참고)
     """
     wf_id = activity.info().workflow_id          # 호출한 워크플로우의 Temporal id
+    channel = _channel_for_scenario(request.scenario)
     await _enqueue_outbound({
-        "channel": SLACK_CHANNEL_ID,
+        "channel": channel,
         "blocks": build_approval_blocks(request, wf_id),
         "text": f"승인 요청: {request.summary}",   # 알림/폴백 텍스트
     })
     return ApprovalTicket(
         workflow_id=request.workflow_id,
         slack_message_ts="",
-        channel_id=SLACK_CHANNEL_ID,
+        channel_id=channel,
     )
 
 
@@ -292,7 +315,8 @@ async def poll_inbound_loop() -> None:
 # =====================================================================
 async def main() -> None:
     global _temporal_client
-    missing = [k for k in ("SLACK_CHANNEL_ID", "OUTBOUND_QUEUE_URL", "INBOUND_QUEUE_URL")
+    missing = [k for k in ("SLACK_CHANNEL_SECOPS", "SLACK_CHANNEL_AIOPS", "SLACK_CHANNEL_FINOPS",
+                           "OUTBOUND_QUEUE_URL", "INBOUND_QUEUE_URL")
                if not os.getenv(k)]
     if missing:
         raise SystemExit(f"환경변수 누락: {', '.join(missing)}")

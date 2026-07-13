@@ -4,10 +4,13 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - serviceaccount.yaml
-  - slack-hitl-external-secret.yaml
   - configmap.yaml
   - deployment.yaml
   # service.yaml 없음 — 봇은 순수 아웃바운드 워커(수신 포트 없음)
+  # slack-hitl-external-secret.yaml 없음 — SLACK_CHANNEL_ID가 이 Secret의 마지막
+  # 키였는데 configmap.yaml의 SLACK_CHANNEL_SECOPS/AIOPS/FINOPS로 이전되며
+  # template.data가 완전히 비어 무의미해져서 파일 자체를 제거함
+  # (deployment.yaml의 secretRef도 같이 제거).
 
 images:
   - name: slack-hitl-image
