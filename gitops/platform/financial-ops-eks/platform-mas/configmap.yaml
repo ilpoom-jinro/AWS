@@ -15,3 +15,12 @@ data:
   # 클릭 payload를 받는다(financial-slack-inbound Lambda가 서명 검증 후 넣어줌).
   OUTBOUND_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-slack-hitl-outbound"
   INBOUND_QUEUE_URL: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-slack-hitl-inbound"
+  # 시나리오별 승인 카드 채널 — 공용 브로커라 secops/aiops/finops가 각자 채널로 간다.
+  # 채널 ID는 민감정보가 아니라 Secret이 아닌 ConfigMap으로 관리(민감정보인 bot/app
+  # token은 이 봇 pod가 아예 안 읽음 — financial-slack-outbound Lambda가 Secrets
+  # Manager에서 직접 읽음. 이 채널 이전으로 slack-hitl-tokens K8s Secret 자체가
+  # 빈 값이 돼 ExternalSecret/secretRef를 통째로 제거함). finops는 현재 이 봇을
+  # 안 쓰지만(REST /approve) 공용 브로커 전환 대비로 미리 채워둔다.
+  SLACK_CHANNEL_SECOPS: "C0BGC7XBK9D"
+  SLACK_CHANNEL_AIOPS: "C0BHPE88A4Q"
+  SLACK_CHANNEL_FINOPS: "C0BGRR37PTP"
