@@ -1,0 +1,18 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-finops-orchestrator-sqs
+spec:
+  description: "finops-orchestrator -> SQS VPC Endpoint egress"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: finops-mas
+      app.kubernetes.io/name: finops-orchestrator
+  egress:
+    - toCIDR:
+        - "10.20.11.0/24"
+        - "10.20.12.0/24"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

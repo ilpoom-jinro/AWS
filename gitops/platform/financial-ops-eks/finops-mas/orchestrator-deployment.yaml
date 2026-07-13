@@ -28,6 +28,12 @@ spec:
           image: finops-orchestrator-image
           imagePullPolicy: IfNotPresent
           env:
+            - name: FINOPS_SLACK_REPORT_ENABLED
+              value: "true"
+            - name: FINOPS_SLACK_OUTBOUND_QUEUE_URL
+              value: "https://sqs.ap-northeast-2.amazonaws.com/REPLACE_WITH_ACCOUNT_ID/financial-slack-hitl-outbound"
+            - name: FINOPS_SLACK_CHANNEL_ID
+              value: "C0BGRR37PTP"
             - name: DATABASE_URL
               value: postgresql://finops:finops@finops-db.finops-mas.svc.cluster.local:5432/finops
             - name: TEMPORAL_ADDRESS
