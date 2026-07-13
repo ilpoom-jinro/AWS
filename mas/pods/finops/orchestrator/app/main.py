@@ -48,7 +48,9 @@ from app.execution_workflows import EventExecutionWorkflow
 from app.workflows import FinOpsEventWorkflow
 from contracts.models import ExecutionMode, ExecutionPlan, ExecutionStep, AgentResponse, ReplanIntent
 
-
+FINOPS_SLACK_OUTBOUND_QUEUE_URL = os.getenv("FINOPS_SLACK_OUTBOUND_QUEUE_URL", "")
+FINOPS_SLACK_CHANNEL_ID = os.getenv("FINOPS_SLACK_CHANNEL_ID", "")
+FINOPS_SLACK_REPORT_ENABLED = os.getenv("FINOPS_SLACK_REPORT_ENABLED", "true").lower() == "true"
 DB_HOST = os.getenv("DB_HOST", "finops-db")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "finops")
@@ -1877,6 +1879,48 @@ async def record_agent_step_completed(
             ),
         )
     return context
+    
+async def send_finops_report_to_slack(workflow_id: str, status: str, plan: dict[str, Any]) -> None:
+    if not FINOPS_SLACK_OUTBOUND_QUEUE_URL or not FINOPS_SLACK_CHANNEL_ID:
+        return
+
+    report = plan.get("report", {})
+    event = report.get("event", {})
+    traffic = report.get("traffic", {})
+    cost = report.get("cost", {})
+    quality = plan.get("quality_gate_result", {})
+
+    text = (
+        f"*workflow_id:* `{workflow_id}`\n"
+        f"*status:* `{status}`\n"
+        f"*event:* {event.get('title', '-')}\n"
+        f"*Peak RPS:* {traffic.get('peak_rps_after', plan.get('peak_rps_after', '-'))}\n"
+        f"*필요 Pod:* {traffic.get('required_app_pods', plan.get('required_app_pods', '-'))}\n"
+        f"*예상 비용:* ${cost.get('estimated_event_cost_usd', plan.get('estimated_cost_usd', '-'))}\n"
+        f"*품질 검증:* {'통과' if quality.get('passed') else '검토 필요'}"
+    )
+
+    payload = {
+        "channel": FINOPS_SLACK_CHANNEL_ID,
+        "text": f"FinOps 계획 보고서: {workflow_id}",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "FinOps 계획 보고서"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text[:3000]},
+            },
+        ],
+    }
+
+    sqs = boto3.client("sqs", region_name=AWS_REGION)
+    await asyncio.to_thread(
+        sqs.send_message,
+        QueueUrl=FINOPS_SLACK_OUTBOUND_QUEUE_URL,
+        MessageBody=json.dumps(payload),
+    )
 
 
 @activity.defn(name="finalize_finops_plan")
