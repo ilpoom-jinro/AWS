@@ -1,0 +1,22 @@
+# aiops-mas 내부 파드 간 통신 허용 (aiops-ui → aiops-orchestrator 등)
+# finops(allow-intra-finops-mas)/secops(allow-intra-secops-mas)엔 있는데 aiops만 누락.
+# allow-mas-to-temporal/allow-mas-rds가 aiops-mas ns를 egress로 선택해 aiops-ui가
+# default-deny egress 상태 → 내부 orchestrator로 못 가서 UI 자동감시보드가
+# "orchestrator unavailable: urlopen error timed out"로 실패했음.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-aiops-mas
+spec:
+  description: "aiops-mas 내부 파드 간 통신 허용 (aiops-ui ↔ aiops-orchestrator)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: aiops-mas
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aiops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aiops-mas
