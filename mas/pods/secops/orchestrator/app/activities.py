@@ -334,7 +334,11 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
     if input.trigger_message:
         from .detection import message_to_event
         from .telemetry import enrich_flow_logs
-        event = message_to_event(input.trigger_message, input.cluster_name, enrich_flow_logs)
+        # message_to_event는 enrich_flow_logs(동기 boto3 CloudWatch Insights, 폴링)를 부를 수 있어
+        # to_thread로 오프로드 — 이벤트 루프(uvicorn /health) 블로킹 방지.
+        event = await asyncio.to_thread(
+            message_to_event, input.trigger_message, input.cluster_name, enrich_flow_logs
+        )
         if event is not None:
             activity.logger.info("threat parsed from trigger: workflow_id=%s source=%s",
                                  event.workflow_id, event.event_source)
@@ -360,8 +364,10 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
 @activity.defn(name="map_regulation")
 async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     """RAG 규정 조회 + 2단계 Bedrock 판단(Nova→Sonnet) + Blast Radius + 격리 정책 생성."""
-    chunks = retrieve_regulations(event)
-    analysis = analyze_violation(event, chunks)
+    # Bedrock KB retrieve / LLM converse는 동기 boto3 → to_thread로 오프로드해야
+    # 이벤트 루프(같은 프로세스의 uvicorn /health)가 막히지 않는다. (안 하면 프로브 timeout→CrashLoop)
+    chunks = await asyncio.to_thread(retrieve_regulations, event)
+    analysis = await asyncio.to_thread(analyze_violation, event, chunks)
     safe, detail, blast_evidence = check_blast_radius(event)
     # 분석 evidence + blast radius + 트리거 증적(raw_log에 실려온 CloudTrail Event ID 등) 병합
     from .detection import extract_evidence
