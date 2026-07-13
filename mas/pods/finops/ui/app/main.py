@@ -574,15 +574,6 @@ def index() -> Response:
         </div>
         <div id="execution-steps" class="agent-grid"></div>
       </section>
-
-      <section id="finops-report" hidden>
-        <div class="row">
-          <h2 id="report-title">FinOps Event Readiness Report</h2>
-          <span class="badge">Final report</span>
-        </div>
-        <p id="report-summary" class="report-lead"></p>
-        <div id="report-body" class="report-grid"></div>
-      </section>
     </main>
     <div id="agent-modal" class="modal" hidden onclick="closeAgentModal(event)">
       <div class="modal-panel" onclick="event.stopPropagation()">
