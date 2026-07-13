@@ -35,22 +35,30 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # 프로브: run.py가 worker+poller+uvicorn을 한 이벤트 루프에서 돌려,
+          #   poller의 SQS 롱폴링 등으로 순간 지연 시 timeout=1s면 /health가 실패한다.
+          #   timeout/주기/failureThreshold에 여유를 줘 오탐 재시작을 막는다.
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             requests:
               cpu: "100m"
-              memory: "256Mi"
+              memory: "384Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              # app.run(worker+poller+FastAPI) 여유분. OOM은 아니었으나 일이 늘어 소폭 상향.
+              memory: "768Mi"

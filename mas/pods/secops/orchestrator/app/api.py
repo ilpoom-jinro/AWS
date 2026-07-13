@@ -51,7 +51,9 @@ async def _get_client() -> Client:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
+    # async로 두어 이벤트 루프에서 즉시 응답 (동기 함수는 threadpool을 거쳐,
+    # worker/poller의 to_thread와 threadpool 경합 시 프로브 timeout을 유발할 수 있음).
     return {"status": "ok"}
 
 
