@@ -33,6 +33,7 @@ resources:
   - allow-db-init-rds.yaml
   - allow-temporal-cluster.yaml
   - allow-observability-velero-metrics.yaml
+  - allow-alloy-egress.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
