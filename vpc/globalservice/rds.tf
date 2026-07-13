@@ -29,6 +29,18 @@ resource "aws_db_parameter_group" "service" {
   }
 
   parameter {
+    name         = "shared_preload_libraries"
+    value        = "pglogical"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
+    name         = "wal_sender_timeout"
+    value        = "0"
+    apply_method = "pending-reboot"
+  }
+
+  parameter {
     name         = "max_replication_slots"
     value        = "10"
     apply_method = "pending-reboot"
