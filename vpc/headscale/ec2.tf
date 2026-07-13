@@ -77,7 +77,7 @@ resource "aws_instance" "headscale_router" {
     # on-prem → VPC 서브넷 라우팅: Tailscale CGNAT src → 기본 NIC IP로 SNAT (ADR-0001 갭 C)
     # 이 규칙 없으면 VPC2 NLB가 100.x.x.x src를 받아도 return route가 없어 TCP 연결 실패
     PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5; exit}')
-    iptables -t nat -A POSTROUTING -s 100.64.0.0/10 -o "${PRIMARY_INTERFACE}" -j MASQUERADE
+    iptables -t nat -A POSTROUTING -s 100.64.0.0/10 -o "$${PRIMARY_INTERFACE}" -j MASQUERADE
 
     # MTU 문제 방지 TCP MSS 조정
     iptables -t mangle -A FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
