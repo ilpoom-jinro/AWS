@@ -33,7 +33,7 @@ resource "aws_iam_role_policy" "gcp_dr_certificate" {
         Sid      = "ManageOnlyAcmeChallengeTxtRecords"
         Effect   = "Allow"
         Action   = ["route53:ChangeResourceRecordSets"]
-        Resource = aws_route53_zone.main.arn
+        Resource = var.route53_zone_arn
         Condition = {
           "ForAllValues:StringEquals" = {
             "route53:ChangeResourceRecordSetsNormalizedRecordNames" = [
