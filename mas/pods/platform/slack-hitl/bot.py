@@ -222,15 +222,31 @@ async def _signal_decision(body: dict, approved: bool) -> None:
         await handle.signal("submit_approval", args=[approved, reviewer, "via slack"])
 
 
+def _blocks_with_status(body: dict, status_text: str) -> list[dict]:
+    """원본 카드(header/section/context 등)는 그대로 두고 actions(버튼) 블록만
+    상태 표시 section으로 교체한다.
+
+    body["message"]["blocks"]가 없거나 비어있으면(예외 상황 대비) 기존처럼
+    section 1개짜리로 안전하게 대체한다.
+    """
+    original_blocks = body.get("message", {}).get("blocks")
+    if not original_blocks:
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": status_text}}]
+
+    blocks = [b for b in original_blocks if b.get("type") != "actions"]
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": status_text}})
+    return blocks
+
+
 async def _update_message(body: dict, approved: bool) -> None:
-    """결정 후 버튼 제거 + 결과 표시 (중복 클릭 방지) — outbound SQS에 chat.update 요청."""
+    """결정 후 버튼(actions)만 상태 표시로 교체, 원본 카드는 보존 — outbound SQS에 chat.update 요청."""
+    text = decision_text(approved, body["user"]["id"])
     await _enqueue_outbound({
         "method": "update",
         "channel": body["channel"]["id"],
         "ts": body["message"]["ts"],
-        "text": decision_text(approved, body["user"]["id"]),
-        "blocks": [{"type": "section",
-                     "text": {"type": "mrkdwn", "text": decision_text(approved, body["user"]["id"])}}],
+        "text": text,
+        "blocks": _blocks_with_status(body, text),
     })
 
 
@@ -260,8 +276,7 @@ async def _handle_decision(body: dict, approved: bool) -> None:
                 "channel": body["channel"]["id"],
                 "ts": body["message"]["ts"],
                 "text": label,
-                "blocks": [{"type": "section",
-                            "text": {"type": "mrkdwn", "text": label}}],
+                "blocks": _blocks_with_status(body, label),
             })
         except Exception:
             pass  # outbound enqueue 실패는 무시 (봇 입장에서 할 수 있는 게 없음)
