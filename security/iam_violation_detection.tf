@@ -185,17 +185,13 @@ resource "aws_cloudwatch_event_rule" "privilege_escalation" {
   event_pattern = jsonencode({
     "detail-type" = ["AWS API Call via CloudTrail"]
     detail = {
-      "$or" = [
-        {
-          eventSource = ["iam.amazonaws.com"]
-          eventName = [
-            "AttachUserPolicy",
-            "PutUserPolicy",
-            "AttachRolePolicy",
-            "AttachGroupPolicy",
-            "CreateAccessKey",
-          ]
-        }
+      eventSource = ["iam.amazonaws.com"]
+      eventName = [
+        "AttachUserPolicy",
+        "PutUserPolicy",
+        "AttachRolePolicy",
+        "AttachGroupPolicy",
+        "CreateAccessKey",
       ]
     }
   })
