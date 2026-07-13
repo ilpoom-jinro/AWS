@@ -597,6 +597,39 @@ jobs:
           -target=module.security.aws_s3_bucket_public_access_block.siem_athena_results
           -target=module.security.aws_s3_bucket.siem_athena_results
 
+      # slack-broker.tf 리소스 정리. 생성 역순: 커스텀 도메인(route53_record →
+      # base_path_mapping → domain_name)을 가장 먼저 제거한 뒤, wafv2_web_acl_association
+      # (API GW stage를 참조), API Gateway → Lambda → SQS 순으로 제거한다.
+      # data.archive_file은 데이터 소스라 destroy 대상이 아니므로 타겟하지 않는다.
+      - name: Destroy Slack broker
+        if: inputs.action == 'destroy'
+        run: >
+          terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -target=aws_route53_record.slack_broker
+          -target=aws_api_gateway_base_path_mapping.slack_broker
+          -target=aws_api_gateway_domain_name.slack_broker
+          -target=aws_wafv2_web_acl_association.slack_broker_api
+          -target=aws_api_gateway_stage.slack_broker
+          -target=aws_api_gateway_deployment.slack_broker
+          -target=aws_lambda_permission.apigw_invoke_slack_inbound
+          -target=aws_api_gateway_integration.slack_callback_lambda
+          -target=aws_api_gateway_method.slack_callback_post
+          -target=aws_api_gateway_resource.slack_callback
+          -target=aws_api_gateway_rest_api.slack_broker
+          -target=aws_lambda_event_source_mapping.slack_outbound
+          -target=aws_lambda_function.slack_outbound
+          -target=aws_lambda_function.slack_inbound
+          -target=aws_iam_role_policy.slack_outbound_lambda
+          -target=aws_iam_role_policy_attachment.slack_outbound_lambda_basic
+          -target=aws_iam_role.slack_outbound_lambda
+          -target=aws_iam_role_policy.slack_inbound_lambda
+          -target=aws_iam_role_policy_attachment.slack_inbound_lambda_basic
+          -target=aws_iam_role.slack_inbound_lambda
+          -target=aws_sqs_queue.slack_hitl_inbound
+          -target=aws_sqs_queue.slack_hitl_inbound_dlq
+          -target=aws_sqs_queue.slack_hitl_outbound
+          -target=aws_sqs_queue.slack_hitl_outbound_dlq
+
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >
@@ -713,6 +746,43 @@ jobs:
           -target=aws_sqs_queue.secops_trigger
           -target=aws_sqs_queue_policy.secops_trigger
           -target=aws_sns_topic_subscription.secops_trigger
+          $TF_MOVED_RESOURCE_TARGETS
+
+      # 루트 레벨 slack-broker.tf 리소스. 타겟 apply 구조라 명시하지 않으면 누락됨
+      # (waf.tf/secops-trigger.tf와 동일 갭). financial-slack-hitl-tokens 시크릿(secrets.tf)은
+      # "Apply secrets" 스텝에서 이미 존재하므로 여기서는 브로커 리소스만 타겟한다.
+      # wafv2_web_acl_association은 API Gateway stage + 기존 Web ACL(Apply WAF 스텝)이
+      # 있어야 하므로 API Gateway 리소스들 뒤에 둔다.
+      - name: Apply Slack broker
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=aws_sqs_queue.slack_hitl_outbound_dlq
+          -target=aws_sqs_queue.slack_hitl_outbound
+          -target=aws_sqs_queue.slack_hitl_inbound_dlq
+          -target=aws_sqs_queue.slack_hitl_inbound
+          -target=data.archive_file.slack_inbound
+          -target=data.archive_file.slack_outbound
+          -target=aws_iam_role.slack_inbound_lambda
+          -target=aws_iam_role_policy_attachment.slack_inbound_lambda_basic
+          -target=aws_iam_role_policy.slack_inbound_lambda
+          -target=aws_iam_role.slack_outbound_lambda
+          -target=aws_iam_role_policy_attachment.slack_outbound_lambda_basic
+          -target=aws_iam_role_policy.slack_outbound_lambda
+          -target=aws_lambda_function.slack_inbound
+          -target=aws_lambda_function.slack_outbound
+          -target=aws_lambda_event_source_mapping.slack_outbound
+          -target=aws_api_gateway_rest_api.slack_broker
+          -target=aws_api_gateway_resource.slack_callback
+          -target=aws_api_gateway_method.slack_callback_post
+          -target=aws_api_gateway_integration.slack_callback_lambda
+          -target=aws_lambda_permission.apigw_invoke_slack_inbound
+          -target=aws_api_gateway_deployment.slack_broker
+          -target=aws_api_gateway_stage.slack_broker
+          -target=aws_api_gateway_domain_name.slack_broker
+          -target=aws_api_gateway_base_path_mapping.slack_broker
+          -target=aws_route53_record.slack_broker
+          -target=aws_wafv2_web_acl_association.slack_broker_api
           $TF_MOVED_RESOURCE_TARGETS
 
       - name: Re-apply changed infrastructure

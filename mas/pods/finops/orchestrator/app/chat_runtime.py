@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 from typing import Any, Callable
+
 
 from app.chat_tools import (
     get_agent_result,
@@ -18,6 +20,7 @@ from app.chat_tools import (
 )
 from contracts.models import ReplanIntent
 
+logger = logging.getLogger(__name__)
 
 CHAT_SYSTEM_PROMPT = """
 당신은 FinOps 보고서 분석 전문가입니다.
@@ -262,15 +265,46 @@ def append_unique(values: list[str], value: str | None) -> None:
 def should_continue_tool_loop(tool_call_count: int) -> bool:
     return tool_call_count < CHAT_MAX_TOOL_CALLS
 
+def deterministic_answer(conn, workflow_id: str, message: str, history: list[dict]) -> dict[str, Any] | None:
+    lowered = message.lower()
+    if "pod" not in lowered and "파드" not in lowered:
+        return None
 
-def fallback_response(conversation_history: list[dict] | None) -> dict[str, Any]:
+    traffic = get_agent_result(conn, workflow_id, "traffic_forecast")
+    result = traffic.get("result", {})
+    peak_rps = result.get("peak_rps_after") or result.get("peak_rps")
+    required_pods = result.get("required_app_pods") or result.get("required_pods")
+    rps_per_pod = result.get("rps_per_pod") or 28.0
+
+    if not peak_rps or not required_pods:
+        return None
+
+    answer = (
+        f"필요 Pod는 Traffic Forecast Agent 결과 기준입니다. "
+        f"예상 Peak RPS가 {peak_rps}이고 Pod 1개 처리 기준이 {rps_per_pod} RPS라서 "
+        f"ceil({peak_rps} / {rps_per_pod}) = {required_pods}개로 계산됐습니다."
+    )
+    history.append({"role": "assistant", "content": answer})
     return {
-        "answer": "보고서 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.",
+        "answer": answer,
+        "sources": ["traffic_forecast"],
+        "tools_used": ["deterministic_answer", "get_agent_result"],
+        "conversation_history": history,
+    }
+    
+def fallback_response(
+    conversation_history: list[dict] | None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    answer = "보고서 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요."
+    if os.getenv("FINOPS_CHAT_DEBUG", "false").lower() == "true" and reason:
+        answer = f"{answer}\n\n디버그 원인: {reason}"
+    return {
+        "answer": answer,
         "sources": [],
         "tools_used": [],
         "conversation_history": normalize_conversation_history(conversation_history),
     }
-
 
 def planner_fallback(reason: str = "파싱 실패로 질의 모드로 전환") -> ReplanIntent:
     return ReplanIntent(
@@ -414,15 +448,9 @@ async def run_planner_llm(
         content = response.get("output", {}).get("message", {}).get("content", [])
         text = _extract_text(content)
         return parse_planner_response(text)
-    except Exception:
-        return planner_fallback()
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        return await asyncio.wait_for(
-            asyncio.get_running_loop().run_in_executor(executor, invoke),
-            timeout=CHAT_TIMEOUT_SECONDS,
-        )
-
+    except Exception as exc:
+        logger.exception("finops_chat_planner_failed", extra={"workflow_id": workflow_id})
+        return planner_fallback(reason=f"Planner 실패로 질의 모드로 전환: {type(exc).__name__}")
 
 async def run_report_chat(
     conn,
@@ -434,6 +462,9 @@ async def run_report_chat(
     history.append({"role": "user", "content": message})
     sources: list[str] = []
     tools_used: list[str] = []
+    deterministic = deterministic_answer(conn, workflow_id, message, history)
+    if deterministic:
+        return deterministic
 
     try:
         from shared.bedrock import ClaudeModel, get_bedrock_client
@@ -495,8 +526,9 @@ async def run_report_chat(
                     "conversation_history": history,
                 }
             bedrock_messages.append({"role": "user", "content": tool_results})
-    except Exception:
-        return fallback_response(history)
+    except Exception as exc:
+        logger.exception("finops_report_chat_failed", extra={"workflow_id": workflow_id})
+        return fallback_response(history, reason=f"{type(exc).__name__}: {exc}")
 
 
 async def run_explain_llm(
@@ -571,8 +603,9 @@ async def run_explain_llm(
                     "conversation_history": history,
                 }
             bedrock_messages.append({"role": "user", "content": tool_results})
-    except Exception:
-        return fallback_response(history)
+    except Exception as exc:
+        logger.exception("finops_explain_chat_failed", extra={"workflow_id": workflow_id})
+        return fallback_response(history, reason=f"{type(exc).__name__}: {exc}")
 
 
 async def run_conversation_briefing_llm(
