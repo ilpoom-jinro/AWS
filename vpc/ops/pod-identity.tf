@@ -202,9 +202,14 @@ resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
           "elasticache:DescribeReplicationGroups",
           "rds:DescribeDBInstances",
           "rds:DescribeDBClusters",
-          "sqs:SendMessage",
         ]
         Resource = "*"
+      },
+      {
+        Sid      = "SlackOutboundQueueSend"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = var.slack_hitl_outbound_queue_arn
       },
     ]
   })
