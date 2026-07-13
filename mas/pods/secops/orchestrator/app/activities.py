@@ -395,8 +395,11 @@ def _load_k8s_config() -> None:
         config.load_kube_config()   # kubeconfig도 없으면 ConfigException 재발생
 
 
-def _apply_isolation_policy(doc: dict) -> str:
-    """CiliumNetworkPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'."""
+def _apply_isolation_policy(doc: dict, dry_run: bool = False) -> str:
+    """
+    CiliumNetworkPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'.
+    dry_run=True면 k8s API 서버측 dry_run="All"로 검증만 수행(실제 반영 없음).
+    """
     from kubernetes import client
     from kubernetes.client.rest import ApiException
 
@@ -405,24 +408,27 @@ def _apply_isolation_policy(doc: dict) -> str:
     ns = doc["metadata"].get("namespace") or "default"
     name = doc["metadata"]["name"]
     api = client.CustomObjectsApi()
+    kwargs = {"dry_run": "All"} if dry_run else {}
     try:
-        api.create_namespaced_custom_object(group, version, ns, plural, doc)
+        api.create_namespaced_custom_object(group, version, ns, plural, doc, **kwargs)
         return "created"
     except ApiException as exc:
         if exc.status != 409:            # 409=이미 존재 → replace로 멱등, 그 외는 전파(재시도)
             raise
         existing = api.get_namespaced_custom_object(group, version, ns, plural, name)
         doc["metadata"]["resourceVersion"] = existing["metadata"]["resourceVersion"]
-        api.replace_namespaced_custom_object(group, version, ns, plural, name, doc)
+        api.replace_namespaced_custom_object(group, version, ns, plural, name, doc, **kwargs)
         return "replaced"
 
 
 @activity.defn(name="apply_isolation")
-async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
+async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> ExecutionResult:
     """
     CiliumNetworkPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
-      - 배포 Pod: in-cluster 자격증명으로 실제 apply (create-or-replace)
-      - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry-run (정책 검증만, 미적용)
+      - dry_run=True (1단계 검증 호출): k8s API 서버측 dry_run="All"로 검증만, 미반영
+      - dry_run=False (2단계 실apply 호출): in-cluster 자격증명으로 실제 apply (create-or-replace)
+      - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry_run 인자와 무관하게 항상
+        canned dry-run(정책 검증만, 미적용) — 기존 안전망 그대로 유지
     상태 변경 Activity → heartbeat. 동기 k8s 호출은 스레드로 오프로드(이벤트 루프 비차단).
     """
     import yaml
@@ -432,16 +438,17 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
     name = doc.get("metadata", {}).get("name", "?")
     ns = doc.get("metadata", {}).get("namespace", "default")
 
-    dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
-    if not dry_run:
+    force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
+    no_cluster = False
+    if not force_dry_run:
         from kubernetes.config.config_exception import ConfigException
         try:
             await asyncio.to_thread(_load_k8s_config)
         except ConfigException:
             # 클러스터 설정 없음(로컬/발표자 PC)만 dry-run. 그 외(패키지 미설치·네트워크 등)는 전파.
-            dry_run = True
+            no_cluster = True
 
-    if dry_run:
+    if force_dry_run or no_cluster:
         return ExecutionResult(
             workflow_id=mapping.workflow_id,
             success=True,
@@ -449,8 +456,18 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
             output=mapping.isolation_policy_yaml,
         )
 
+    if dry_run:
+        activity.heartbeat("apply_isolation: server-side dry-run")
+        await asyncio.to_thread(_apply_isolation_policy, doc, True)
+        return ExecutionResult(
+            workflow_id=mapping.workflow_id,
+            success=True,
+            action_taken=f"[DRY-RUN] CiliumNetworkPolicy '{name}' (ns={ns}) 서버 검증 완료 — 클러스터 미적용",
+            output=mapping.isolation_policy_yaml,
+        )
+
     activity.heartbeat("apply_isolation: applying")
-    outcome = await asyncio.to_thread(_apply_isolation_policy, doc)
+    outcome = await asyncio.to_thread(_apply_isolation_policy, doc, False)
     return ExecutionResult(
         workflow_id=mapping.workflow_id,
         success=True,
