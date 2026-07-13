@@ -36,29 +36,29 @@ spec:
             - port: "5432"
               protocol: TCP
 ---
-# temporal-db-init → RDS(financial-ops-db):5432 egress 허용 (enforce 후 CrashLoop 확인된 갭)
+# temporal namespace 전체 → RDS(financial-ops-db):5432 egress 허용
 #
-# 확인한 사실(job.yaml 실측, 추측 아님):
-#   - temporal-db-init은 audit/compliance/postmortem-db-init과 달리 전용 네임스페이스가
-#     없고 temporal-frontend 등과 같은 공유 namespace: temporal 안에 떠 있는 Job임.
-#     (namespace: temporal, 라벨: app.kubernetes.io/name: temporal-db-init)
-#   - 그래서 위 정책의 matchExpressions(namespace In [...])에 "temporal-db-init"을
-#     그대로 추가해도 매칭 안 됨(그 이름의 namespace가 없음) — namespace를 "temporal"로
-#     넣으면 매칭은 되지만 temporal-frontend/history/matching 등 namespace 전체가
-#     RDS egress를 갖게 돼 과함. namespace+라벨 조합으로 별도 정책 분리.
-#   - PGHOST는 secretKeyRef(temporal-rds-credentials.host)로 주입 — 나머지 3개와 동일하게
-#     DNS 기반(secrets.tf: module.vpc2.rds_address). toCIDR 범위(10.20.21/22.0/24)가
-#     10.20.22.98(실측 DROP된 IP)도 이미 포함하므로 CIDR 확장은 불필요, selector만 추가.
+# 확인한 사실(실측, 추측 아님):
+#   - temporal namespace에는 temporal-db-init(Job)뿐 아니라 스키마 셋업 Job
+#     (temporal-schema-*, 라벨 app.kubernetes.io/name != temporal-db-init)과 temporal
+#     서버(frontend/history/matching/worker)가 모두 뜬다. 이들 전부 RDS에 직접 붙어
+#     스키마 생성·영속화를 한다.
+#   - 과거엔 endpointSelector를 namespace=temporal + name=temporal-db-init으로 좁혀
+#     db-init만 허용했는데, 그 결과 temporal-schema 파드가 Cilium 기본 DROP에 걸려
+#     RDS 연결 timeout → 스키마 셋업 실패 → temporal 서버 미기동 → aiops/secops
+#     orchestrator가 temporal 주소 DNS 조회 실패로 CrashLoop 되는 갭이 확인됨.
+#   - temporal namespace에는 temporal 컴포넌트만 존재하고 전부 RDS가 필요하므로
+#     namespace 단위 허용이 과하지 않다. selector를 namespace로 넓힌다.
+#   - toCIDR 범위(10.20.21/22.0/24)는 RDS 서브넷(db_a/db_b) 전체라 그대로 유효.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-temporal-db-init-rds
 spec:
-  description: "temporal-db-init → RDS(financial-ops-db):5432 egress 허용"
+  description: "temporal namespace(db-init/schema/server) → RDS(financial-ops-db):5432 egress 허용"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: temporal
-      app.kubernetes.io/name: temporal-db-init
   egress:
     - toCIDR:
         - 10.20.21.0/24  # financial-vpc2-db-a
