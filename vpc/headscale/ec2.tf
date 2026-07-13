@@ -89,7 +89,7 @@ resource "aws_instance" "headscale_router" {
     # --advertise-routes: AWS VPC 대역을 Tailscale 네트워크에 광고
     # --snat-subnet-routes=false: iptables SNAT 사용
     tailscale up \
-      --login-server http://${var.oci_headscale_ip_plain}:8080 \
+      --login-server ${var.headscale_login_server} \
       --authkey ${var.tailscale_auth_key} \
       --advertise-routes=10.10.0.0/16,10.20.0.0/16 \
       --snat-subnet-routes=false
