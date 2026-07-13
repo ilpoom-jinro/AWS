@@ -21,11 +21,13 @@ resources:
 
   # 앱별 allow (ops 클러스터)
   - allow-finops-mas.yaml
+  - allow-secops-mas.yaml
   - allow-observability-nlb.yaml
   - allow-alloy-ztunnel.yaml
   - allow-apiserver-eso-webhook.yaml
   - allow-teleport-argocd.yaml
   - allow-teleport-finops-ui.yaml
+  - allow-teleport-secops-ui.yaml
   - allow-teleport-app-service-to-proxy.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
@@ -42,6 +44,7 @@ resources:
 
   # FQDN egress
   - allow-fqdn-finops-mas.yaml
+  - allow-fqdn-secops-mas.yaml
   - allow-fqdn-velero.yaml
   - allow-fqdn-albc.yaml
   - allow-fqdn-eso.yaml

@@ -296,19 +296,31 @@ def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
 
 
 def build_isolation_policy(event: SecurityEvent) -> str:
-    """Istio AuthorizationPolicy (민수님 확인: 이 프로젝트는 Istio)."""
-    return f"""apiVersion: security.istio.io/v1
-kind: AuthorizationPolicy
+    """
+    격리용 CiliumNetworkPolicy 생성 (민수님 확인: 이 프로젝트는 Cilium enforce).
+
+    Cilium은 endpoint에 정책이 매칭되고 허용 규칙이 없으면 차단한다. 여기서는
+    레포의 default-deny.yaml과 동일하게 enableDefaultDeny(ingress/egress true)를
+    명시해, 대상 pod의 모든 in/out 트래픽을 확실히 차단한다(Istio DENY와 동일 효과).
+
+    네임스페이스 스코프(CiliumNetworkPolicy)로 생성해 대상 pod가 있는 ns에만 적용.
+    """
+    return f"""apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
 metadata:
   name: isolate-{event.source_pod}
   namespace: {event.namespace}
+  labels:
+    app.kubernetes.io/managed-by: secops-mas
+    secops.mas/isolation: "true"
 spec:
-  selector:
+  description: "SecOps 자동 격리 - {event.source_pod} ({event.threat_type})"
+  endpointSelector:
     matchLabels:
       pod: {event.source_pod}
-  action: DENY
-  rules:
-    - {{}}
+  enableDefaultDeny:
+    ingress: true
+    egress: true
 """
 
 
@@ -377,13 +389,13 @@ def _load_k8s_config() -> None:
         config.load_kube_config()   # kubeconfig도 없으면 ConfigException 재발생
 
 
-def _apply_authorization_policy(doc: dict) -> str:
-    """Istio AuthorizationPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'."""
+def _apply_isolation_policy(doc: dict) -> str:
+    """CiliumNetworkPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'."""
     from kubernetes import client
     from kubernetes.client.rest import ApiException
 
-    group, version = doc["apiVersion"].split("/", 1)   # security.istio.io, v1
-    plural = "authorizationpolicies"
+    group, version = doc["apiVersion"].split("/", 1)   # cilium.io, v2
+    plural = "ciliumnetworkpolicies"
     ns = doc["metadata"].get("namespace") or "default"
     name = doc["metadata"]["name"]
     api = client.CustomObjectsApi()
@@ -402,7 +414,7 @@ def _apply_authorization_policy(doc: dict) -> str:
 @activity.defn(name="apply_isolation")
 async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
     """
-    Istio AuthorizationPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
+    CiliumNetworkPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
       - 배포 Pod: in-cluster 자격증명으로 실제 apply (create-or-replace)
       - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry-run (정책 검증만, 미적용)
     상태 변경 Activity → heartbeat. 동기 k8s 호출은 스레드로 오프로드(이벤트 루프 비차단).
@@ -427,16 +439,16 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
         return ExecutionResult(
             workflow_id=mapping.workflow_id,
             success=True,
-            action_taken=f"[DRY-RUN] AuthorizationPolicy '{name}' (ns={ns}) 검증 완료 — 클러스터 미적용",
+            action_taken=f"[DRY-RUN] CiliumNetworkPolicy '{name}' (ns={ns}) 검증 완료 — 클러스터 미적용",
             output=mapping.isolation_policy_yaml,
         )
 
     activity.heartbeat("apply_isolation: applying")
-    outcome = await asyncio.to_thread(_apply_authorization_policy, doc)
+    outcome = await asyncio.to_thread(_apply_isolation_policy, doc)
     return ExecutionResult(
         workflow_id=mapping.workflow_id,
         success=True,
-        action_taken=f"Istio AuthorizationPolicy '{name}' (ns={ns}) {outcome} — pod 격리 적용",
+        action_taken=f"CiliumNetworkPolicy '{name}' (ns={ns}) {outcome} — pod 격리 적용",
         output=f"{outcome}: {name} (ns={ns})",
     )
 
