@@ -38,6 +38,7 @@ resources:
   - allow-alloy-egress.yaml
   - allow-platform-mas-sqs.yaml
   - allow-mas-rds.yaml
+  - allow-secops-mas-sqs.yaml
 
   # 앱별 allow (service 클러스터)
   - allow-stock-demo.yaml
