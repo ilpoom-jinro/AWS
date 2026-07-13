@@ -806,7 +806,6 @@ def index() -> Response:
         renderCandidates(data.plan_candidates || plan.plan_candidates || [], data.recommended_candidate || plan.recommended_candidate);
         renderPlanComparison(data.plan_candidates || plan.plan_candidates || []);
         renderQualityGate(data.quality_gate_result || plan.quality_gate_result || {});
-        renderReport(plan.report);
       }
 
       function renderCandidates(candidates, recommended) {
