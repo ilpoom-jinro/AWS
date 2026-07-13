@@ -178,8 +178,14 @@ class SecOpsWorkflow:
             await self._audit(event.workflow_id, "approval_granted", "승인됨",
                               {"result": approval_result.model_dump(mode="json")})
             if mapping.blast_radius_safe:
+                dry_run_result = await workflow.execute_activity(
+                    apply_isolation, args=[mapping, True],
+                    **get_activity_options(ActivityName.APPLY_ISOLATION),
+                )
+                await self._audit(event.workflow_id, "action_dry_run", "격리 사전 검증",
+                                  {"result": dry_run_result.model_dump(mode="json")})
                 result = await workflow.execute_activity(
-                    apply_isolation, mapping,
+                    apply_isolation, args=[mapping, False],
                     **get_activity_options(ActivityName.APPLY_ISOLATION),
                 )
                 await self._audit(event.workflow_id, "action_executed", "격리 실행",
