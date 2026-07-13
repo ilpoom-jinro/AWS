@@ -202,6 +202,7 @@ resource "aws_iam_role_policy" "mas_orchestrator_finops_collector" {
           "elasticache:DescribeReplicationGroups",
           "rds:DescribeDBInstances",
           "rds:DescribeDBClusters",
+          "sqs:SendMessage",
         ]
         Resource = "*"
       },
