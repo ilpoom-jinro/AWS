@@ -1,0 +1,80 @@
+# 공용 temporal 클러스터 네트워킹 — Cilium default-deny egress 하에서
+#   (1) temporal 서버 컴포넌트가 ringpop 멤버십으로 클러스터를 형성하고
+#   (2) aiops/secops/platform-mas orchestrator가 temporal frontend에 접속하도록
+# 허용한다. (finops는 자체 finops-temporal을 finops-mas 내부에서 쓰므로
+#  allow-finops-mas의 intra-namespace 정책이 이미 커버 — 이 파일은 공용 temporal 전용.)
+#
+# 확인한 사실(실측, 추측 아님):
+#   - temporal 서버(frontend/history/matching/worker)는 ringpop 멤버십 포트
+#     6933/6934/6935/6939 로 서로 P2P join 해야 클러스터가 형성된다. intra-namespace
+#     통신이 막히면 "unable to bootstrap ringpop ... join duration exceeded max 30s"
+#     로 fatal 종료 → 서버 미기동.
+#   - aiops/secops/platform-mas orchestrator의 TEMPORAL_ADDRESS =
+#     temporal-frontend.temporal.svc.cluster.local:7233 (configmap 실측).
+---
+# 1) temporal 내부 파드 간 전 포트 통신 (ringpop 멤버십 + gRPC 클러스터 형성)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-intra-temporal
+spec:
+  description: "temporal 내부 파드 간 통신 허용 (frontend/history/matching/worker ringpop 멤버십·gRPC 클러스터 형성)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: temporal
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: temporal
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: temporal
+---
+# 2) MAS orchestrator(aiops/secops/platform-mas) → 공용 temporal frontend:7233 egress
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-mas-to-temporal
+spec:
+  description: "aiops/secops/platform-mas orchestrator → 공용 temporal frontend:7233 egress 허용"
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: In
+        values:
+          - aiops-mas
+          - secops-mas
+          - platform-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: temporal
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP
+---
+# 3) temporal frontend:7233 ingress from MAS orchestrator (양방향 허용 필요)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-temporal-from-mas
+spec:
+  description: "temporal frontend:7233 ingress 허용 (aiops/secops/platform-mas orchestrator 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: temporal
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - aiops-mas
+                - secops-mas
+                - platform-mas
+      toPorts:
+        - ports:
+            - port: "7233"
+              protocol: TCP

@@ -25,6 +25,12 @@ variable "oci_headscale_ip_plain" {
   type        = string
 }
 
+variable "headscale_login_server" {
+  description = "Headscale control-plane URL used by Tailscale clients"
+  type        = string
+  default     = "https://headscale.ilpumjinro.cloud"
+}
+
 variable "tailscale_auth_key" {
   description = "Tailscale auth key for OCI Headscale registration"
   type        = string

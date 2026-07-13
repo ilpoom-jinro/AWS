@@ -77,6 +77,7 @@ module "vpc4" {
   gcp_fixed_ip           = var.gcp_fixed_ip
   oci_headscale_ip       = var.oci_headscale_ip
   oci_headscale_ip_plain = var.oci_headscale_ip_plain
+  headscale_login_server = var.headscale_login_server
   tailscale_auth_key     = var.tailscale_auth_key
 }
 
@@ -110,4 +111,3 @@ module "vpc_peering" {
   # VPC 4 라우팅 테이블 ID
   vpc4_public_rt_id = module.vpc4.public_route_table_id
 }
-
