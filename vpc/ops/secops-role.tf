@@ -136,6 +136,60 @@ resource "aws_iam_role_policy" "secops_orchestrator_trigger_sqs" {
   })
 }
 
+# 계정 탈취 대응 — revoke_iam_privilege(activities.py)가 부여된 정책 detach 또는
+# 발급된 AccessKey 비활성화에 쓰는 권한. 강력한 권한(보안 대응 시스템 자체가 탈취되면
+# 계정 전체를 무력화할 수 있는 권한)이라 이중으로 제한한다:
+#   1) Allow는 user/*만 (role은 회수 대상 아님 — Allow에서 아예 제외)
+#   2) Deny로 모든 role + 팀원 개인 계정을 명시적으로 보호(Allow보다 우선 적용)
+# 실운영: 대응 대상이 늘어나면 이 Deny 목록을 계속 관리해야 함 — 향후 개인 계정에
+# protected=true 같은 태그를 달고 태그 기반 Condition(aws:ResourceTag)으로 전환해
+# 목록을 일일이 나열 안 해도 되게 바꾸는 걸 고려.
+resource "aws_iam_role_policy" "secops_orchestrator_iam_response" {
+  name = "secops-iam-account-takeover-response"
+  role = aws_iam_role.secops_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "IamAccountTakeoverResponse"
+        Effect = "Allow"
+        Action = [
+          "iam:DetachUserPolicy",
+          "iam:DetachRolePolicy",
+          "iam:DeleteAccessKey",
+          "iam:UpdateAccessKey",
+        ]
+        Resource = [
+          "arn:aws:iam::${var.account_id}:user/*",
+        ]
+      },
+      {
+        Sid    = "IamAccountTakeoverResponseProtected"
+        Effect = "Deny"
+        Action = [
+          "iam:DetachUserPolicy",
+          "iam:DetachRolePolicy",
+          "iam:DeleteAccessKey",
+          "iam:UpdateAccessKey",
+        ]
+        Resource = [
+          "arn:aws:iam::${var.account_id}:role/*", # role은 전부 보호
+          "arn:aws:iam::${var.account_id}:user/security",
+          "arn:aws:iam::${var.account_id}:user/infra",
+          "arn:aws:iam::${var.account_id}:user/gh",
+          "arn:aws:iam::${var.account_id}:user/sre",
+          "arn:aws:iam::${var.account_id}:user/sj",
+          "arn:aws:iam::${var.account_id}:user/minsu",
+          "arn:aws:iam::${var.account_id}:user/onfrem",
+          "arn:aws:iam::${var.account_id}:user/platform",
+          "arn:aws:iam::${var.account_id}:user/migration",
+        ]
+      },
+    ]
+  })
+}
+
 # 감사 로그 DB 등 공통 접근이 필요하면 mas-policy 도 부착 (FinOps 역할과 동일)
 resource "aws_iam_role_policy_attachment" "secops_orchestrator_mas" {
   role       = aws_iam_role.secops_orchestrator.name

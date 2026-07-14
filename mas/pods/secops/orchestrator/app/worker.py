@@ -31,6 +31,7 @@ from .activities import (
     record_audit_log,
     record_compliance_report,
     record_postmortem_report,
+    revoke_iam_privilege,
 )
 from .workflow import SecOpsWorkflow
 
@@ -49,6 +50,7 @@ async def main() -> None:
             detect_threat,
             map_regulation,
             apply_isolation,
+            revoke_iam_privilege,
             generate_compliance_report,
             record_compliance_report,
             generate_postmortem_report,
