@@ -103,6 +103,69 @@ def _rule_filter_skip(evidence: dict) -> bool:
     return False
 
 
+def _describe_event_for_card(event_dict: dict) -> str:
+    """Slack 카드용 — 이벤트 하나를 사람이 읽는 한 줄 설명으로. event_name만으론
+    "AttachUserPolicy" 자체가 뭘 의미하는지 안 드러나서 policy_arn 마지막 세그먼트
+    (정책명)까지 보여준다."""
+    event_name = event_dict.get("event_name", "")
+    policy_arn = event_dict.get("policy_arn", "")
+    policy_name = policy_arn.rsplit("/", 1)[-1] if policy_arn else ""
+
+    if event_name == "AttachUserPolicy":
+        return f"{policy_name} 부여" if policy_name else "정책 부여"
+    if event_name == "AttachRolePolicy":
+        return f"{policy_name} 부여(Role)" if policy_name else "정책 부여(Role)"
+    if event_name == "PutUserPolicy":
+        return "인라인 정책 부여"
+    if event_name == "CreateAccessKey":
+        return "액세스 키 생성"
+    return event_name or "알 수 없음"
+
+
+def _format_event_time_for_card(event_dict: dict) -> str:
+    """카드 표시용 시각 — event_time(원본 CloudTrail eventTime)을 우선 쓴다.
+    detected_at(파싱 처리 시각)만 있으면 그걸로 폴백하되, 실제 발생 시각과 다를 수
+    있음을 감안해야 한다(_parse_trigger_time과 동일 이유). 마이크로초는 노출하지
+    않고 초 단위까지만 자른다."""
+    raw = event_dict.get("event_time") or event_dict.get("detected_at") or ""
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return parsed.strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        return "--:--:--"
+
+
+def _render_evidence_for_card(evidence: dict) -> str:
+    """Slack 카드(1차 승인)에 보여줄 evidence 텍스트. 계정 탈취 Incident 묶음
+    (evidence에 "events" 키가 있는 경우)만 전용 포맷으로 사람이 읽게 렌더링하고,
+    그 외(단일 이벤트/네트워크 알람 evidence)는 기존처럼 raw key:value 그대로 —
+    이번 개선 범위는 보고된 계정 탈취 카드 한정, 다른 시나리오 evidence 모양까지
+    새로 설계하지 않는다.
+    audit 로그(_audit 호출)는 이 함수를 거치지 않고 mapping.evidence 원본을 그대로
+    쓴다 — 카드 표시(사람용)와 감사 기록(기계 판독용)을 분리하기 위함."""
+    if "events" not in evidence:
+        return (
+            "\n".join(f"  {k}: {v}" for k, v in evidence.items())
+            if evidence else "  (없음)"
+        )
+
+    events = evidence.get("events", [])
+    lines = [f"관련 이벤트 ({len(events)}건):"]
+    for idx, event_dict in enumerate(events, start=1):
+        time_str = _format_event_time_for_card(event_dict)
+        event_name = event_dict.get("event_name", "알 수 없음")
+        description = _describe_event_for_card(event_dict)
+        lines.append(f"  {idx}. {time_str}  {event_name}  → {description}")
+
+    target_user_arn = evidence.get("target_user_arn", "")
+    if target_user_arn:
+        lines.append(f"\n대상 계정: {target_user_arn}")
+
+    lines.append(f"lookback 조회: {'실패' if evidence.get('lookback_failed') else '성공'}")
+
+    return "\n".join(lines)
+
+
 @workflow.defn
 class SecOpsWorkflow:
     def __init__(self) -> None:
@@ -134,6 +197,12 @@ class SecOpsWorkflow:
         evidence = extract_evidence(event)
         event_name = evidence.get("event_name", "")
         policy_arn = evidence.get("policy_arn", "")
+
+        # 대응 분기(4번)에서 IAM 회수 대상으로 쓸 이벤트 목록 — 기본값은 트리거 이벤트
+        # 하나(기존 단일 이벤트 경로와 동일). 계정 탈취 그룹 경로에서만 Incident에 묶인
+        # 이벤트들로 교체된다 — 이래야 대응 분기까지 스코프가 살아남는다(기존엔
+        # incident_group/judged_events가 아래 if 블록 지역변수라 여기까지 안 보였음).
+        iam_response_events: list[SecurityEvent] = [event]
 
         # 계정 탈취 트리거 판정 — CreateAccessKey만. Admin 부여(AttachUserPolicy 등)는
         # 더 이상 단독 트리거가 아니라, 아래 lookback이 과거 1시간에서 찾아온다.
@@ -230,6 +299,14 @@ class SecOpsWorkflow:
 
                 trigger_mapping = event_mappings[0]  # judged_events[0]은 항상 트리거 이벤트
                 if incident_group.is_account_takeover:
+                    # 대응 분기(4번)용 — Incident에 묶인 이벤트 중 실제 IAM 회수 대상만 추림.
+                    # 트리거(CreateAccessKey)는 _IAM_RESPONSE_EVENTS에 항상 포함돼 있어
+                    # 필터 결과가 비는 일은 지금 없지만, 그 상수 정의가 나중에 바뀔 수 있어
+                    # (앞서 event_mappings[0] 가드와 동일한 이유) 트리거로 폴백해 방어한다.
+                    iam_response_events = [
+                        e for e in incident_group.events
+                        if extract_evidence(e).get("event_name", "") in _IAM_RESPONSE_EVENTS
+                    ] or [event]
                     all_regs = sorted({r for m in event_mappings for r in m.violated_regulations})
                     # per-event evidence는 딕셔너리 병합(update)하면 같은 키(event_name 등)가
                     # 이벤트끼리 서로 덮어써서 정보가 사라진다 — events 리스트로 각각 보존.
@@ -243,7 +320,10 @@ class SecOpsWorkflow:
                                 **{
                                     k: v
                                     for k, v in extract_evidence(e).items()
-                                    if k in ("event_name", "policy_arn", "user_arn", "target_user")
+                                    if k in (
+                                        "event_name", "policy_arn", "user_arn",
+                                        "target_user", "event_time",
+                                    )
                                 },
                             }
                             for e in incident_group.events
@@ -319,15 +399,29 @@ class SecOpsWorkflow:
             return await self._finish(event, mapping, result)
 
         # Critical/High → Slack 승인 요청
-        evidence_text = (
-            "\n".join(f"  {k}: {v}" for k, v in mapping.evidence.items())
-            if mapping.evidence else "  (없음)"
-        )
+        evidence_text = _render_evidence_for_card(mapping.evidence)
         lookback_warning = (
             "⚠️ lookback 조회 실패 — 이 판정은 불완전한 정보(트리거 이벤트만)에 기반합니다.\n\n"
             if mapping.evidence.get("lookback_failed")
             else ""
         )
+        # blast_radius_detail은 check_blast_radius(activities.py)가 pod 격리 관점으로만
+        # 계산해서 IAM 이벤트(event_source=="cloudtrail")엔 "단일 worker pod(unknown) 격리"
+        # 처럼 안 맞는 문구가 나온다. 점수 계산 로직 자체는 그대로 두고(범위 밖), IAM
+        # 경로일 때 카드에 보여줄 문구만 IAM 맥락으로 바꾼다. 네트워크 경로는 기존 그대로.
+        if event.event_source == "cloudtrail":
+            iam_target = (
+                mapping.evidence.get("target_user_arn")
+                or mapping.evidence.get("target_user")
+                or mapping.evidence.get("user_arn")
+                or "대상 불명"
+            )
+            blast_radius_line = f"권한 범위: {iam_target}의 첨부 정책 · 액세스 키 (pod 격리 대상 아님)"
+        else:
+            blast_radius_line = (
+                f"Blast Radius: {'안전' if mapping.blast_radius_safe else '위험'} — "
+                f"{mapping.blast_radius_detail}"
+            )
         approval_req = ApprovalRequest(
             workflow_id=event.workflow_id,
             scenario="secops",
@@ -338,8 +432,7 @@ class SecOpsWorkflow:
                 f"[{mapping.severity.upper()}] confidence={mapping.confidence:.0%}\n"
                 f"{mapping.violation_description}\n\n"
                 f"Evidence:\n{evidence_text}\n\n"
-                f"Blast Radius: {'안전' if mapping.blast_radius_safe else '위험'} — "
-                f"{mapping.blast_radius_detail}"
+                f"{blast_radius_line}"
             ),
             regulation_mapping=mapping,
         )
@@ -396,7 +489,10 @@ class SecOpsWorkflow:
         #    그 외(네트워크 위협)는 기존 apply_isolation(CNP)
         is_iam_threat = event.event_source == "cloudtrail" and event_name in _IAM_RESPONSE_EVENTS
         response_activity = revoke_iam_privilege if is_iam_threat else apply_isolation
-        response_arg = event if is_iam_threat else mapping
+        # revoke_iam_privilege는 리스트를 받는다 — 계정 탈취 그룹이면 iam_response_events가
+        # Incident에 묶인 회수 대상 전부, 그 외 단일 이벤트 경로면 기본값 [event] 그대로.
+        # apply_isolation 쪽은 지금처럼 mapping 하나.
+        response_arg = iam_response_events if is_iam_threat else mapping
         # revoke_iam_privilege는 heartbeat 없는 단발성 호출(VPC 밖 IAM 회수 Lambda invoke,
         # secops-iam-responder.tf) — apply_isolation과 옵션(heartbeat_timeout)을 공유하면
         # 안 됨. 각자 맞는 ActivityName으로 분리.

@@ -577,50 +577,73 @@ def _describe_iam_action(evidence: dict) -> str | None:
 
 
 @activity.defn(name="revoke_iam_privilege")
-async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> ExecutionResult:
+async def revoke_iam_privilege(events: list[SecurityEvent], dry_run: bool = False) -> ExecutionResult:
     """
-    IAM 권한상승/지속성 확보 대응 — 부여된 관리형 정책 detach 또는 발급된 AccessKey 비활성화.
+    IAM 권한상승/지속성 확보 대응 — Incident에 묶인 이벤트 전부를 각각 회수한다(부여된
+    관리형 정책 detach + 발급된 AccessKey 비활성화 등). 단일 이벤트 경로(계정 탈취 그룹이
+    아닌 기존 AttachUserPolicy 단독 트리거)는 workflow.py가 원소 1개짜리 리스트로 감싸
+    넘긴다 — 이 함수 입장에선 항상 리스트.
     실제 IAM 호출은 VPC 밖 Lambda(financial-secops-iam-responder)가 대신 한다 — ops VPC는
     IGW/NAT가 없고 IAM은 ap-northeast-2에 PrivateLink가 없어(us-east-1 전용) orchestrator가
-    직접 호출 불가.
-      - dry_run=True (1단계 검증 호출): Lambda를 부르지 않고 '무엇을 할지'만 반환한다 —
-        실제 IAM을 건드리는 경로 자체를 2차 승인 이후로 물리적으로 분리하기 위함.
-      - dry_run=False (2단계 실apply 호출): _invoke_iam_responder_lambda로 실제 detach/update.
+    직접 호출 불가. Lambda는 이벤트 하나만 받는 구조라(핸들러는 안 건드림) 이벤트 수만큼
+    순차 invoke한다.
+      - dry_run=True (1단계 검증 호출): 이벤트마다 Lambda를 부르지 않고 '무엇을 할지'만
+        번호 매겨 모은다 — 실제 IAM을 건드리는 경로 자체를 2차 승인 이후로 물리적으로 분리.
+      - dry_run=False (2단계 실apply 호출): 이벤트마다 _invoke_iam_responder_lambda 호출,
+        결과를 번호 매겨 모은다.
       - ISOLATION_DRY_RUN=true(apply_isolation과 공유하는 안전 스위치)면 dry_run 인자와
-        무관하게 항상 canned dry-run(미적용, Lambda 호출 없음)
-    지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분)는
-    success=False로 '조치 없음' 보고 — 추측으로 잘못된 API를 부르지 않음.
+        무관하게 항상 canned dry-run(미적용, Lambda 호출 없음).
+    지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분) 이벤트는
+    그 항목만 '미지원'으로 기록하고 success=False로 반영 — 재시도로 해결될 문제가 아니라
+    raise는 안 함(추측으로 잘못된 API를 부르지 않는다는 원칙은 그대로).
+    반대로 Lambda invoke 자체가 실패한 이벤트가 하나라도 있으면 raise한다 — Temporal이
+    "성공"으로 착각해 재시도 없이 넘어가지 않도록(module docstring의 "ThrottlingException 등
+    → 그냥 raise" 원칙과 동일). detach_user_policy/detach_role_policy는 이미 detach된
+    정책을 다시 호출해도 에러 없이 통과하고(AWS IAM 문서 기준 일반 지식, 이 환경에서 실측은
+    못 함), update_access_key(Status=Inactive)는 이미 Inactive인 키에 다시 호출해도 상태만
+    재설정할 뿐이라 — 재시도로 전체 이벤트를 다시 돌려도 이미 성공한 항목이 다시 깨지지 않는다.
     """
     from .detection import extract_evidence
 
-    evidence = extract_evidence(event)
-    description = _describe_iam_action(evidence)
-
-    if description is None:
-        return ExecutionResult(
-            workflow_id=event.workflow_id,
-            success=False,
-            action_taken=(
-                f"IAM 대응 미지원 또는 정보 부족 (event_name={evidence.get('event_name', '')}) "
-                f"— 자동 조치 없음, 수동 확인 필요"
-            ),
-        )
-
     force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
-    if force_dry_run or dry_run:
-        return ExecutionResult(
-            workflow_id=event.workflow_id,
-            success=True,
-            action_taken=f"[DRY-RUN] {description} — 실제 미적용",
-            output=description,
-        )
 
-    outcome = await asyncio.to_thread(_invoke_iam_responder_lambda, evidence)
+    action_lines: list[str] = []
+    any_unsupported = False
+    any_execution_failed = False
+
+    for idx, target_event in enumerate(events, start=1):
+        evidence = extract_evidence(target_event)
+        description = _describe_iam_action(evidence)
+
+        if description is None:
+            action_lines.append(
+                f"{idx}. 미지원 (event_name={evidence.get('event_name', '')}) "
+                f"— 자동 조치 없음, 수동 확인 필요"
+            )
+            any_unsupported = True
+            continue
+
+        if force_dry_run or dry_run:
+            action_lines.append(f"{idx}. [DRY-RUN] {description} — 실제 미적용")
+            continue
+
+        try:
+            outcome = await asyncio.to_thread(_invoke_iam_responder_lambda, evidence)
+            action_lines.append(f"{idx}. {outcome}")
+        except Exception as exc:  # noqa: BLE001 — 결과에 남기고 전체를 실패 처리해 재시도 유도
+            action_lines.append(f"{idx}. 실패: {exc}")
+            any_execution_failed = True
+
+    action_taken = "\n".join(action_lines)
+
+    if any_execution_failed:
+        raise RuntimeError(action_taken)
+
     return ExecutionResult(
-        workflow_id=event.workflow_id,
-        success=True,
-        action_taken=outcome,
-        output=description,
+        workflow_id=events[0].workflow_id,
+        success=not any_unsupported,
+        action_taken=action_taken,
+        output=action_taken,
     )
 
 
