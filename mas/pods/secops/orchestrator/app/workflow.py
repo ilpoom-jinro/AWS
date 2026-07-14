@@ -397,8 +397,9 @@ class SecOpsWorkflow:
         is_iam_threat = event.event_source == "cloudtrail" and event_name in _IAM_RESPONSE_EVENTS
         response_activity = revoke_iam_privilege if is_iam_threat else apply_isolation
         response_arg = event if is_iam_threat else mapping
-        # revoke_iam_privilege는 heartbeat 없는 단발성 boto3 호출 — apply_isolation과
-        # 옵션(heartbeat_timeout)을 공유하면 안 됨. 각자 맞는 ActivityName으로 분리.
+        # revoke_iam_privilege는 heartbeat 없는 단발성 호출(VPC 밖 IAM 회수 Lambda invoke,
+        # secops-iam-responder.tf) — apply_isolation과 옵션(heartbeat_timeout)을 공유하면
+        # 안 됨. 각자 맞는 ActivityName으로 분리.
         response_options = get_activity_options(
             ActivityName.REVOKE_IAM_PRIVILEGE if is_iam_threat else ActivityName.APPLY_ISOLATION
         )

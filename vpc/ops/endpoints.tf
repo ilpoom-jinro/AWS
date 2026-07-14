@@ -344,3 +344,22 @@ resource "aws_vpc_endpoint" "sqs" {
     Name = "financial-vpc2-endpoint-sqs"
   }
 }
+
+# ── Lambda Interface Endpoint ─────────────────────────────────────────────────
+# secops-orchestrator가 계정 탈취 IAM 회수를 VPC 밖 Lambda(financial-secops-iam-responder,
+# secops-iam-responder.tf)에 위임(lambda:InvokeFunction)하는 데 필요. IAM은 ap-northeast-2에
+# PrivateLink가 없어(us-east-1 전용) 이 VPC에서 직접 호출 불가 — Lambda 자체는 일반
+# 리전 서비스라 다른 엔드포인트와 동일 패턴으로 붙는다. 이 엔드포인트가 없으면
+# lambda.invoke도 IAM 직접 호출과 동일하게 connect timeout.
+resource "aws_vpc_endpoint" "lambda" {
+  vpc_id              = aws_vpc.this.id
+  service_name        = "com.amazonaws.${var.aws_region}.lambda"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = local.endpoint_subnet_ids
+  security_group_ids  = [aws_security_group.endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "financial-vpc2-endpoint-lambda"
+  }
+}
