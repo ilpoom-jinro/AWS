@@ -17,8 +17,15 @@ resource "aws_ssm_association" "cloudsql_failback_proxy" {
 
   parameters = {
     commands = <<-EOT
-      set -euo pipefail
+      set -eu
       export DEBIAN_FRONTEND=noninteractive
+
+      # Router SG는 패키지 저장소에 HTTPS(443)만 허용한다. Ubuntu 기본 HTTP source를
+      # HTTPS로 전환해 최소권한 egress 정책을 유지한다.
+      find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print | while IFS= read -r source_file; do
+        sed -i 's|http://|https://|g' "$${source_file}"
+      done
+
       apt-get update -y
       apt-get install -y socat
 
