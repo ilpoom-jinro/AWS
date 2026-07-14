@@ -74,12 +74,13 @@ module "vpc3" {
 }
 
 module "vpc4" {
-  source                 = "./vpc/headscale"
-  gcp_fixed_ip           = var.gcp_fixed_ip
-  oci_headscale_ip       = var.oci_headscale_ip
-  oci_headscale_ip_plain = var.oci_headscale_ip_plain
-  headscale_login_server = var.headscale_login_server
-  tailscale_auth_key     = var.tailscale_auth_key
+  source                  = "./vpc/headscale"
+  gcp_fixed_ip            = var.gcp_fixed_ip
+  gcp_cloudsql_private_ip = var.gcp_cloudsql_private_ip
+  oci_headscale_ip        = var.oci_headscale_ip
+  oci_headscale_ip_plain  = var.oci_headscale_ip_plain
+  headscale_login_server  = var.headscale_login_server
+  tailscale_auth_key      = var.tailscale_auth_key
 }
 
 module "vpc_peering" {
