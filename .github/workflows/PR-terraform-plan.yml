@@ -18,6 +18,7 @@ env:
   TF_IN_AUTOMATION: "true"
   AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
   TF_VAR_gcp_fixed_ip: ${{ secrets.GCP_FIXED_IP || '1.1.1.1/32' }}
+  TF_VAR_gcp_cloudsql_private_ip: ${{ vars.GCP_CLOUDSQL_PRIVATE_IP || '' }}
   TF_VAR_oci_headscale_ip: ${{ secrets.OCI_HEADSCALE_IP || '2.2.2.2/32' }}
   TF_VAR_oci_headscale_ip_plain: ${{ secrets.OCI_HEADSCALE_IP_PLAIN || '2.2.2.2' }}
   TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY || 'dummy' }}

@@ -3,6 +3,16 @@ output "github_actions_role_arn" {
   value       = module.iam.github_actions_role_arn
 }
 
+output "gcp_dr_image_mirror_role_arn" {
+  description = "GCP_sub Secret AWS_DR_IMAGE_MIRROR_ROLE_ARN value"
+  value       = module.iam.gcp_dr_image_mirror_role_arn
+}
+
+output "gcp_dr_certificate_role_arn" {
+  description = "GCP_sub Secret AWS_DR_CERTIFICATE_ROLE_ARN value"
+  value       = module.iam.gcp_dr_certificate_role_arn
+}
+
 output "github_actions_dev_role_arn" {
   description = "GitHub Secrets AWS_ROLE_ARN_DEV value"
   value       = module.iam.github_actions_dev_role_arn

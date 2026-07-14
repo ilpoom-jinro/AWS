@@ -138,6 +138,7 @@ def _triage_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> 
     is_threat=False면 Sonnet 호출 생략 — 비용 통제 핵심."""
     from botocore.exceptions import ClientError
     from shared.bedrock import get_bedrock_client
+    from .detection import extract_evidence
 
     client = get_bedrock_client()
     grounding = "\n\n".join(
@@ -145,16 +146,37 @@ def _triage_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> 
     ) or "(검색 결과 없음)"
     system_prompt = (
         "너는 보안 이벤트 사전 분류기다. 아래 이벤트가 금융 규제 위반 가능성이 있는지 빠르게 판단해라. "
+        "AdministratorAccess/PowerUserAccess/IAMFullAccess 같은 고권한 정책 부여, AccessKey 생성 등은 "
+        "권한 상승·계정 탈취 징후이므로 severity를 높게 판단해라. "
         "반드시 아래 JSON만 출력해라.\n"
         '{"is_threat": bool, "confidence": float, "severity": "critical"|"high"|"medium"|"low"}'
     )
-    user_text = (
-        f"[보안 이벤트 요약]\n"
-        f"threat_type={event.threat_type} source_pod={event.source_pod} "
-        f"destination={event.destination_ip}:{event.destination_port} "
-        f"direction={event.direction}\n\n"
-        f"[규정 근거 요약]\n{grounding}"
-    )
+    evidence = extract_evidence(event)
+    if event.event_source == "cloudtrail" or evidence.get("event_name"):
+        # IAM(CloudTrail) 이벤트 — source_pod/destination_ip 등 network 필드는
+        # unknown/무의미하므로 IAM 컨텍스트로 대체
+        target = (
+            evidence.get("target_user")
+            or evidence.get("target_role")
+            or evidence.get("target_group")
+            or ""
+        )
+        user_text = (
+            f"[IAM 보안 이벤트]\n"
+            f"event_name={evidence.get('event_name', '')} 대상={target}\n"
+            f"부여된 정책={evidence.get('policy_arn', '')}\n"
+            f"행위자={evidence.get('user_arn', '')}\n"
+            f"threat_type={event.threat_type}\n\n"
+            f"[규정 근거 요약]\n{grounding}"
+        )
+    else:
+        user_text = (
+            f"[보안 이벤트 요약]\n"
+            f"threat_type={event.threat_type} source_pod={event.source_pod} "
+            f"destination={event.destination_ip}:{event.destination_port} "
+            f"direction={event.direction}\n\n"
+            f"[규정 근거 요약]\n{grounding}"
+        )
     try:
         resp = client.converse(
             modelId=BEDROCK_MODEL_LIGHT,
@@ -183,11 +205,14 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     1차 triage 통과분만 호출 — Sonnet 비용이 Nova의 ~85×이므로 반드시 필터 후 진입."""
     from botocore.exceptions import ClientError
     from shared.bedrock import get_bedrock_client
+    from .detection import extract_evidence
 
     client = get_bedrock_client()
     system_prompt = (
         "너는 금융 보안 규제 분석기다. 보안 이벤트가 '검색된 규정 근거'를 위반하는지, "
         "반드시 그 근거에 기반해 판단해라. 근거에 없는 규정은 지어내지 마라. "
+        "AdministratorAccess/PowerUserAccess/IAMFullAccess 같은 고권한 정책 부여, AccessKey 생성 등은 "
+        "권한 상승·계정 탈취 징후이므로 severity를 높게 판단해라. "
         "반드시 아래 JSON 스키마만 출력해라.\n"
         '{"violated_regulations": [string], "violation_description": string, '
         '"confidence": float, "severity": "critical"|"high"|"medium"|"low", '
@@ -196,8 +221,26 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     grounding = "\n\n".join(
         f"[{c.source}] (관련도 {c.score})\n{c.text}" for c in chunks
     ) or "(검색 결과 없음)"
+    # event.model_dump_json에 raw_log(evidence 원문 포함)가 실려는 있으나 텍스트 블록이라
+    # LLM이 놓칠 수 있어, IAM 이벤트는 구조화된 필드를 명시적으로 덧붙여 명확히 한다.
+    iam_context = ""
+    if event.event_source == "cloudtrail":
+        evidence = extract_evidence(event)
+        target = (
+            evidence.get("target_user")
+            or evidence.get("target_role")
+            or evidence.get("target_group")
+            or ""
+        )
+        iam_context = (
+            f"\n\n[IAM 컨텍스트]\n"
+            f"event_name={evidence.get('event_name', '')} 대상={target}\n"
+            f"부여된 정책={evidence.get('policy_arn', '')}\n"
+            f"행위자={evidence.get('user_arn', '')}"
+        )
     user_text = (
-        f"[보안 이벤트]\n{event.model_dump_json(indent=2)}\n\n"
+        f"[보안 이벤트]\n{event.model_dump_json(indent=2)}"
+        f"{iam_context}\n\n"
         f"[검색된 규정 근거]\n{grounding}"
     )
     try:
@@ -395,8 +438,11 @@ def _load_k8s_config() -> None:
         config.load_kube_config()   # kubeconfig도 없으면 ConfigException 재발생
 
 
-def _apply_isolation_policy(doc: dict) -> str:
-    """CiliumNetworkPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'."""
+def _apply_isolation_policy(doc: dict, dry_run: bool = False) -> str:
+    """
+    CiliumNetworkPolicy를 멱등 apply (create; 이미 있으면 replace). 반환 'created'|'replaced'.
+    dry_run=True면 k8s API 서버측 dry_run="All"로 검증만 수행(실제 반영 없음).
+    """
     from kubernetes import client
     from kubernetes.client.rest import ApiException
 
@@ -405,24 +451,27 @@ def _apply_isolation_policy(doc: dict) -> str:
     ns = doc["metadata"].get("namespace") or "default"
     name = doc["metadata"]["name"]
     api = client.CustomObjectsApi()
+    kwargs = {"dry_run": "All"} if dry_run else {}
     try:
-        api.create_namespaced_custom_object(group, version, ns, plural, doc)
+        api.create_namespaced_custom_object(group, version, ns, plural, doc, **kwargs)
         return "created"
     except ApiException as exc:
         if exc.status != 409:            # 409=이미 존재 → replace로 멱등, 그 외는 전파(재시도)
             raise
         existing = api.get_namespaced_custom_object(group, version, ns, plural, name)
         doc["metadata"]["resourceVersion"] = existing["metadata"]["resourceVersion"]
-        api.replace_namespaced_custom_object(group, version, ns, plural, name, doc)
+        api.replace_namespaced_custom_object(group, version, ns, plural, name, doc, **kwargs)
         return "replaced"
 
 
 @activity.defn(name="apply_isolation")
-async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
+async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> ExecutionResult:
     """
     CiliumNetworkPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
-      - 배포 Pod: in-cluster 자격증명으로 실제 apply (create-or-replace)
-      - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry-run (정책 검증만, 미적용)
+      - dry_run=True (1단계 검증 호출): k8s API 서버측 dry_run="All"로 검증만, 미반영
+      - dry_run=False (2단계 실apply 호출): in-cluster 자격증명으로 실제 apply (create-or-replace)
+      - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry_run 인자와 무관하게 항상
+        canned dry-run(정책 검증만, 미적용) — 기존 안전망 그대로 유지
     상태 변경 Activity → heartbeat. 동기 k8s 호출은 스레드로 오프로드(이벤트 루프 비차단).
     """
     import yaml
@@ -432,16 +481,17 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
     name = doc.get("metadata", {}).get("name", "?")
     ns = doc.get("metadata", {}).get("namespace", "default")
 
-    dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
-    if not dry_run:
+    force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
+    no_cluster = False
+    if not force_dry_run:
         from kubernetes.config.config_exception import ConfigException
         try:
             await asyncio.to_thread(_load_k8s_config)
         except ConfigException:
             # 클러스터 설정 없음(로컬/발표자 PC)만 dry-run. 그 외(패키지 미설치·네트워크 등)는 전파.
-            dry_run = True
+            no_cluster = True
 
-    if dry_run:
+    if force_dry_run or no_cluster:
         return ExecutionResult(
             workflow_id=mapping.workflow_id,
             success=True,
@@ -449,13 +499,122 @@ async def apply_isolation(mapping: RegulationMapping) -> ExecutionResult:
             output=mapping.isolation_policy_yaml,
         )
 
+    if dry_run:
+        activity.heartbeat("apply_isolation: server-side dry-run")
+        await asyncio.to_thread(_apply_isolation_policy, doc, True)
+        return ExecutionResult(
+            workflow_id=mapping.workflow_id,
+            success=True,
+            action_taken=f"[DRY-RUN] CiliumNetworkPolicy '{name}' (ns={ns}) 서버 검증 완료 — 클러스터 미적용",
+            output=mapping.isolation_policy_yaml,
+        )
+
     activity.heartbeat("apply_isolation: applying")
-    outcome = await asyncio.to_thread(_apply_isolation_policy, doc)
+    outcome = await asyncio.to_thread(_apply_isolation_policy, doc, False)
     return ExecutionResult(
         workflow_id=mapping.workflow_id,
         success=True,
         action_taken=f"CiliumNetworkPolicy '{name}' (ns={ns}) {outcome} — pod 격리 적용",
         output=f"{outcome}: {name} (ns={ns})",
+    )
+
+
+# IAM 대응이 실제로 지원하는 event_name → revoke API 종류. 아래 3종만 지원 —
+# secops-role.tf에 부여된 권한(DetachUserPolicy/DetachRolePolicy/UpdateAccessKey)과
+# 정확히 일치시켜, 권한 없는 API를 호출하는 코드 경로가 생기지 않도록 한다.
+# PutUserPolicy/PutRolePolicy(인라인 정책, policy_arn 없음)와 AttachGroupPolicy는
+# 미지원 — evidence가 부족하거나(정책 이름 없음) 대응 권한이 없어 조치 없이 보고만 함.
+def _revoke_iam_privilege(evidence: dict) -> str:
+    """실제 IAM detach/deactivate 호출 (동기 boto3). 반환: 사람이 읽는 결과 설명."""
+    import boto3
+
+    event_name = evidence.get("event_name", "")
+    policy_arn = evidence.get("policy_arn", "")
+    target_user = evidence.get("target_user", "")
+    target_role = evidence.get("target_role", "")
+    access_key_id = evidence.get("access_key_id", "")
+
+    iam = boto3.client("iam")  # IAM은 글로벌 서비스 — region 불필요
+
+    if event_name == "AttachUserPolicy" and target_user and policy_arn:
+        iam.detach_user_policy(UserName=target_user, PolicyArn=policy_arn)
+        return f"DetachUserPolicy 완료: UserName={target_user}, PolicyArn={policy_arn}"
+
+    if event_name == "AttachRolePolicy" and target_role and policy_arn:
+        iam.detach_role_policy(RoleName=target_role, PolicyArn=policy_arn)
+        return f"DetachRolePolicy 완료: RoleName={target_role}, PolicyArn={policy_arn}"
+
+    if event_name == "CreateAccessKey" and target_user and access_key_id:
+        iam.update_access_key(UserName=target_user, AccessKeyId=access_key_id, Status="Inactive")
+        return f"AccessKey 비활성화 완료: UserName={target_user}, AccessKeyId={access_key_id}"
+
+    raise ValueError(
+        f"IAM 대응 미지원 또는 evidence 불충분: event_name={event_name}, "
+        f"target_user={target_user}, target_role={target_role}, "
+        f"policy_arn={policy_arn}, access_key_id={access_key_id}"
+    )
+
+
+def _describe_iam_action(evidence: dict) -> str | None:
+    """실행 전 '무엇을 할지' 설명 문자열. 지원 대상이 아니면 None."""
+    event_name = evidence.get("event_name", "")
+    policy_arn = evidence.get("policy_arn", "")
+    target_user = evidence.get("target_user", "")
+    target_role = evidence.get("target_role", "")
+    access_key_id = evidence.get("access_key_id", "")
+
+    if event_name == "AttachUserPolicy" and target_user and policy_arn:
+        return f"DetachUserPolicy(UserName={target_user}, PolicyArn={policy_arn})"
+    if event_name == "AttachRolePolicy" and target_role and policy_arn:
+        return f"DetachRolePolicy(RoleName={target_role}, PolicyArn={policy_arn})"
+    if event_name == "CreateAccessKey" and target_user and access_key_id:
+        return f"UpdateAccessKey(UserName={target_user}, AccessKeyId={access_key_id}, Status=Inactive)"
+    return None
+
+
+@activity.defn(name="revoke_iam_privilege")
+async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> ExecutionResult:
+    """
+    IAM 권한상승/지속성 확보 대응 — 부여된 관리형 정책 detach 또는 발급된 AccessKey 비활성화.
+      - dry_run=True (1단계 검증 호출): 실제 IAM API 호출 없이 '무엇을 할지'만 반환
+      - dry_run=False (2단계 실apply 호출): 실제 detach/update 실행
+      - ISOLATION_DRY_RUN=true(apply_isolation과 공유하는 안전 스위치)면 dry_run 인자와
+        무관하게 항상 canned dry-run(미적용)
+    지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분)는
+    success=False로 '조치 없음' 보고 — 추측으로 잘못된 API를 부르지 않음.
+    """
+    from .detection import extract_evidence
+
+    activity.heartbeat("revoke_iam_privilege: start")
+    evidence = extract_evidence(event)
+    description = _describe_iam_action(evidence)
+
+    if description is None:
+        return ExecutionResult(
+            workflow_id=event.workflow_id,
+            success=False,
+            action_taken=(
+                f"IAM 대응 미지원 또는 정보 부족 (event_name={evidence.get('event_name', '')}) "
+                f"— 자동 조치 없음, 수동 확인 필요"
+            ),
+        )
+
+    force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
+    if force_dry_run or dry_run:
+        return ExecutionResult(
+            workflow_id=event.workflow_id,
+            success=True,
+            action_taken=f"[DRY-RUN] {description} — 실제 미적용",
+            output=description,
+        )
+
+    activity.heartbeat("revoke_iam_privilege: applying")
+    outcome = await asyncio.to_thread(_revoke_iam_privilege, evidence)
+    return ExecutionResult(
+        workflow_id=event.workflow_id,
+        success=True,
+        action_taken=outcome,
+        output=description,
     )
 
 

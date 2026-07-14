@@ -17,6 +17,14 @@ resource "aws_security_group" "headscale_router" {
     cidr_blocks = [var.gcp_fixed_ip]
   }
 
+  ingress {
+    description = "Allow RDS failback subscription to Cloud SQL proxy from VPC1"
+    from_port   = var.cloudsql_failback_proxy_port
+    to_port     = var.cloudsql_failback_proxy_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc1_cidr]
+  }
+
   egress {
     description = "Allow Tailscale UDP to GCP"
     from_port   = 41641
@@ -42,6 +50,14 @@ resource "aws_security_group" "headscale_router" {
   }
 
   egress {
+    description = "Allow PostgreSQL to GCP Cloud SQL PSA through Tailscale"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [var.gcp_cloudsql_psa_cidr]
+  }
+
+  egress {
     description = "Allow HTTPS to OCI Headscale (control plane)"
     from_port   = 443
     to_port     = 443
@@ -55,6 +71,17 @@ resource "aws_security_group" "headscale_router" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # on-prem OTel → Thanos Receive (ADR-0001 갭 E)
+  # MASQUERADE 후 src=VPC4 ENI IP로 나가는 패킷이 VPC2 NLB(19291)로 향함
+  # 목적지를 10.20.0.0/16 전체로 제한 (NLB SG ingress 19291만 열려 있어 최소 권한 유지)
+  egress {
+    description = "Allow Thanos Receive push to VPC2 monitoring NLB"
+    from_port   = 19291
+    to_port     = 19291
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc2_cidr]
   }
 
   tags = {

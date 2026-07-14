@@ -27,6 +27,24 @@ variable "gcp_fixed_ip" {
   type        = string
 }
 
+variable "gcp_cloudsql_private_ip" {
+  description = "GCP Cloud SQL DR 인스턴스의 사설 IP. 비어 있으면 failback TCP proxy를 생성하지 않음"
+  type        = string
+  default     = ""
+}
+
+variable "gcp_cloudsql_psa_cidr" {
+  description = "GCP Cloud SQL Private Services Access CIDR"
+  type        = string
+  default     = "10.177.232.0/24"
+}
+
+variable "cloudsql_failback_proxy_port" {
+  description = "AWS Router에서 Cloud SQL로 전달하는 failback 전용 TCP proxy 포트"
+  type        = number
+  default     = 15432
+}
+
 variable "oci_headscale_ip" {
   description = "OCI Headscale server IP (CIDR format, e.g. 1.2.3.4/32)"
   type        = string

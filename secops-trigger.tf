@@ -87,7 +87,12 @@ data "aws_iam_policy_document" "secops_trigger_queue" {
     condition {
       test     = "ArnEquals"
       variable = "aws:SourceArn"
-      values   = values(local.secops_source_sns_topics)
+      # us-east-1 전용 소스(privilege_escalation_use1)는 리전이 달라 위 locals의
+      # for_each 구독(default provider)에 못 태우므로 별도로 추가.
+      values = concat(
+        values(local.secops_source_sns_topics),
+        [module.security.privilege_escalation_alert_use1_sns_topic_arn],
+      )
     }
   }
 }
@@ -102,6 +107,17 @@ resource "aws_sqs_queue_policy" "secops_trigger" {
 resource "aws_sns_topic_subscription" "secops_trigger" {
   for_each             = local.secops_source_sns_topics
   topic_arn            = each.value
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.secops_trigger.arn
+  raw_message_delivery = true
+}
+
+# us-east-1 SNS(privilege_escalation_use1) → ap-northeast-2 SQS 크로스리전 구독.
+# AWS 요구사항: Subscribe 호출은 SNS 토픽이 있는 리전(us-east-1)에서 수행해야 함
+# → provider를 명시해야 하므로 위 for_each 리소스(default provider)에 못 태우고 분리.
+resource "aws_sns_topic_subscription" "secops_trigger_use1" {
+  provider             = aws.us_east_1
+  topic_arn            = module.security.privilege_escalation_alert_use1_sns_topic_arn
   protocol             = "sqs"
   endpoint             = aws_sqs_queue.secops_trigger.arn
   raw_message_delivery = true

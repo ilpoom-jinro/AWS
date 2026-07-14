@@ -170,3 +170,115 @@ resource "aws_cloudwatch_event_target" "destructive_violation_to_sns" {
   target_id = "DestructiveViolationToSNS"
   arn       = aws_sns_topic.security_violation_alert.arn
 }
+
+# =============================================
+# EventBridge Rule C — 권한 상승/지속성 확보 탐지 (계정 탈취 체인, us-east-1)
+#
+#   IAM은 글로벌 서비스라 관리이벤트가 us-east-1 EventBridge에서만 발생한다
+#   (root_console_login과 동일 이유, root_detection.tf 참조) — ap-northeast-2 룰로는
+#   절대 트리거되지 않아 리전을 옮김.
+#
+#   errorCode 조건 없음 — 계정 탈취는 "성공한" 권한부여·AccessKey 생성으로 지속성을
+#   확보하는 체인이라 거부(AccessDenied)만 잡는 iam_violation으로는 놓친다.
+#
+#   EventBridge 타겟은 룰과 동일 리전이어야 해서(이벤트 버스 타겟 제외) SecOps SQS
+#   (ap-northeast-2)를 직접 타겟할 수 없다 — us-east-1 전용 SNS를 두고
+#   크로스리전 SNS→SQS 구독으로 우회한다(구독은 secops-trigger.tf에서 정의).
+# =============================================
+resource "aws_sns_topic" "privilege_escalation_alert_use1" {
+  provider = aws.us_east_1
+  name     = "privilege-escalation-alert-use1"
+  # 무암호화: network_change_alert와 동일 이유 — aws/sns 관리형 키에
+  # events.amazonaws.com GenerateDataKey 권한이 없어 CMK 적용 시 EventBridge
+  # 발행이 막힌다. CMK 적용은 MAS 단계에서 검토.
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "SNS"
+    Environment = "all"
+  }
+}
+
+resource "aws_sns_topic_policy" "privilege_escalation_alert_use1" {
+  provider = aws.us_east_1
+  arn      = aws_sns_topic.privilege_escalation_alert_use1.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowAccountOwner"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${var.account_id}:root"
+        }
+        Action = [
+          "SNS:GetTopicAttributes",
+          "SNS:SetTopicAttributes",
+          "SNS:AddPermission",
+          "SNS:RemovePermission",
+          "SNS:DeleteTopic",
+          "SNS:Subscribe",
+          "SNS:ListSubscriptionsByTopic",
+          "SNS:Publish",
+          "SNS:Receive"
+        ]
+        Resource = aws_sns_topic.privilege_escalation_alert_use1.arn
+      },
+      {
+        Sid    = "AllowEventBridgePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action   = "SNS:Publish"
+        Resource = aws_sns_topic.privilege_escalation_alert_use1.arn
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = aws_cloudwatch_event_rule.privilege_escalation_use1.arn
+          }
+          StringEquals = {
+            "aws:SourceAccount" = var.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_event_rule" "privilege_escalation_use1" {
+  provider    = aws.us_east_1
+  name        = "detect-privilege-escalation"
+  description = "계정 탈취 대응 — 성공한 IAM 권한부여/AccessKey 생성 탐지 (us-east-1)"
+
+  event_pattern = jsonencode({
+    "detail-type" = ["AWS API Call via CloudTrail"]
+    detail = {
+      eventSource = ["iam.amazonaws.com"]
+      eventName = [
+        "AttachUserPolicy",
+        "PutUserPolicy",
+        "AttachRolePolicy",
+        "AttachGroupPolicy",
+        "CreateAccessKey",
+      ]
+    }
+  })
+
+  tags = {
+    Project     = "ilpumjinro"
+    ManagedBy   = "terraform"
+    Owner       = "security"
+    Service     = "EventBridge"
+    Environment = "all"
+  }
+}
+
+resource "aws_cloudwatch_event_target" "privilege_escalation_use1_to_sns" {
+  provider  = aws.us_east_1
+  rule      = aws_cloudwatch_event_rule.privilege_escalation_use1.name
+  target_id = "PrivilegeEscalationToSNS"
+  arn       = aws_sns_topic.privilege_escalation_alert_use1.arn
+}

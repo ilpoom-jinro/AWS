@@ -9,6 +9,12 @@ variable "gcp_service_ip" {
   default     = ""
 }
 
+variable "gcp_cloudsql_private_ip" {
+  description = "GCP Cloud SQL DR 인스턴스의 사설 IP. AWS RDS failback proxy upstream으로 사용"
+  type        = string
+  default     = ""
+}
+
 variable "aiops_alb_dns_name" {
   description = "financial-ops-eks AIOps Ingress ALB DNS name — AIOps 배포 후 kubectl get ingress -n aiops 로 확인"
   type        = string

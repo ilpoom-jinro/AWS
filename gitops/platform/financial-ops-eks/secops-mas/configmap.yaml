@@ -8,11 +8,13 @@ data:
   TEMPORAL_ADDRESS:       "temporal-frontend.temporal.svc.cluster.local:7233"
   TEMPORAL_TASK_QUEUE:    "secops-task-queue"
   HITL_TASK_QUEUE:        "hitl-approval-queue"      # 슬랙 HITL 봇 공용 큐
+  # 승인되어도 apply_isolation이 실제 CiliumNetworkPolicy를 적용하지 않고 dry-run 검증까지만 수행하는 안전 스위치.
+  ISOLATION_DRY_RUN:      "true"
   # Bedrock (워크플로우 실행 시 사용 — 현재 trigger 없어 미호출)
   AWS_REGION:             "ap-northeast-2"
   BEDROCK_REGION:         "ap-northeast-2"
   BEDROCK_MODEL:          "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-  BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (ap-northeast-2 지원 확인됨 2026-07-06)
+  BEDROCK_MODEL_LIGHT:    "apac.amazon.nova-lite-v1:0"    # 2단계 triage — on-demand 직접 호출 불가, inference profile 필요
   USE_REAL_BEDROCK:       "true"
   USE_BEDROCK_KB:         "true"                     # KB 프로비저닝 완료 (secops-regulations, S3 Vectors, 규정 4종 임베딩)
   BEDROCK_KB_ID:          "BEDVQBMHGO"               # Bedrock KB — map_regulation RAG 검색 소스
