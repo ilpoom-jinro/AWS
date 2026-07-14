@@ -13,6 +13,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: aiops-mas
+  # AIOps Slack HITL E2E 테스트는 CodeBuild가 전용 Deployment의 replicas만
+  # 0↔1로 제어한다. self-heal이 즉시 0으로 되돌리지 않도록 이 한 필드만
+  # diff 대상에서 제외하며, 이미지/명령/RBAC 등 나머지 스펙은 계속 GitOps로 관리한다.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      namespace: aiops-mas
+      name: aiops-hitl-crashloop
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
