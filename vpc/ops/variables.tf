@@ -214,3 +214,10 @@ variable "siem_athena_results_bucket_arn" {
   description = "SIEM Athena 쿼리 결과 S3 버킷 ARN (module.security 출력)"
   type        = string
 }
+
+# 계정 탈취 IAM 회수 — Lambda 자체는 루트 secops-iam-responder.tf 리소스라
+# 모듈 경계를 넘어 변수로 받는다(slack_hitl_*_queue_arn과 동일 패턴).
+variable "secops_iam_responder_lambda_arn" {
+  description = "financial-secops-iam-responder Lambda ARN — secops-orchestrator의 lambda:InvokeFunction 권한 스코프"
+  type        = string
+}

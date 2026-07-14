@@ -27,4 +27,8 @@ data:
   SECOPS_VPC_ID:           "REPLACE_WITH_OPS_VPC_ID"
   # CloudWatch Alarm(신호)만 오면 워커가 이 Flow Logs 그룹을 재조회해 실제 REJECT 레코드로 보강.
   SECOPS_FLOWLOG_GROUP:    "/aws/vpc/flowlogs/vpc1"
+  # 계정 탈취 IAM 회수 Lambda(secops-iam-responder.tf) 함수명. ops VPC는 IAM PrivateLink가
+  # 없어 revoke_iam_privilege가 IAM을 직접 안 부르고 이 Lambda를 invoke한다. 이름 자체는
+  # 계정/리전에 안 걸린 고정값이라 REPLACE_WITH_* 치환 불필요.
+  SECOPS_IAM_RESPONDER_FUNCTION_NAME: "financial-secops-iam-responder"
   # DATABASE_URL → ExternalSecret(secops-orchestrator-secrets)에서 주입 (평문 금지)

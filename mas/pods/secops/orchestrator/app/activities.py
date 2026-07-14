@@ -528,40 +528,35 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
     )
 
 
-# IAM 대응이 실제로 지원하는 event_name → revoke API 종류. 아래 3종만 지원 —
-# secops-role.tf에 부여된 권한(DetachUserPolicy/DetachRolePolicy/UpdateAccessKey)과
-# 정확히 일치시켜, 권한 없는 API를 호출하는 코드 경로가 생기지 않도록 한다.
-# PutUserPolicy/PutRolePolicy(인라인 정책, policy_arn 없음)와 AttachGroupPolicy는
-# 미지원 — evidence가 부족하거나(정책 이름 없음) 대응 권한이 없어 조치 없이 보고만 함.
-def _revoke_iam_privilege(evidence: dict) -> str:
-    """실제 IAM detach/deactivate 호출 (동기 boto3). 반환: 사람이 읽는 결과 설명."""
+# ops VPC(IGW/NAT 없음) + IAM은 ap-northeast-2 PrivateLink 미지원(us-east-1 전용)이라
+# orchestrator가 IAM을 직접 호출할 수 없다 — 실제 detach/update는 VPC 밖 Lambda
+# (financial-secops-iam-responder, secops-iam-responder.tf)에 위임한다. Lambda 안에
+# 원래 이 함수가 하던 _revoke_iam_privilege 로직이 그대로 옮겨가 있다
+# (lambda/secops-iam-responder/handler.py — 순수 dict→str 함수라 이식이 쉬웠다).
+def _invoke_iam_responder_lambda(evidence: dict) -> str:
+    """financial-secops-iam-responder Lambda를 동기 호출(RequestResponse)해 실제 IAM
+    detach/deactivate를 실행시킨다. Lambda invoke는 vpc/ops/endpoints.tf의 Lambda
+    Interface Endpoint를 거쳐야 하고(없으면 IAM 직접 호출과 동일하게 connect timeout),
+    이 호출 자체는 짧아 heartbeat 불필요(apply_isolation류와 달리 여러 단계 없음).
+    """
     import boto3
 
-    event_name = evidence.get("event_name", "")
-    policy_arn = evidence.get("policy_arn", "")
-    target_user = evidence.get("target_user", "")
-    target_role = evidence.get("target_role", "")
-    access_key_id = evidence.get("access_key_id", "")
+    function_name = os.getenv("SECOPS_IAM_RESPONDER_FUNCTION_NAME", "financial-secops-iam-responder")
+    region = os.getenv("AWS_REGION", "ap-northeast-2")
 
-    iam = boto3.client("iam")  # IAM은 글로벌 서비스 — region 불필요
-
-    if event_name == "AttachUserPolicy" and target_user and policy_arn:
-        iam.detach_user_policy(UserName=target_user, PolicyArn=policy_arn)
-        return f"DetachUserPolicy 완료: UserName={target_user}, PolicyArn={policy_arn}"
-
-    if event_name == "AttachRolePolicy" and target_role and policy_arn:
-        iam.detach_role_policy(RoleName=target_role, PolicyArn=policy_arn)
-        return f"DetachRolePolicy 완료: RoleName={target_role}, PolicyArn={policy_arn}"
-
-    if event_name == "CreateAccessKey" and target_user and access_key_id:
-        iam.update_access_key(UserName=target_user, AccessKeyId=access_key_id, Status="Inactive")
-        return f"AccessKey 비활성화 완료: UserName={target_user}, AccessKeyId={access_key_id}"
-
-    raise ValueError(
-        f"IAM 대응 미지원 또는 evidence 불충분: event_name={event_name}, "
-        f"target_user={target_user}, target_role={target_role}, "
-        f"policy_arn={policy_arn}, access_key_id={access_key_id}"
+    lambda_client = boto3.client("lambda", region_name=region)
+    response = lambda_client.invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"evidence": evidence, "dry_run": False}).encode("utf-8"),
     )
+
+    payload = json.loads(response["Payload"].read())
+    if response.get("FunctionError"):
+        raise RuntimeError(f"IAM 회수 Lambda 실행 오류({response['FunctionError']}): {payload}")
+    if not payload.get("success"):
+        raise ValueError(payload.get("action_taken", "IAM 회수 Lambda가 실패를 보고함"))
+    return payload["action_taken"]
 
 
 def _describe_iam_action(evidence: dict) -> str | None:
@@ -585,16 +580,19 @@ def _describe_iam_action(evidence: dict) -> str | None:
 async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> ExecutionResult:
     """
     IAM 권한상승/지속성 확보 대응 — 부여된 관리형 정책 detach 또는 발급된 AccessKey 비활성화.
-      - dry_run=True (1단계 검증 호출): 실제 IAM API 호출 없이 '무엇을 할지'만 반환
-      - dry_run=False (2단계 실apply 호출): 실제 detach/update 실행
+    실제 IAM 호출은 VPC 밖 Lambda(financial-secops-iam-responder)가 대신 한다 — ops VPC는
+    IGW/NAT가 없고 IAM은 ap-northeast-2에 PrivateLink가 없어(us-east-1 전용) orchestrator가
+    직접 호출 불가.
+      - dry_run=True (1단계 검증 호출): Lambda를 부르지 않고 '무엇을 할지'만 반환한다 —
+        실제 IAM을 건드리는 경로 자체를 2차 승인 이후로 물리적으로 분리하기 위함.
+      - dry_run=False (2단계 실apply 호출): _invoke_iam_responder_lambda로 실제 detach/update.
       - ISOLATION_DRY_RUN=true(apply_isolation과 공유하는 안전 스위치)면 dry_run 인자와
-        무관하게 항상 canned dry-run(미적용)
+        무관하게 항상 canned dry-run(미적용, Lambda 호출 없음)
     지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분)는
     success=False로 '조치 없음' 보고 — 추측으로 잘못된 API를 부르지 않음.
     """
     from .detection import extract_evidence
 
-    activity.heartbeat("revoke_iam_privilege: start")
     evidence = extract_evidence(event)
     description = _describe_iam_action(evidence)
 
@@ -617,8 +615,7 @@ async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> E
             output=description,
         )
 
-    activity.heartbeat("revoke_iam_privilege: applying")
-    outcome = await asyncio.to_thread(_revoke_iam_privilege, evidence)
+    outcome = await asyncio.to_thread(_invoke_iam_responder_lambda, evidence)
     return ExecutionResult(
         workflow_id=event.workflow_id,
         success=True,
