@@ -802,6 +802,7 @@ jobs:
           -target=aws_iam_role.secops_iam_responder_lambda
           -target=aws_iam_role_policy_attachment.secops_iam_responder_lambda_basic
           -target=aws_iam_role_policy.secops_iam_responder_lambda_iam_response
+          -target=aws_iam_role_policy.secops_iam_responder_lambda_state_check
           -target=aws_lambda_function.secops_iam_responder
           $TF_MOVED_RESOURCE_TARGETS
 
