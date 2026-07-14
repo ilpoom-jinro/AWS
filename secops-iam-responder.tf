@@ -111,6 +111,34 @@ resource "aws_iam_role_policy" "secops_iam_responder_lambda_iam_response" {
   })
 }
 
+# 반복 lookback으로 같은 회수 대상(정책/키)이 여러 이벤트에 걸쳐 중복 잡히거나
+# 이 함수가 재시도될 때, 이미 detach/비활성화된 대상에 API를 또 부르지 않도록
+# handler.py가 실행 전 현재 상태를 조회한다(list_attached_user_policies/
+# list_attached_role_policies/list_access_keys). 읽기 전용이라 위 Deny(쓰기
+# 액션 전용)와 겹치지 않게 별도 Statement로 분리 — role/*까지 읽기는 허용해도
+# "무력화" 위험(위 Deny의 취지)은 없다.
+resource "aws_iam_role_policy" "secops_iam_responder_lambda_state_check" {
+  name = "secops-iam-account-takeover-state-check"
+  role = aws_iam_role.secops_iam_responder_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "IamAccountTakeoverStateCheck"
+      Effect = "Allow"
+      Action = [
+        "iam:ListAttachedUserPolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListAccessKeys",
+      ]
+      Resource = [
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/*",
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*",
+      ]
+    }]
+  })
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Lambda 함수 — vpc_config 없음(= VPC 미연결). 위 헤더 설명 참고.
 # ══════════════════════════════════════════════════════════════════════════════

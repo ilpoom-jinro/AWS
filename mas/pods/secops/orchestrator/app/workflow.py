@@ -82,7 +82,7 @@ _IAM_RESPONSE_EVENTS = _POLICY_GRANT_EVENTS + ("CreateAccessKey",)
 # 여기서도 애초에 카드 내용을 짧게 만들어 모바일 가독성까지 같이 챙긴다.
 _MAX_EVENTS_IN_CARD = 5
 _MAX_SUMMARY_SENTENCES = 3
-_MAX_ACTION_LINES = 5
+_MAX_ACTION_LINES = 3
 
 
 def _parse_trigger_time(evidence: dict, fallback: datetime) -> datetime:
@@ -108,6 +108,35 @@ def _rule_filter_skip(evidence: dict) -> bool:
         return policy_name not in _HIGH_RISK_MANAGED_POLICIES
     # policy_arn 없음(인라인 정책) 또는 CreateAccessKey/그 외 이벤트 → 보수적으로 통과
     return False
+
+
+def _dedup_iam_response_events(events: list[SecurityEvent]) -> list[SecurityEvent]:
+    """같은 회수 대상(정책 attach/키 생성)이 반복 lookback으로 여러 이벤트에 걸쳐
+    중복으로 잡혀도 회수는 한 번만 하도록 첫 등장분만 남긴다.
+    detection.py의 dedup_events는 cloudtrail_event_id 기준이라 "같은 정책을 서로
+    다른 시각에 두 번 attach"처럼 이벤트 자체는 다른데 실제 회수 대상(같은 유저의
+    같은 policy_arn, 또는 같은 access_key_id)은 같은 경우를 못 걸러서 여기서 따로
+    거른다. Lambda 쪽 현재상태 확인(list_access_keys 등)과는 별개 — 이건 "같은
+    타겟을 여러 번 호출하지 말자"는 워크플로우 단의 중복 제거, 그건 "그 타겟이
+    지금도 유효한지" Lambda 단의 최신성 확인."""
+    seen: set[tuple] = set()
+    deduped: list[SecurityEvent] = []
+    for e in events:
+        ev = extract_evidence(e)
+        name = ev.get("event_name", "")
+        if name == "AttachRolePolicy":
+            key = (name, ev.get("target_role", ""), ev.get("policy_arn", ""))
+        elif name == "CreateAccessKey":
+            key = (name, ev.get("access_key_id", ""))
+        elif name in _POLICY_GRANT_EVENTS:  # AttachUserPolicy/PutUserPolicy/AttachGroupPolicy
+            key = (name, ev.get("target_user", ""), ev.get("policy_arn", ""))
+        else:
+            key = (name, ev.get("target_user", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(e)
+    return deduped
 
 
 def _describe_event_for_card(event_dict: dict) -> str:
@@ -207,6 +236,26 @@ def _wrap_summary_for_card(text: str) -> str:
     else:
         lines = [s if idx == len(shown) - 1 else f"{s}." for idx, s in enumerate(shown)]
     return "\n".join(lines)
+
+
+_ACCESS_KEY_ID_PATTERN = re.compile(r"AccessKeyId=([A-Z0-9]+)")
+
+
+def _mask_access_key_ids(text: str) -> str:
+    """Slack 카드에 노출되는 AccessKeyId를 앞 4자 + 뒤 4자만 남기고 마스킹
+    (AKIA...PHUW → AKIA****PHUW). action_taken 문자열은 activities.py의
+    _describe_iam_action(dry-run 설명)과 lambda/secops-iam-responder/handler.py의
+    _revoke_iam_privilege(실제 결과)에서 "AccessKeyId=..." 형태로 만들어지는데,
+    그 원본 문자열 자체는 안 건드리고 카드에 넣기 직전에만 마스킹한다 — audit
+    로그(_audit 호출)는 이 함수를 거치지 않고 action_taken 원본 그대로 남아
+    추적 시 전체 값을 볼 수 있다."""
+    def _mask(match: re.Match) -> str:
+        key_id = match.group(1)
+        if len(key_id) <= 8:
+            return match.group(0)  # 너무 짧으면 마스킹 의미 없음 — 원본 유지
+        return f"AccessKeyId={key_id[:4]}****{key_id[-4:]}"
+
+    return _ACCESS_KEY_ID_PATTERN.sub(_mask, text)
 
 
 def _summarize_action_taken(action_taken: str) -> str:
@@ -383,10 +432,13 @@ class SecOpsWorkflow:
                     # 트리거(CreateAccessKey)는 _IAM_RESPONSE_EVENTS에 항상 포함돼 있어
                     # 필터 결과가 비는 일은 지금 없지만, 그 상수 정의가 나중에 바뀔 수 있어
                     # (앞서 event_mappings[0] 가드와 동일한 이유) 트리거로 폴백해 방어한다.
-                    iam_response_events = [
+                    # 반복 lookback으로 같은 회수 대상(같은 정책/같은 키)이 여러 이벤트로
+                    # 중복 잡히는 걸 여기서 한 번 걸러 Lambda를 불필요하게 여러 번 안 부른다
+                    # (그 타겟이 지금도 유효한지는 Lambda 쪽 현재상태 확인이 별도로 함).
+                    iam_response_events = _dedup_iam_response_events([
                         e for e in incident_group.events
                         if extract_evidence(e).get("event_name", "") in _IAM_RESPONSE_EVENTS
-                    ] or [event]
+                    ]) or [event]
                     all_regs = sorted({r for m in event_mappings for r in m.violated_regulations})
                     # per-event evidence는 딕셔너리 병합(update)하면 같은 키(event_name 등)가
                     # 이벤트끼리 서로 덮어써서 정보가 사라진다 — events 리스트로 각각 보존.
@@ -600,7 +652,7 @@ class SecOpsWorkflow:
             detail=(
                 f"1차 승인 완료. 사전 검증(dry-run) 결과:\n"
                 f"{action_summary_prefix}"
-                f"{_summarize_action_taken(dry_run_result.action_taken)}\n\n"
+                f"{_mask_access_key_ids(_summarize_action_taken(dry_run_result.action_taken))}\n\n"
                 f"위 내용이 실제로 적용됩니다. 실행할까요?"
             ),
             regulation_mapping=mapping,
@@ -647,7 +699,7 @@ class SecOpsWorkflow:
                     second_ticket,
                     f"대응 실행 결과 — {_source_label(event, evidence)}\n"
                     f"{result_summary_prefix}"
-                    f"{_summarize_action_taken(result.action_taken)}",
+                    f"{_mask_access_key_ids(_summarize_action_taken(result.action_taken))}",
                 ],
                 task_queue=HITL_TASK_QUEUE,
                 **get_activity_options(ActivityName.SEND_ACTION_RESULT),
