@@ -67,8 +67,14 @@ resource "aws_iam_role" "thanos_objstore" {
       ]
       Condition = {
         StringEquals = {
-          "aws:RequestTag/kubernetes-namespace"       = "observability"
-          "aws:RequestTag/kubernetes-service-account" = "thanos"
+          "aws:RequestTag/kubernetes-namespace" = "observability"
+          # 실제 Bitnami Thanos 컴포넌트 ServiceAccount와 일치해야 Pod Identity가
+          # 이 role을 AssumeRole할 수 있다. 기존 "thanos" 조건은 어느 워크로드에도
+          # 매칭되지 않아 Ruler의 S3 object 확인이 Access Denied로 실패했다.
+          "aws:RequestTag/kubernetes-service-account" = [
+            "observability-thanos-ruler",
+            "observability-thanos-receive",
+          ]
         }
       }
     }]

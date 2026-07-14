@@ -1,0 +1,45 @@
+# Alertmanager가 AIOps anomaly 알림을 orchestrator webhook으로 전달하기 위한
+# 교차 네임스페이스 통신 허용 정책이다. observability와 aiops-mas는 각각
+# default-deny 대상이므로 source egress와 destination ingress를 모두 명시한다.
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-alertmanager-to-aiops-orchestrator
+spec:
+  description: "Alertmanager -> AIOps orchestrator webhook egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: observability
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/instance: observability-alertmanager
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aiops-mas
+            app: aiops-orchestrator
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-aiops-orchestrator-from-alertmanager
+spec:
+  description: "AIOps orchestrator webhook ingress 허용 (Alertmanager에서 수신)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: aiops-mas
+      app: aiops-orchestrator
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alertmanager
+            app.kubernetes.io/instance: observability-alertmanager
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
