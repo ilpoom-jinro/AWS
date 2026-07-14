@@ -56,6 +56,13 @@ module "vpc2" {
   slack_hitl_inbound_queue_arn  = aws_sqs_queue.slack_hitl_inbound.arn
   slack_hitl_outbound_queue_arn = aws_sqs_queue.slack_hitl_outbound.arn
 
+  # secops-orchestrator의 계정 탈취 lookback(siem.cloudtrail Athena 조회)용 —
+  # SIEM 레이어는 module.security 소속이라 모듈 경계를 넘어 변수로 전달.
+  kms_key_cloudtrail_arn         = data.aws_kms_key.key_cloudtrail.arn
+  siem_athena_workgroup_name     = module.security.siem_athena_workgroup
+  siem_glue_database_name        = module.security.siem_glue_database
+  siem_athena_results_bucket_arn = module.security.siem_athena_results_bucket_arn
+
   depends_on = [module.iam] # mas-policy가 먼저 생성된 후 policy attachment 실행
 
   # providers 인자를 쓰면 default aws 상속이 취소되므로 aws도 명시적으로 전달.

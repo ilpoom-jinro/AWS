@@ -251,17 +251,13 @@ resource "aws_sns_topic_policy" "privilege_escalation_alert_use1" {
 resource "aws_cloudwatch_event_rule" "privilege_escalation_use1" {
   provider    = aws.us_east_1
   name        = "detect-privilege-escalation"
-  description = "계정 탈취 대응 — 성공한 IAM 권한부여/AccessKey 생성 탐지 (us-east-1)"
+  description = "계정 탈취 대응 — 성공한 AccessKey 생성 탐지 (us-east-1). Admin 권한부여는 워크플로우 lookback이 조회."
 
   event_pattern = jsonencode({
     "detail-type" = ["AWS API Call via CloudTrail"]
     detail = {
       eventSource = ["iam.amazonaws.com"]
       eventName = [
-        "AttachUserPolicy",
-        "PutUserPolicy",
-        "AttachRolePolicy",
-        "AttachGroupPolicy",
         "CreateAccessKey",
       ]
     }

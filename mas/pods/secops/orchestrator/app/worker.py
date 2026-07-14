@@ -24,9 +24,11 @@ from temporalio.worker import Worker
 
 from .activities import (
     apply_isolation,
+    correlate_incident,
     detect_threat,
     generate_compliance_report,
     generate_postmortem_report,
+    lookback_user_events,
     map_regulation,
     record_audit_log,
     record_compliance_report,
@@ -48,6 +50,8 @@ async def main() -> None:
         workflows=[SecOpsWorkflow],
         activities=[
             detect_threat,
+            lookback_user_events,
+            correlate_incident,
             map_regulation,
             apply_isolation,
             revoke_iam_privilege,

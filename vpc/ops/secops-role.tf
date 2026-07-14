@@ -190,6 +190,96 @@ resource "aws_iam_role_policy" "secops_orchestrator_iam_response" {
   })
 }
 
+# 계정 탈취 lookback — lookback_user_events(activities.py)가 siem.cloudtrail을
+# Athena로 조회하는 데 쓰는 권한. security/siem-athena.tf의 siem_athena_query
+# 인라인 정책과 동일 패턴이되, secops는 cloudtrail 테이블만 필요해 그만큼만 스코프.
+# siem 워크그룹/DB/결과버킷은 module.security 소속이라 변수로 전달받음(variables.tf 참조).
+resource "aws_iam_role_policy" "secops_orchestrator_siem_athena" {
+  name = "secops-siem-athena-lookback"
+  role = aws_iam_role.secops_orchestrator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AthenaQuerySiemWorkgroup"
+        Effect = "Allow"
+        Action = [
+          "athena:StartQueryExecution",
+          "athena:GetQueryExecution",
+          "athena:GetQueryResults",
+          "athena:GetWorkGroup",
+        ]
+        Resource = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.siem_athena_workgroup_name}"
+      },
+      {
+        Sid    = "GlueReadSiemCloudtrail"
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetTable",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+        ]
+        Resource = [
+          "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog",
+          "arn:aws:glue:${var.aws_region}:${var.account_id}:database/${var.siem_glue_database_name}",
+          "arn:aws:glue:${var.aws_region}:${var.account_id}:table/${var.siem_glue_database_name}/*",
+        ]
+      },
+      {
+        # CloudTrail 원본 로그 버킷 — 하드코딩 버킷명은 security/siem-athena.tf의
+        # siem_athena_query 정책과 동일(리소스 참조 아닌 고정 버킷명이라 모듈 변수 불필요)
+        Sid    = "S3ReadCloudTrailSource"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:ListBucket",
+        ]
+        Resource = [
+          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v5",
+          "arn:aws:s3:::ilpumjinro-cloudtrail-logs-locked-v5/*",
+        ]
+      },
+      {
+        Sid    = "S3SiemResultsBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          var.siem_athena_results_bucket_arn,
+          "${var.siem_athena_results_bucket_arn}/*",
+        ]
+      },
+      {
+        # CloudTrail 로그 파일 복호화 전용 — 읽기만 하므로 GenerateDataKey 불필요
+        Sid    = "KMSCloudTrailDecrypt"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+        ]
+        Resource = var.kms_key_cloudtrail_arn
+      },
+      {
+        # 쿼리 결과를 siem 결과버킷에 쓸 때(GenerateDataKey) + 읽을 때(Decrypt) 필요
+        Sid    = "KMSResultsBucket"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey",
+        ]
+        Resource = var.kms_key_s3_arn
+      },
+    ]
+  })
+}
+
 # 감사 로그 DB 등 공통 접근이 필요하면 mas-policy 도 부착 (FinOps 역할과 동일)
 resource "aws_iam_role_policy_attachment" "secops_orchestrator_mas" {
   role       = aws_iam_role.secops_orchestrator.name

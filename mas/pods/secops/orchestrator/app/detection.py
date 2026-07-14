@@ -104,6 +104,11 @@ def parse_eventbridge(data: dict) -> dict:
             "aws_region": detail.get("awsRegion", ""),
             "user_arn": (detail.get("userIdentity") or {}).get("arn", ""),
             "detail_type": data.get("detail-type", ""),
+            # 계정 탈취 인과판정(Sonnet)이 이벤트 간 실제 시간 간격을 보려면 필요 —
+            # SecurityEvent.detected_at은 파싱 처리 시각이라 원본 CloudTrail 발생
+            # 시각과 다름(다른 시나리오 공용 필드라 안 건드림). 트리거/lookback 이벤트
+            # 둘 다 이 함수를 거치므로 동일하게 채워짐.
+            "event_time": detail.get("eventTime", ""),
             # Rule Filter(workflow.py)의 권한부여 위험도 판단용 — 계정 탈취 대응
             "policy_arn": request_params.get("policyArn", ""),
             "target_user": request_params.get("userName", ""),
@@ -175,3 +180,38 @@ def message_to_event(body: str, cluster_name: str, enrich_flow_logs=None) -> Sec
         except Exception:  # noqa: BLE001
             enrichment = None
     return to_security_event(parsed, cluster_name, enrichment)
+
+
+def dedup_events(events: list[SecurityEvent]) -> list[SecurityEvent]:
+    """CloudTrail eventid 기준 dedup(첫 등장분 유지). 순수 함수(I/O 없음) —
+    workflow.py가 개별 판정(map_regulation) 호출 전에 직접 불러 중복 호출을 막는다."""
+    seen: set[str] = set()
+    deduped: list[SecurityEvent] = []
+    for event in events:
+        event_id = extract_evidence(event).get("cloudtrail_event_id", "")
+        key = event_id or event.raw_log  # eventid 없으면(비정상 파싱) raw_log로 폴백 dedup
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(event)
+    return deduped
+
+
+def build_incident_group(
+    workflow_id: str,
+    target_user_arn: str,
+    events: list[SecurityEvent],
+    window_start,
+    window_end,
+) -> "IncidentGroup":
+    """계정 탈취 lookback 상관분석 — dedup_events 재적용(멱등) 후 IncidentGroup 구성.
+    순수 함수(I/O 없음) — Rule Filter와 동일하게 workflow.py에서 직접 호출 가능."""
+    from contracts.models import IncidentGroup
+
+    return IncidentGroup(
+        workflow_id=workflow_id,
+        target_user_arn=target_user_arn,
+        events=dedup_events(events),
+        window_start=window_start,
+        window_end=window_end,
+    )
