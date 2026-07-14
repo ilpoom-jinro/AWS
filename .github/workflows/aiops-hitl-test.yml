@@ -80,11 +80,15 @@ jobs:
           OPS_VPC_COMMAND: ${{ steps.command.outputs.command }}
         run: |
           set -euo pipefail
+
+          jq -n --arg command "${OPS_VPC_COMMAND}" \
+            '[{name: "OPS_VPC_COMMAND", value: $command, type: "PLAINTEXT"}]' \
+            > ops-vpc-command-override.json
+
           build_id="$(
             aws codebuild start-build \
               --project-name "${CODEBUILD_PROJECT}" \
-              --environment-variables-override \
-                name=OPS_VPC_COMMAND,value="${OPS_VPC_COMMAND}",type=PLAINTEXT \
+              --environment-variables-override file://ops-vpc-command-override.json \
               --query 'build.id' \
               --output text
           )"

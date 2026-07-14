@@ -40,6 +40,29 @@ spec:
         - matchLabels:
             io.kubernetes.pod.namespace: argocd
 ---
+# AWS CNI chaining 모드에서는 다른 노드의 argocd endpoint가 namespace label 대신
+# 원격 CIDR identity로 인식될 수 있다. 이 경우 intra-namespace toEndpoints 규칙만으로는
+# server -> redis/repo-server 연결이 차단되므로, 필요한 VPC CIDR와 L4 포트만 보완한다.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-argocd-server-internal-services
+spec:
+  description: "argocd-server -> redis:6379, repo-server:8081 원격 endpoint identity 보완"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: argocd
+      app.kubernetes.io/name: argocd-server
+  egress:
+    - toCIDR:
+        - 10.20.0.0/16
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+            - port: "8081"
+              protocol: TCP
+---
 # ArgoCD repo-server → internal git server(git 네임스페이스) 크로스네임스페이스 허용
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
