@@ -741,6 +741,13 @@ def _query_siem_cloudtrail(target_user_arn: str, trigger_time: datetime) -> list
     return rows
 
 
+def _has_related_event(rows: list[dict]) -> bool:
+    """트리거(CreateAccessKey) 자신 말고 실제로 상관분석할 이벤트가 있는지.
+    적재 지연으로 트리거 자신의 레코드만 뒤늦게 siem.cloudtrail에 잡힌 경우는
+    '관련 이벤트 찾음'으로 치지 않는다 — 그래야 재조회 루프가 의미 있게 동작한다."""
+    return any(row.get("eventname", "") != "CreateAccessKey" for row in rows)
+
+
 @activity.defn(name="lookback_user_events")
 async def lookback_user_events(
     target_user_arn: str, trigger_time: datetime, cluster_name: str,
@@ -751,11 +758,39 @@ async def lookback_user_events(
     실패 시 빈 리스트로 조용히 넘기지 않고 예외를 그대로 전파한다 — 호출자(workflow.py)가
     IncidentGroup.lookback_failed=True로 표시하고 audit에 남긴다(Sonnet이 불완전 정보로
     판단하는 것을 방지 — FinOps의 blanket except-Exception-return-None 패턴 반복 금지).
+
+    CloudTrail → S3 → Athena 적재 지연 대응: 트리거(CreateAccessKey) 발생 수십 초 뒤에
+    lookback을 돌리면 그 직전 AttachUserPolicy 등이 아직 siem.cloudtrail에 반영 안 될 수
+    있다(실측: 41초 후에도 미반영, 그 이후엔 조회됨). 트리거 말고는 아무것도 안 잡히면
+    짧은 간격으로 재조회해 적재를 기다린다 — 그래도 안 잡히면 단일 이벤트로 그냥 진행
+    (지금과 동일하게 Sonnet이 단일 이벤트로 판정).
     """
     from .detection import parse_eventbridge, to_security_event
 
+    retry_max = int(os.getenv("SIEM_LOOKBACK_RETRY_MAX", "5"))
+    retry_interval_seconds = int(os.getenv("SIEM_LOOKBACK_RETRY_INTERVAL_SECONDS", "15"))
+
     activity.heartbeat("lookback_user_events: querying siem.cloudtrail")
     rows = await asyncio.to_thread(_query_siem_cloudtrail, target_user_arn, trigger_time)
+
+    attempt = 0
+    while attempt < retry_max and not _has_related_event(rows):
+        attempt += 1
+        activity.logger.info(
+            "lookback: target=%s 트리거 외 관련 이벤트 없음 — 적재 지연 대기 재조회 %d/%d (%ds 간격)",
+            target_user_arn, attempt, retry_max, retry_interval_seconds,
+        )
+        activity.heartbeat(f"lookback_user_events: retry {attempt}/{retry_max} 대기")
+        await asyncio.sleep(retry_interval_seconds)
+        activity.heartbeat(f"lookback_user_events: retry {attempt}/{retry_max} 재조회")
+        rows = await asyncio.to_thread(_query_siem_cloudtrail, target_user_arn, trigger_time)
+
+    if attempt:
+        activity.logger.info(
+            "lookback: target=%s 재조회 종료 — %d회 시도 후 %s",
+            target_user_arn, attempt,
+            "관련 이벤트 발견" if _has_related_event(rows) else "트리거 단일 이벤트로 진행",
+        )
 
     events: list[SecurityEvent] = []
     for row in rows:
