@@ -40,6 +40,7 @@ resources:
   - allow-temporal-cluster.yaml
   - allow-observability-velero-metrics.yaml
   - allow-alloy-egress.yaml
+  - allow-alloy-ops-scraping.yaml
   - allow-platform-mas-sqs.yaml
   - allow-mas-rds.yaml
   - allow-secops-mas-sqs.yaml

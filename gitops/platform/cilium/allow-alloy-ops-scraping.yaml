@@ -1,0 +1,24 @@
+# alloy-ops는 allow-alloy-egress.yaml의 toEntities: cluster 규칙으로
+# kube-state-metrics:8080 egress가 허용된다. 다만 kube-system은
+# allow-intra-kube-system 정책으로 ingress default-deny가 적용되므로,
+# ops 클러스터의 KSM scrape에는 목적지 ingress 허용도 필요하다.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ksm-scrape-from-alloy-ops
+spec:
+  description: "kube-state-metrics:8080 ingress 허용 (alloy-ops scrape)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: kube-state-metrics
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
