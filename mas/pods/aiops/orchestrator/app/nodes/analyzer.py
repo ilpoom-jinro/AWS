@@ -27,6 +27,7 @@ from contracts.models import (
 )
 from shared.bedrock import ClaudeModel, get_bedrock_client
 
+from ..config import settings
 from ..mappers import to_strategy
 
 logger = logging.getLogger(__name__)
