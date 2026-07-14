@@ -14,7 +14,7 @@ data:
   AWS_REGION:             "ap-northeast-2"
   BEDROCK_REGION:         "ap-northeast-2"
   BEDROCK_MODEL:          "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-  BEDROCK_MODEL_LIGHT:    "amazon.nova-lite-v1:0"    # 2단계 triage (ap-northeast-2 지원 확인됨 2026-07-06)
+  BEDROCK_MODEL_LIGHT:    "apac.amazon.nova-lite-v1:0"    # 2단계 triage — on-demand 직접 호출 불가, inference profile 필요
   USE_REAL_BEDROCK:       "true"
   USE_BEDROCK_KB:         "true"                     # KB 프로비저닝 완료 (secops-regulations, S3 Vectors, 규정 4종 임베딩)
   BEDROCK_KB_ID:          "BEDVQBMHGO"               # Bedrock KB — map_regulation RAG 검색 소스
