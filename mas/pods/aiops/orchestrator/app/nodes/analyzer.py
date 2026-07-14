@@ -42,6 +42,9 @@ SEVERITY_BY_ANOMALY = {
     "high_latency": "medium",
 }
 
+TEST_STRATEGY_PREFIX = "[AIOPS_HITL_TEST_STRATEGY="
+TEST_STRATEGIES = {"restart", "scale_out", "rollback"}
+
 RCA_PROMPT = """당신은 쿠버네티스/AWS 인프라 전문 SRE입니다.
 아래 장애를 분석하여 반드시 JSON으로만 답하십시오 (마크다운/설명 금지).
 
@@ -145,6 +148,31 @@ def _fmt_pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
+def _test_strategy_override(incident: IncidentContext) -> dict | None:
+    """전용 HITL 테스트 워크로드의 승인 후 조치를 결정론적으로 검증한다."""
+    if not incident.pod_name.startswith("aiops-hitl-crashloop-"):
+        return None
+
+    for line in incident.recent_logs:
+        if not line.startswith(TEST_STRATEGY_PREFIX) or not line.endswith("]"):
+            continue
+        strategy = line[len(TEST_STRATEGY_PREFIX):-1]
+        if strategy not in TEST_STRATEGIES:
+            return None
+        return {
+            "root_cause": f"AIOps HITL {strategy} 테스트 시나리오",
+            "detail": (
+                "전용 테스트 Deployment가 선택된 복구 전략의 "
+                "승인 후 실행 경로를 검증하도록 CrashLoopBackOff를 발생시켰습니다."
+            ),
+            "confidence": 1.0,
+            "strategy": strategy,
+            "strategy_detail": "전용 HITL 테스트 워크로드",
+            "estimated_recovery_minutes": 1,
+        }
+    return None
+
+
 def _invoke_bedrock(prompt: str) -> dict:
     """converse API 호출 + 에러 분기. 동기 함수 (Activity가 호출)."""
     client = get_bedrock_client()
@@ -186,19 +214,21 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
         logs="\n".join(incident.recent_logs)[:6000],
     )
 
-    loop = asyncio.get_event_loop()
-    try:
-        rca = await loop.run_in_executor(None, _invoke_bedrock, prompt)
-    except (json.JSONDecodeError, KeyError) as exc:
-        logger.error("RCA 파싱 실패: %s", exc)
-        rca = {
-            "root_cause": "RCA 분석 실패",
-            "detail": str(exc),
-            "confidence": 0.0,
-            "strategy": "manual",
-            "strategy_detail": "수동 조사 필요",
-            "estimated_recovery_minutes": 0,
-        }
+    rca = _test_strategy_override(incident)
+    if rca is None:
+        loop = asyncio.get_event_loop()
+        try:
+            rca = await loop.run_in_executor(None, _invoke_bedrock, prompt)
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.error("RCA 파싱 실패: %s", exc)
+            rca = {
+                "root_cause": "RCA 분석 실패",
+                "detail": str(exc),
+                "confidence": 0.0,
+                "strategy": "manual",
+                "strategy_detail": "수동 조사 필요",
+                "estimated_recovery_minutes": 0,
+            }
 
     strategy = to_strategy(rca.get("strategy", "manual"))
     confidence = float(rca.get("confidence", 0.0))

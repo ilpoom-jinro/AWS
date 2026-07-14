@@ -26,6 +26,7 @@ import logging
 import os
 import uuid
 import asyncio
+import time
 
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -36,6 +37,7 @@ from contracts.models import DetectIncidentInput
 
 from .config import settings
 from .k8s_collector import K8sCollector
+from .nodes.detector import _detect_reason
 from .workflow import AIOpsRemediationWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -43,10 +45,17 @@ logger = logging.getLogger("aiops.trigger")
 
 TEMPORAL_ADDRESS = os.getenv("TEMPORAL_ADDRESS", "localhost:7233")
 TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "aiops-task-queue")
+MONITORED_CLUSTERS = (
+    "financial-ops-eks",
+    "financial-service-eks",
+)
+POD_SUMMARY_CACHE_TTL_SECONDS = 3.0
 
 app = FastAPI(title="AIOps Alert Trigger", version="1.3.0")
 
 _client: Client | None = None
+_pod_summary_cache: dict[str, tuple[float, dict[str, object]]] = {}
+_pod_summary_locks = {cluster: asyncio.Lock() for cluster in MONITORED_CLUSTERS}
 
 
 class RunWorkflowRequest(BaseModel):
@@ -99,6 +108,84 @@ def _context_for_cluster(cluster_name: str) -> str:
     return settings.OPS_KUBE_CONTEXT
 
 
+def _is_ready_pod(pod: dict) -> bool:
+    """Running이며 모든 컨테이너가 Ready인 Pod만 정상으로 집계한다."""
+    status = pod.get("status", {})
+    if status.get("phase") != "Running":
+        return False
+    containers = status.get("container_statuses") or status.get("containerStatuses") or []
+    return bool(containers) and all(container.get("ready", False) for container in containers)
+
+
+async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
+    """클러스터 전체 Pod를 정상/장애/기타 상태와 namespace로 집계한다."""
+    collector = K8sCollector(context=_context_for_cluster(cluster_name))
+    pods = await collector.list_pods_all_namespaces()
+    namespaces: set[str] = set()
+    problem_namespaces: set[str] = set()
+    normal_pod_count = 0
+    problem_pod_count = 0
+    other_pod_count = 0
+
+    for pod in pods:
+        namespace = pod.get("metadata", {}).get("namespace", "")
+        if namespace:
+            namespaces.add(namespace)
+
+        if _detect_reason(pod):
+            problem_pod_count += 1
+            if namespace:
+                problem_namespaces.add(namespace)
+        elif _is_ready_pod(pod):
+            normal_pod_count += 1
+        else:
+            other_pod_count += 1
+
+    return {
+        "cluster_name": cluster_name,
+        "namespace_names": sorted(namespaces),
+        "normal_pod_count": normal_pod_count,
+        "problem_pod_count": problem_pod_count,
+        "other_pod_count": other_pod_count,
+        "problem_namespaces": sorted(problem_namespaces),
+    }
+
+
+async def _cached_pod_summary(cluster_name: str) -> dict[str, object]:
+    """3초 TTL로 원격 Service EKS API와 Ops API의 중복 조회를 줄인다."""
+    if cluster_name not in _pod_summary_locks:
+        raise ValueError(f"지원하지 않는 클러스터: {cluster_name}")
+
+    now = time.monotonic()
+    cached = _pod_summary_cache.get(cluster_name)
+    if cached and now - cached[0] < POD_SUMMARY_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    async with _pod_summary_locks[cluster_name]:
+        cached = _pod_summary_cache.get(cluster_name)
+        if cached and time.monotonic() - cached[0] < POD_SUMMARY_CACHE_TTL_SECONDS:
+            return cached[1]
+        summary = await _collect_pod_summary(cluster_name)
+        _pod_summary_cache[cluster_name] = (time.monotonic(), summary)
+        return summary
+
+
+async def _dashboard_cluster_summary(cluster_name: str) -> dict[str, object]:
+    try:
+        return await _cached_pod_summary(cluster_name)
+    except Exception as exc:
+        logger.exception("Pod 상태 집계 실패: %s", cluster_name)
+        return {
+            "cluster_name": cluster_name,
+            "namespace_names": [],
+            "normal_pod_count": 0,
+            "problem_pod_count": 0,
+            "other_pod_count": 0,
+            "problem_namespaces": [],
+            "error": str(exc),
+        }
+
+
 @app.post("/webhook/alertmanager")
 async def alertmanager_webhook(request: Request) -> dict:
     """Alertmanager webhook 수신 → 조합별로 워크플로 시작."""
@@ -128,7 +215,10 @@ async def alertmanager_webhook(request: Request) -> dict:
 
 
 @app.get("/api/dashboard")
-def dashboard() -> dict[str, object]:
+async def dashboard() -> dict[str, object]:
+    cluster_summaries = await asyncio.gather(
+        *(_dashboard_cluster_summary(cluster) for cluster in MONITORED_CLUSTERS)
+    )
     return {
         "scenario": "aiops",
         "agent": "orchestrator",
@@ -138,24 +228,17 @@ def dashboard() -> dict[str, object]:
             {"cluster_name": "financial-ops-eks", "namespace": "tetragon"},
             {"cluster_name": "financial-service-eks", "namespace": "stock-demo"},
         ],
+        "cluster_summaries": cluster_summaries,
     }
 
 
 @app.get("/api/clusters/{cluster_name}/namespaces")
 async def cluster_namespaces(cluster_name: str) -> dict[str, object]:
     """해당 클러스터에서 pod가 존재하는 namespace 목록을 반환한다."""
-    collector = K8sCollector(context=_context_for_cluster(cluster_name))
-    pods = await collector.list_pods_all_namespaces()
-    namespaces = sorted(
-        {
-            pod.get("metadata", {}).get("namespace", "")
-            for pod in pods
-            if pod.get("metadata", {}).get("namespace")
-        }
-    )
+    summary = await _cached_pod_summary(cluster_name)
     return {
         "cluster_name": cluster_name,
-        "namespaces": namespaces,
+        "namespaces": summary["namespace_names"],
     }
 
 
