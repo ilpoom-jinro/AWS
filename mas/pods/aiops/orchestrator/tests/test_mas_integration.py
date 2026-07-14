@@ -216,6 +216,18 @@ with _patch.object(_az, "_invoke_bedrock", return_value=_fake):
 assert _rep.remediation_plan.pod_name == "stock-api-7f9d4c8b-xk2p9"
 passed += 1; print(f"{passed}. RemediationPlan.pod_name 전달 OK")
 
+# 15-1. ops/service 모두 entrypoint가 만든 kubeconfig context를 명시해야 한다.
+# ops에서 빈 context면 Platform Core가 KUBECONFIG를 제거해 실행 API 접근이 깨진다.
+_ops_ic = IncidentContext(
+    cluster_name="financial-ops-eks", namespace="aiops-mas",
+    pod_name="aiops-hitl-crashloop-7f9d4c8b-xk2p9", anomaly_type="crashloop_backoff",
+    restart_count=3, recent_logs=["intentional CrashLoopBackOff"],
+)
+with _patch.object(_az, "_invoke_bedrock", return_value=_fake):
+    _ops_rep = _asyncio.run(_az.analyze_root_cause(_ops_ic))
+assert _ops_rep.remediation_plan.kube_context == "financial-ops-eks"
+passed += 1; print(f"{passed}. ops RemediationPlan kube_context 명시 OK")
+
 # 16. Alertmanager webhook 파싱 — (cluster,namespace) 추출 + 중복/필터
 from pods.aiops.orchestrator.app.trigger import _extract_targets
 _payload = {"alerts":[
