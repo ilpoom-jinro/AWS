@@ -61,6 +61,10 @@ class AIOpsRemediationWorkflow:
         incident: IncidentContext | None = await workflow.execute_activity(
             ActivityName.DETECT_INCIDENT,
             detect_input,
+            # ActivityName 문자열 호출은 반환 타입을 추론할 수 없어 JSON dict로
+            # 역직렬화된다. 다음 단계에서 IncidentContext 속성에 접근할 수 있도록
+            # 계약 모델을 명시한다.
+            result_type=IncidentContext | None,
             **get_activity_options(ActivityName.DETECT_INCIDENT),
         )
         if incident is None:
@@ -73,6 +77,7 @@ class AIOpsRemediationWorkflow:
         report: AnomalyReport = await workflow.execute_activity(
             ActivityName.ANALYZE_ROOT_CAUSE,
             incident,
+            result_type=AnomalyReport,
             **get_activity_options(ActivityName.ANALYZE_ROOT_CAUSE),
         )
         await self._audit(incident.workflow_id, "analysis_completed", report.summary)
@@ -94,6 +99,7 @@ class AIOpsRemediationWorkflow:
             ActivityName.SEND_APPROVAL_REQUEST,
             approval_req,
             task_queue=HITL_TASK_QUEUE,
+            result_type=ApprovalTicket,
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
         )
         await self._audit(incident.workflow_id, "approval_requested", report.summary)
@@ -142,6 +148,7 @@ class AIOpsRemediationWorkflow:
         exec_result: ExecutionResult = await workflow.execute_activity(
             ActivityName.EXECUTE_REMEDIATION,
             plan,
+            result_type=ExecutionResult,
             **get_activity_options(ActivityName.EXECUTE_REMEDIATION),
         )
         await self._audit(incident.workflow_id, "action_executed",
@@ -153,6 +160,7 @@ class AIOpsRemediationWorkflow:
         verification: RecoveryVerification = await workflow.execute_activity(
             ActivityName.VERIFY_RECOVERY,
             incident,
+            result_type=RecoveryVerification,
             **get_activity_options(ActivityName.VERIFY_RECOVERY),
         )
 
