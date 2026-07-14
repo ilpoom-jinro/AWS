@@ -1,7 +1,8 @@
 # 데모앱(stock-web) 외부 노출용 ALB Ingress.
 # - ilpumjinro.store        : 사용자 접속 메인 (Route53 Failover PRIMARY → 이 ALB)
 # - aws.ilpumjinro.store    : AWS 직접 접속
-# 두 호스트 모두 같은 ALB로 stock-web에 라우팅한다.
+# - health.ilpumjinro.store : Route 53 상태 검사 전용 (Failover 대상이 아님)
+# 세 호스트 모두 같은 ALB로 stock-web에 라우팅한다.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -45,6 +46,16 @@ spec:
                 port:
                   number: 80
     - host: aws.ilpumjinro.store
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stock-gw-istio
+                port:
+                  number: 80
+    - host: health.ilpumjinro.store
       http:
         paths:
           - path: /
