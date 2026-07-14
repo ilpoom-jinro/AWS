@@ -60,15 +60,31 @@ data "aws_lb" "service" {
   arn   = tolist(data.aws_lbs.service.arns)[0]
 }
 
+# Route 53은 ALB DNS 이름을 Host 헤더로 사용한다. 이 이름은 앱 Ingress의 host 규칙과
+# 일치하지 않으므로, ALB로 직접 향하는 전용 상태 검사 도메인을 사용한다.
+resource "aws_route53_record" "aws_health" {
+  count   = local.service_alb_enabled
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "health.ilpumjinro.store"
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.service[0].dns_name
+    zone_id                = data.aws_lb.service[0].zone_id
+    evaluate_target_health = true
+  }
+}
+
 resource "aws_route53_health_check" "aws_primary" {
   count = local.service_alb_enabled
 
-  fqdn              = data.aws_lb.service[0].dns_name
+  fqdn              = aws_route53_record.aws_health[0].fqdn
   port              = 443
   type              = "HTTPS"
   resource_path     = "/"
   failure_threshold = 3
   request_interval  = 30
+  enable_sni        = true
 
   tags = {
     Name = "financial-stock-web-health-check"

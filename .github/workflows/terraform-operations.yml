@@ -888,6 +888,7 @@ jobs:
           terraform apply -auto-approve -input=false -lock-timeout=5m -refresh=true \
             -target=aws_route53_health_check.aws_primary \
             -target=aws_route53_health_check.gcp_secondary \
+            -target=aws_route53_record.aws_health \
             -target=aws_route53_record.root_primary \
             -target=aws_route53_record.root_secondary \
             -target=aws_route53_record.aws_direct \
