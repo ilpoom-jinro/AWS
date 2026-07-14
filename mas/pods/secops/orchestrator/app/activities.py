@@ -138,6 +138,7 @@ def _triage_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> 
     is_threat=False면 Sonnet 호출 생략 — 비용 통제 핵심."""
     from botocore.exceptions import ClientError
     from shared.bedrock import get_bedrock_client
+    from .detection import extract_evidence
 
     client = get_bedrock_client()
     grounding = "\n\n".join(
@@ -145,16 +146,37 @@ def _triage_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) -> 
     ) or "(검색 결과 없음)"
     system_prompt = (
         "너는 보안 이벤트 사전 분류기다. 아래 이벤트가 금융 규제 위반 가능성이 있는지 빠르게 판단해라. "
+        "AdministratorAccess/PowerUserAccess/IAMFullAccess 같은 고권한 정책 부여, AccessKey 생성 등은 "
+        "권한 상승·계정 탈취 징후이므로 severity를 높게 판단해라. "
         "반드시 아래 JSON만 출력해라.\n"
         '{"is_threat": bool, "confidence": float, "severity": "critical"|"high"|"medium"|"low"}'
     )
-    user_text = (
-        f"[보안 이벤트 요약]\n"
-        f"threat_type={event.threat_type} source_pod={event.source_pod} "
-        f"destination={event.destination_ip}:{event.destination_port} "
-        f"direction={event.direction}\n\n"
-        f"[규정 근거 요약]\n{grounding}"
-    )
+    evidence = extract_evidence(event)
+    if event.event_source == "cloudtrail" or evidence.get("event_name"):
+        # IAM(CloudTrail) 이벤트 — source_pod/destination_ip 등 network 필드는
+        # unknown/무의미하므로 IAM 컨텍스트로 대체
+        target = (
+            evidence.get("target_user")
+            or evidence.get("target_role")
+            or evidence.get("target_group")
+            or ""
+        )
+        user_text = (
+            f"[IAM 보안 이벤트]\n"
+            f"event_name={evidence.get('event_name', '')} 대상={target}\n"
+            f"부여된 정책={evidence.get('policy_arn', '')}\n"
+            f"행위자={evidence.get('user_arn', '')}\n"
+            f"threat_type={event.threat_type}\n\n"
+            f"[규정 근거 요약]\n{grounding}"
+        )
+    else:
+        user_text = (
+            f"[보안 이벤트 요약]\n"
+            f"threat_type={event.threat_type} source_pod={event.source_pod} "
+            f"destination={event.destination_ip}:{event.destination_port} "
+            f"direction={event.direction}\n\n"
+            f"[규정 근거 요약]\n{grounding}"
+        )
     try:
         resp = client.converse(
             modelId=BEDROCK_MODEL_LIGHT,
@@ -183,11 +205,14 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     1차 triage 통과분만 호출 — Sonnet 비용이 Nova의 ~85×이므로 반드시 필터 후 진입."""
     from botocore.exceptions import ClientError
     from shared.bedrock import get_bedrock_client
+    from .detection import extract_evidence
 
     client = get_bedrock_client()
     system_prompt = (
         "너는 금융 보안 규제 분석기다. 보안 이벤트가 '검색된 규정 근거'를 위반하는지, "
         "반드시 그 근거에 기반해 판단해라. 근거에 없는 규정은 지어내지 마라. "
+        "AdministratorAccess/PowerUserAccess/IAMFullAccess 같은 고권한 정책 부여, AccessKey 생성 등은 "
+        "권한 상승·계정 탈취 징후이므로 severity를 높게 판단해라. "
         "반드시 아래 JSON 스키마만 출력해라.\n"
         '{"violated_regulations": [string], "violation_description": string, '
         '"confidence": float, "severity": "critical"|"high"|"medium"|"low", '
@@ -196,8 +221,26 @@ def _analyze_with_bedrock(event: SecurityEvent, chunks: list[RetrievedChunk]) ->
     grounding = "\n\n".join(
         f"[{c.source}] (관련도 {c.score})\n{c.text}" for c in chunks
     ) or "(검색 결과 없음)"
+    # event.model_dump_json에 raw_log(evidence 원문 포함)가 실려는 있으나 텍스트 블록이라
+    # LLM이 놓칠 수 있어, IAM 이벤트는 구조화된 필드를 명시적으로 덧붙여 명확히 한다.
+    iam_context = ""
+    if event.event_source == "cloudtrail":
+        evidence = extract_evidence(event)
+        target = (
+            evidence.get("target_user")
+            or evidence.get("target_role")
+            or evidence.get("target_group")
+            or ""
+        )
+        iam_context = (
+            f"\n\n[IAM 컨텍스트]\n"
+            f"event_name={evidence.get('event_name', '')} 대상={target}\n"
+            f"부여된 정책={evidence.get('policy_arn', '')}\n"
+            f"행위자={evidence.get('user_arn', '')}"
+        )
     user_text = (
-        f"[보안 이벤트]\n{event.model_dump_json(indent=2)}\n\n"
+        f"[보안 이벤트]\n{event.model_dump_json(indent=2)}"
+        f"{iam_context}\n\n"
         f"[검색된 규정 근거]\n{grounding}"
     )
     try:
