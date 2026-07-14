@@ -77,6 +77,13 @@ _POLICY_GRANT_EVENTS = ("AttachUserPolicy", "PutUserPolicy", "AttachRolePolicy",
 # 대응 분기용 — 이 event_name들은 apply_isolation(CNP) 대신 revoke_iam_privilege(IAM)를 태움.
 _IAM_RESPONSE_EVENTS = _POLICY_GRANT_EVENTS + ("CreateAccessKey",)
 
+# Slack Block Kit의 section text는 3000자 제한(넘으면 chat.postMessage가 invalid_blocks로
+# 실패 — bot.py의 build_approval_blocks가 이 제한을 진짜로 지키는 마지막 방어선이지만,
+# 여기서도 애초에 카드 내용을 짧게 만들어 모바일 가독성까지 같이 챙긴다.
+_MAX_EVENTS_IN_CARD = 5
+_MAX_SUMMARY_SENTENCES = 3
+_MAX_ACTION_LINES = 5
+
 
 def _parse_trigger_time(evidence: dict, fallback: datetime) -> datetime:
     """lookback 시간창의 기준 시각 — evidence['event_time'](원본 CloudTrail eventTime)을
@@ -150,12 +157,15 @@ def _render_evidence_for_card(evidence: dict) -> str:
         )
 
     events = evidence.get("events", [])
+    shown_events = events[:_MAX_EVENTS_IN_CARD]
     lines = [f"관련 이벤트 ({len(events)}건):"]
-    for idx, event_dict in enumerate(events, start=1):
+    for idx, event_dict in enumerate(shown_events, start=1):
         time_str = _format_event_time_for_card(event_dict)
         event_name = event_dict.get("event_name", "알 수 없음")
         description = _describe_event_for_card(event_dict)
         lines.append(f"  {idx}. {time_str}  {event_name}  → {description}")
+    if len(events) > _MAX_EVENTS_IN_CARD:
+        lines.append(f"  … 외 {len(events) - _MAX_EVENTS_IN_CARD}건 (전체는 감사 로그 참고)")
 
     target_user_arn = evidence.get("target_user_arn", "")
     if target_user_arn:
@@ -182,14 +192,58 @@ def _source_label(event: SecurityEvent, evidence: dict) -> str:
 
 def _wrap_summary_for_card(text: str) -> str:
     """카드에 넣을 긴 서술형 텍스트(causal_summary 등)를 문장(". " 기준) 단위로
-    줄바꿈 — Sonnet 출력/프롬프트는 안 건드리고 카드 렌더링 시점에만 나눈다."""
+    줄바꿈하고, 모바일 가독성 + Slack 3000자 블록 제한을 위해 앞의
+    _MAX_SUMMARY_SENTENCES개까지만 보여준다(넘으면 요약 표시 추가). Sonnet 출력/
+    프롬프트나 audit 로그(mapping.violation_description 원본)는 안 건드리고
+    카드 렌더링 시점에만 축약한다 — 전체 내용이 필요하면 감사 로그를 봐야 함."""
     if not text:
         return text
     sentences = [s.strip() for s in text.split(". ") if s.strip()]
-    return "\n".join(
-        s if idx == len(sentences) - 1 else f"{s}."
-        for idx, s in enumerate(sentences)
+    truncated = len(sentences) > _MAX_SUMMARY_SENTENCES
+    shown = sentences[:_MAX_SUMMARY_SENTENCES]
+    if truncated:
+        lines = [f"{s}." for s in shown]
+        lines.append("(요약 — 전체 내용은 감사 로그 참고)")
+    else:
+        lines = [s if idx == len(shown) - 1 else f"{s}." for idx, s in enumerate(shown)]
+    return "\n".join(lines)
+
+
+def _summarize_action_taken(action_taken: str) -> str:
+    """revoke_iam_privilege/apply_isolation의 action_taken(한 줄 = 이벤트/작업 하나)을
+    앞 _MAX_ACTION_LINES줄까지만 보여주고 나머지는 "외 N건"으로 줄인다. 단일 이벤트
+    경로(apply_isolation 등)는 원래 한 줄이라 그대로 통과한다."""
+    if not action_taken:
+        return action_taken
+    lines = action_taken.split("\n")
+    if len(lines) <= _MAX_ACTION_LINES:
+        return action_taken
+    shown = lines[:_MAX_ACTION_LINES]
+    remaining = len(lines) - _MAX_ACTION_LINES
+    return "\n".join(shown) + f"\n… 외 {remaining}건 (전체는 감사 로그 참고)"
+
+
+def _summarize_iam_actions(events: list[SecurityEvent]) -> str:
+    """"정책 회수 N건, 액세스 키 비활성화 M건" 형태의 건수 요약. 성공/실패 여부와
+    무관하게 몇 건을 시도했는지만 보여준다(성공/실패 상세는 action_taken 줄에서 확인) —
+    activities.py의 action_taken 문자열을 파싱하지 않고 workflow.py가 이미 들고 있는
+    iam_response_events를 직접 세어서 ExecutionResult 모델은 그대로 둔다."""
+    policy_count = sum(
+        1 for e in events if extract_evidence(e).get("event_name", "") in _POLICY_GRANT_EVENTS
     )
+    key_count = sum(
+        1 for e in events if extract_evidence(e).get("event_name", "") == "CreateAccessKey"
+    )
+    other_count = len(events) - policy_count - key_count
+
+    parts = []
+    if policy_count:
+        parts.append(f"정책 회수 {policy_count}건")
+    if key_count:
+        parts.append(f"액세스 키 비활성화 {key_count}건")
+    if other_count:
+        parts.append(f"기타 {other_count}건")
+    return ", ".join(parts) if parts else "대응 대상 없음"
 
 
 @workflow.defn
@@ -534,13 +588,19 @@ class SecOpsWorkflow:
         await self._audit(event.workflow_id, "action_dry_run", "대응 사전 검증",
                           {"result": dry_run_result.model_dump(mode="json")})
 
+        # 대응 건수 요약 — IAM 경로만 의미 있음(네트워크는 pod 1개 격리라 요약 불필요).
+        # action_taken은 이벤트/작업당 한 줄이라 줄 수로 안전하게 잘라도 됨(Slack
+        # section 3000자 제한 + 모바일 가독성 둘 다 대비).
+        action_summary_prefix = f"{_summarize_iam_actions(iam_response_events)}\n" if is_iam_threat else ""
         second_approval_req = ApprovalRequest(
             workflow_id=event.workflow_id,
             scenario="secops",
             severity=mapping.severity,
             summary=f"[2차 승인] 실제 대응 실행 확인: {_source_label(event, evidence)}",
             detail=(
-                f"1차 승인 완료. 사전 검증(dry-run) 결과:\n{dry_run_result.action_taken}\n\n"
+                f"1차 승인 완료. 사전 검증(dry-run) 결과:\n"
+                f"{action_summary_prefix}"
+                f"{_summarize_action_taken(dry_run_result.action_taken)}\n\n"
                 f"위 내용이 실제로 적용됩니다. 실행할까요?"
             ),
             regulation_mapping=mapping,
@@ -577,9 +637,18 @@ class SecOpsWorkflow:
             await self._audit(event.workflow_id, "action_executed", "대응 실행",
                               {"result": result.model_dump(mode="json")})
             # 실행 결과를 2차 카드 스레드에 통지 (성공/실패/미지원/dry-run-안전망 전부 포함)
+            # dry-run 카드와 동일하게 건수 요약 + 줄 수 제한 — send_action_result는
+            # blocks 없는 평문이라 Slack 3000자 제한 대상은 아니지만, 모바일 가독성과
+            # 카드 일관성을 위해 동일하게 축약한다.
+            result_summary_prefix = f"{_summarize_iam_actions(iam_response_events)}\n" if is_iam_threat else ""
             await workflow.execute_activity(
                 send_action_result,
-                args=[second_ticket, f"대응 실행 결과 — {_source_label(event, evidence)}\n{result.action_taken}"],
+                args=[
+                    second_ticket,
+                    f"대응 실행 결과 — {_source_label(event, evidence)}\n"
+                    f"{result_summary_prefix}"
+                    f"{_summarize_action_taken(result.action_taken)}",
+                ],
                 task_queue=HITL_TASK_QUEUE,
                 **get_activity_options(ActivityName.SEND_ACTION_RESULT),
             )
