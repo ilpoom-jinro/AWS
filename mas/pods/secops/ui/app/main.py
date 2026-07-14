@@ -114,6 +114,8 @@ _INDEX_HTML = r"""
   th { color:var(--muted); font-weight:600; }
   .btn { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:14px; cursor:pointer; }
   .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .dlbtn { background:transparent; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:3px 8px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .dlbtn:hover { background:var(--accent); color:#fff; }
   .pill { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--line); }
   .reg { color:var(--accent); font-size:12px; } .muted { color:var(--muted); }
   pre { background:#0b1020; padding:10px; border-radius:8px; overflow:auto; font-size:11px; max-height:200px; }
@@ -133,7 +135,7 @@ _INDEX_HTML = r"""
   <div class="grid">
     <div class="panel">
       <h2>규제 위반 보고서 (최근)</h2>
-      <table><thead><tr><th>시각</th><th>Severity</th><th>위반 규정</th><th>격리</th></tr></thead>
+      <table><thead><tr><th>시각</th><th>Severity</th><th>위반 규정</th><th>격리</th><th></th></tr></thead>
       <tbody id="reports"></tbody></table>
     </div>
     <div class="panel">
@@ -160,16 +162,30 @@ async function load() {
       <div class="card"><div class="l">Severity 분포</div><div class="sevbar">
         ${["critical","high","medium","low"].map(k=>`<span class="s-${k}">${k} ${sev[k]||0}</span>`).join("")}
       </div></div>`;
-    document.getElementById("reports").innerHTML = (d.recent_reports||[]).map(r=>`
+    window._reports = d.recent_reports || [];
+    document.getElementById("reports").innerHTML = (d.recent_reports||[]).map((r,i)=>`
       <tr><td>${fmt(r.generated_at)}</td><td><span class="${sevClass(r.severity)}">${esc(r.severity)}</span></td>
       <td class="reg">${(r.violated_regulations||[]).map(esc).join("<br>")}</td>
-      <td>${r.isolation_applied?"✅":"—"}</td></tr>`).join("") || `<tr><td colspan=4 class=muted>보고서 없음</td></tr>`;
+      <td>${r.isolation_applied?"✅":"—"}</td>
+      <td><button class="dlbtn" onclick="downloadReport(${i})" title="JSON 다운로드">⬇ JSON</button></td></tr>`).join("") || `<tr><td colspan=5 class=muted>보고서 없음</td></tr>`;
     document.getElementById("audit").innerHTML = (d.recent_audit_logs||[]).map(a=>`
       <tr><td>${fmt(a.occurred_at)}</td><td><span class=pill>${esc(a.event_type)}</span></td><td>${esc(a.summary)}</td></tr>`
       ).join("") || `<tr><td colspan=3 class=muted>로그 없음</td></tr>`;
   } catch(e) {
     document.getElementById("cards").innerHTML = `<div class="card" style="grid-column:1/-1;color:var(--high)">orchestrator 연결 대기 중… (${esc(e.message)})</div>`;
   }
+}
+
+function downloadReport(i) {
+  const r = (window._reports || [])[i];
+  if (!r) return;
+  const blob = new Blob([JSON.stringify(r, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const wf = r.workflow_id || ("report-" + i);
+  a.href = url; a.download = `secops-report-${wf}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 async function runWorkflow() {

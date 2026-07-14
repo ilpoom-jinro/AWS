@@ -1,0 +1,44 @@
+# AIOps RCA는 Bedrock Runtime Converse API를 호출한다. Ops VPC는 NAT/IGW 없이
+# Bedrock Interface VPC Endpoint(PrivateLink)를 사용하므로 FQDN 정책과 endpoint
+# ENI CIDR 보강을 함께 둔다. 인터넷 egress를 허용하지 않는다.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-aiops-mas-bedrock
+spec:
+  description: "aiops-orchestrator -> Bedrock Runtime VPC Endpoint egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: aiops-mas
+      app: aiops-orchestrator
+  egress:
+    # Cilium DNS proxy가 PrivateLink의 FQDN-IP 매핑을 학습하도록 한다.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*.amazonaws.com"
+    # Bedrock Runtime Private DNS endpoint.
+    - toFQDNs:
+        - matchName: "bedrock-runtime.ap-northeast-2.amazonaws.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # AWS VPC CNI chaining 환경에서 Endpoint ENI가 endpoint identity로 매칭되지
+    # 않는 경우를 대비한 PrivateLink subnet CIDR 보강이다.
+    - toCIDR:
+        - 10.20.11.0/24
+        - 10.20.12.0/24
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
