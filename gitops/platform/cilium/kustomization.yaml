@@ -35,6 +35,7 @@ resources:
   - allow-teleport-app-service-to-proxy.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
+  - allow-aiops-mas-bedrock.yaml
   - allow-kyverno-cosign-egress-ops.yaml
   - allow-db-init-rds.yaml
   - allow-temporal-cluster.yaml
