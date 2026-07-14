@@ -6,15 +6,16 @@
 #   - SQS (financial-secops-trigger 폴링)
 #   - CloudWatch Logs (Flow Logs 재조회), CloudTrail (증적)
 #   - STS (Pod Identity assume)
+#   - Lambda (financial-secops-iam-responder invoke — 계정 탈취 IAM 회수, VPC 밖 위임)
 #   - RDS PostgreSQL (compliance_reports/audit_logs) — RDS는 프라이빗 IP라 toFQDNs 또는 toCIDR
 ---
-# secops-orchestrator → AWS 서비스 (Bedrock/SQS/CloudWatch/CloudTrail/STS)
+# secops-orchestrator → AWS 서비스 (Bedrock/SQS/CloudWatch/CloudTrail/STS/Lambda)
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-fqdn-secops-aws
 spec:
-  description: "secops-mas → AWS 서비스(Bedrock/SQS/CloudWatch/CloudTrail/STS) egress 허용"
+  description: "secops-mas → AWS 서비스(Bedrock/SQS/CloudWatch/CloudTrail/STS/Lambda) egress 허용"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: secops-mas
@@ -44,6 +45,7 @@ spec:
         - matchName: "cloudtrail.ap-northeast-2.amazonaws.com"
         - matchName: "sts.ap-northeast-2.amazonaws.com"
         - matchName: "sts.amazonaws.com"
+        - matchName: "lambda.ap-northeast-2.amazonaws.com"
       toPorts:
         - ports:
             - port: "443"

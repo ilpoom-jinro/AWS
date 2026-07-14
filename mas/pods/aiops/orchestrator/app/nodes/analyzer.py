@@ -234,10 +234,11 @@ async def analyze_root_cause(incident: IncidentContext) -> AnomalyReport:
         # (연동 요청서 §2, contracts RemediationPlan.pod_name 주석).
         pod_name=incident.pod_name,
         cluster_name=incident.cluster_name,
-        # ops 클러스터는 기존 in-cluster ServiceAccount 인증을 그대로 사용하고,
-        # service 클러스터 execute 때만 컨테이너 내 kubeconfig context를 지정한다.
+        # entrypoint가 ops/service 양쪽 kubeconfig context를 생성한다. ops에 빈 값을
+        # 주면 Platform Core가 KUBECONFIG를 제거한 뒤 기본 ~/.kube/config를 찾으므로,
+        # 두 클러스터 모두 명시 context로 실행해야 한다.
         kube_context=(
-            ""
+            settings.OPS_KUBE_CONTEXT
             if incident.cluster_name == settings.OPS_EKS_CLUSTER_NAME
             else settings.SERVICE_KUBE_CONTEXT
         ),

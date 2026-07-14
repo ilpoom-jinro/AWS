@@ -361,6 +361,21 @@ class RegulationMapping(WorkflowDerivedMixin):
     )
 
 
+class IncidentGroup(WorkflowDerivedMixin):
+    """계정 탈취 lookback 상관분석 — 같은 IAM User(target_user_arn) + 1시간 창으로 묶인
+    이벤트 그룹. Sonnet 인과판정(causal_summary/is_account_takeover/correlation_confidence)은
+    correlate_incident activity가 채운다(생성 시점엔 기본값)."""
+
+    target_user_arn: str
+    events: list[SecurityEvent]
+    window_start: datetime
+    window_end: datetime
+    causal_summary: str = ""
+    is_account_takeover: bool = False
+    correlation_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    lookback_failed: bool = False
+
+
 class ComplianceReport(WorkflowDerivedMixin):
     generated_at: datetime = Field(default_factory=utc_now)
     severity: SeverityType
@@ -525,6 +540,7 @@ class AuditLog(WorkflowDerivedMixin):
         "anomaly_detected",
         "analysis_completed",
         "rule_filter_skipped",
+        "lookback_failed",
         "iac_generated",
         "approval_requested",
         "approval_granted",

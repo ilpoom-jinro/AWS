@@ -199,6 +199,19 @@ async def send_reminder(ticket: ApprovalTicket) -> None:
     await _enqueue_outbound(payload)
 
 
+@activity.defn(name="send_action_result")
+async def send_action_result(ticket: ApprovalTicket, message: str) -> None:
+    """대응 실행 결과 통지 — 버튼 없는 일반 메시지, 원 카드 스레드에 게시.
+    send_reminder와 동일 패턴(카드 재사용 없이 채널/스레드에 텍스트만 전송)."""
+    payload = {
+        "channel": ticket.channel_id,
+        "text": message,
+    }
+    if ticket.slack_message_ts:
+        payload["thread_ts"] = ticket.slack_message_ts
+    await _enqueue_outbound(payload)
+
+
 # =====================================================================
 # Slack 버튼 → Temporal signal (시나리오별 분기)
 # =====================================================================
@@ -340,7 +353,7 @@ async def main() -> None:
     worker = Worker(
         _temporal_client,
         task_queue=HITL_TASK_QUEUE,
-        activities=[send_approval_request, send_reminder],
+        activities=[send_approval_request, send_reminder, send_action_result],
     )
 
     print(f"[slack-hitl] Temporal 워커(queue='{HITL_TASK_QUEUE}') + inbound SQS 라우터 시작. Ctrl+C로 종료.")

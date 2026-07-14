@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from datetime import datetime, timedelta
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -30,6 +31,7 @@ from contracts.models import (
     ExecutionResult,
     GenerateComplianceReportInput,
     GeneratePostMortemReportInput,
+    IncidentGroup,
     PostMortemReport,
     RegulationMapping,
     SecurityEvent,
@@ -43,6 +45,9 @@ USE_REAL_BEDROCK = os.getenv("USE_REAL_BEDROCK", "false").lower() == "true"
 BEDROCK_MODEL_LIGHT = os.getenv("BEDROCK_MODEL_LIGHT", "amazon.nova-lite-v1:0")
 # 2차 최종 판단 (Sonnet): 1차 통과분만 호출
 BEDROCK_MODEL = os.getenv("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6-20251001-v1:0")
+# 계정 탈취 인과판정(3차, Sonnet) — list-inference-profiles로 확인된 값. 접두사 없는
+# "anthropic.claude-sonnet-4-6"은 on-demand 직접 호출 불가(Nova 때와 동일한 문제).
+BEDROCK_MODEL_SONNET = os.getenv("BEDROCK_MODEL_SONNET", "global.anthropic.claude-sonnet-4-6")
 
 # 이벤트 → 규정 검색 쿼리 키워드 (한국어 규정 본문과 매칭되도록)
 THREAT_QUERY_TERMS = {
@@ -523,40 +528,35 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
     )
 
 
-# IAM 대응이 실제로 지원하는 event_name → revoke API 종류. 아래 3종만 지원 —
-# secops-role.tf에 부여된 권한(DetachUserPolicy/DetachRolePolicy/UpdateAccessKey)과
-# 정확히 일치시켜, 권한 없는 API를 호출하는 코드 경로가 생기지 않도록 한다.
-# PutUserPolicy/PutRolePolicy(인라인 정책, policy_arn 없음)와 AttachGroupPolicy는
-# 미지원 — evidence가 부족하거나(정책 이름 없음) 대응 권한이 없어 조치 없이 보고만 함.
-def _revoke_iam_privilege(evidence: dict) -> str:
-    """실제 IAM detach/deactivate 호출 (동기 boto3). 반환: 사람이 읽는 결과 설명."""
+# ops VPC(IGW/NAT 없음) + IAM은 ap-northeast-2 PrivateLink 미지원(us-east-1 전용)이라
+# orchestrator가 IAM을 직접 호출할 수 없다 — 실제 detach/update는 VPC 밖 Lambda
+# (financial-secops-iam-responder, secops-iam-responder.tf)에 위임한다. Lambda 안에
+# 원래 이 함수가 하던 _revoke_iam_privilege 로직이 그대로 옮겨가 있다
+# (lambda/secops-iam-responder/handler.py — 순수 dict→str 함수라 이식이 쉬웠다).
+def _invoke_iam_responder_lambda(evidence: dict) -> str:
+    """financial-secops-iam-responder Lambda를 동기 호출(RequestResponse)해 실제 IAM
+    detach/deactivate를 실행시킨다. Lambda invoke는 vpc/ops/endpoints.tf의 Lambda
+    Interface Endpoint를 거쳐야 하고(없으면 IAM 직접 호출과 동일하게 connect timeout),
+    이 호출 자체는 짧아 heartbeat 불필요(apply_isolation류와 달리 여러 단계 없음).
+    """
     import boto3
 
-    event_name = evidence.get("event_name", "")
-    policy_arn = evidence.get("policy_arn", "")
-    target_user = evidence.get("target_user", "")
-    target_role = evidence.get("target_role", "")
-    access_key_id = evidence.get("access_key_id", "")
+    function_name = os.getenv("SECOPS_IAM_RESPONDER_FUNCTION_NAME", "financial-secops-iam-responder")
+    region = os.getenv("AWS_REGION", "ap-northeast-2")
 
-    iam = boto3.client("iam")  # IAM은 글로벌 서비스 — region 불필요
-
-    if event_name == "AttachUserPolicy" and target_user and policy_arn:
-        iam.detach_user_policy(UserName=target_user, PolicyArn=policy_arn)
-        return f"DetachUserPolicy 완료: UserName={target_user}, PolicyArn={policy_arn}"
-
-    if event_name == "AttachRolePolicy" and target_role and policy_arn:
-        iam.detach_role_policy(RoleName=target_role, PolicyArn=policy_arn)
-        return f"DetachRolePolicy 완료: RoleName={target_role}, PolicyArn={policy_arn}"
-
-    if event_name == "CreateAccessKey" and target_user and access_key_id:
-        iam.update_access_key(UserName=target_user, AccessKeyId=access_key_id, Status="Inactive")
-        return f"AccessKey 비활성화 완료: UserName={target_user}, AccessKeyId={access_key_id}"
-
-    raise ValueError(
-        f"IAM 대응 미지원 또는 evidence 불충분: event_name={event_name}, "
-        f"target_user={target_user}, target_role={target_role}, "
-        f"policy_arn={policy_arn}, access_key_id={access_key_id}"
+    lambda_client = boto3.client("lambda", region_name=region)
+    response = lambda_client.invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps({"evidence": evidence, "dry_run": False}).encode("utf-8"),
     )
+
+    payload = json.loads(response["Payload"].read())
+    if response.get("FunctionError"):
+        raise RuntimeError(f"IAM 회수 Lambda 실행 오류({response['FunctionError']}): {payload}")
+    if not payload.get("success"):
+        raise ValueError(payload.get("action_taken", "IAM 회수 Lambda가 실패를 보고함"))
+    return payload["action_taken"]
 
 
 def _describe_iam_action(evidence: dict) -> str | None:
@@ -580,16 +580,19 @@ def _describe_iam_action(evidence: dict) -> str | None:
 async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> ExecutionResult:
     """
     IAM 권한상승/지속성 확보 대응 — 부여된 관리형 정책 detach 또는 발급된 AccessKey 비활성화.
-      - dry_run=True (1단계 검증 호출): 실제 IAM API 호출 없이 '무엇을 할지'만 반환
-      - dry_run=False (2단계 실apply 호출): 실제 detach/update 실행
+    실제 IAM 호출은 VPC 밖 Lambda(financial-secops-iam-responder)가 대신 한다 — ops VPC는
+    IGW/NAT가 없고 IAM은 ap-northeast-2에 PrivateLink가 없어(us-east-1 전용) orchestrator가
+    직접 호출 불가.
+      - dry_run=True (1단계 검증 호출): Lambda를 부르지 않고 '무엇을 할지'만 반환한다 —
+        실제 IAM을 건드리는 경로 자체를 2차 승인 이후로 물리적으로 분리하기 위함.
+      - dry_run=False (2단계 실apply 호출): _invoke_iam_responder_lambda로 실제 detach/update.
       - ISOLATION_DRY_RUN=true(apply_isolation과 공유하는 안전 스위치)면 dry_run 인자와
-        무관하게 항상 canned dry-run(미적용)
+        무관하게 항상 canned dry-run(미적용, Lambda 호출 없음)
     지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분)는
     success=False로 '조치 없음' 보고 — 추측으로 잘못된 API를 부르지 않음.
     """
     from .detection import extract_evidence
 
-    activity.heartbeat("revoke_iam_privilege: start")
     evidence = extract_evidence(event)
     description = _describe_iam_action(evidence)
 
@@ -612,14 +615,288 @@ async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> E
             output=description,
         )
 
-    activity.heartbeat("revoke_iam_privilege: applying")
-    outcome = await asyncio.to_thread(_revoke_iam_privilege, evidence)
+    outcome = await asyncio.to_thread(_invoke_iam_responder_lambda, evidence)
     return ExecutionResult(
         workflow_id=event.workflow_id,
         success=True,
         action_taken=outcome,
         output=description,
     )
+
+
+# =====================================================================
+# 계정 탈취 lookback — target_user_arn 기준 과거 1시간 siem.cloudtrail(Athena) 조회
+# =====================================================================
+def _partition_days(start: datetime, end: datetime) -> list[tuple[str, str, str]]:
+    """[start, end] 사이 걸쳐진 (year, month, day) 파티션 값 목록(UTC, inclusive).
+    1시간 lookback 창이 자정을 넘으면 2개가 나온다."""
+    days = []
+    current = start.date()
+    last = end.date()
+    while current <= last:
+        days.append((f"{current.year:04d}", f"{current.month:02d}", f"{current.day:02d}"))
+        current += timedelta(days=1)
+    return days
+
+
+def _build_lookback_query(target_user_arn: str, trigger_time: datetime) -> tuple[str, datetime, datetime]:
+    """target_user_arn 기준 과거 1시간 siem.cloudtrail 쿼리 문자열 + 조회 창(UTC) 반환."""
+    window_start = trigger_time - timedelta(hours=1)
+    window_end = trigger_time
+    partitions = _partition_days(window_start, window_end)
+    partition_clause = " OR ".join(
+        f"(year='{y}' AND month='{m}' AND day='{d}')" for y, m, d in partitions
+    )
+    # requestParameters.userName은 ARN이 아니라 이름만 담김 — ARN 마지막 세그먼트로 매칭
+    target_username = target_user_arn.rsplit("/", 1)[-1].replace("'", "''")
+    target_user_arn_escaped = target_user_arn.replace("'", "''")
+    start_iso = window_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    query = f"""
+    SELECT
+      eventid,
+      eventtime,
+      eventname,
+      eventsource,
+      useridentity.arn AS user_arn,
+      sourceipaddress,
+      awsregion,
+      requestparameters,
+      responseelements
+    FROM siem.cloudtrail
+    WHERE region = 'us-east-1'
+      AND ({partition_clause})
+      AND eventtime >= '{start_iso}'
+      AND eventtime <= '{end_iso}'
+      AND eventname IN ('AttachUserPolicy', 'PutUserPolicy', 'CreateAccessKey')
+      AND (
+        json_extract_scalar(requestparameters, '$.userName') = '{target_username}'
+        OR useridentity.arn = '{target_user_arn_escaped}'
+      )
+    ORDER BY eventtime ASC
+    """
+    return query, window_start, window_end
+
+
+def _query_siem_cloudtrail(target_user_arn: str, trigger_time: datetime) -> list[dict]:
+    """실제 Athena 쿼리 실행(동기 boto3, asyncio.to_thread로 오프로드해 호출).
+    WorkGroup을 명시(FinOps의 query_cur_via_athena는 이게 없어서 primary로 새 — 그 버그
+    반복 금지, siem 워크그룹의 스캔 한도/암호화 강제를 실제로 적용받기 위해 필수).
+    에러를 삼키지 않고 그대로 raise — 호출자(lookback_user_events)가 lookback_failed로 표시."""
+    import time
+
+    import boto3
+
+    query, _, _ = _build_lookback_query(target_user_arn, trigger_time)
+    region = os.getenv("AWS_REGION", "ap-northeast-2")
+    database = os.getenv("SIEM_ATHENA_DATABASE", "siem")
+    workgroup = os.getenv("SIEM_ATHENA_WORKGROUP", "siem")
+    timeout_seconds = int(os.getenv("SIEM_ATHENA_TIMEOUT_SECONDS", "30"))
+
+    athena = boto3.client("athena", region_name=region)
+    response = athena.start_query_execution(
+        QueryString=query,
+        QueryExecutionContext={"Database": database},
+        WorkGroup=workgroup,
+    )
+    execution_id = response["QueryExecutionId"]
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        status = athena.get_query_execution(QueryExecutionId=execution_id)
+        state = status["QueryExecution"]["Status"]["State"]
+        if state == "SUCCEEDED":
+            break
+        if state in ("FAILED", "CANCELLED"):
+            reason = status["QueryExecution"]["Status"].get("StateChangeReason", "")
+            raise RuntimeError(f"Athena lookback 쿼리 {state}: {reason}")
+    else:
+        raise TimeoutError(f"Athena lookback 쿼리 타임아웃({timeout_seconds}s)")
+
+    rows: list[dict] = []
+    columns: list[str] | None = None
+    next_token = None
+    while True:
+        kwargs = {"QueryExecutionId": execution_id}
+        if next_token:
+            kwargs["NextToken"] = next_token
+        results = athena.get_query_results(**kwargs)
+        result_rows = results.get("ResultSet", {}).get("Rows", [])
+        start_idx = 0
+        if columns is None:
+            if not result_rows:
+                break
+            columns = [item.get("VarCharValue", "") for item in result_rows[0]["Data"]]
+            start_idx = 1
+        for raw_row in result_rows[start_idx:]:
+            values = [item.get("VarCharValue", "") for item in raw_row["Data"]]
+            rows.append(dict(zip(columns, values)))
+        next_token = results.get("NextToken")
+        if not next_token:
+            break
+    return rows
+
+
+def _has_related_event(rows: list[dict]) -> bool:
+    """트리거(CreateAccessKey) 자신 말고 실제로 상관분석할 이벤트가 있는지.
+    적재 지연으로 트리거 자신의 레코드만 뒤늦게 siem.cloudtrail에 잡힌 경우는
+    '관련 이벤트 찾음'으로 치지 않는다 — 그래야 재조회 루프가 의미 있게 동작한다."""
+    return any(row.get("eventname", "") != "CreateAccessKey" for row in rows)
+
+
+@activity.defn(name="lookback_user_events")
+async def lookback_user_events(
+    target_user_arn: str, trigger_time: datetime, cluster_name: str,
+) -> list[SecurityEvent]:
+    """
+    계정 탈취 lookback — target_user_arn 기준 과거 1시간 siem.cloudtrail(us-east-1)을
+    Athena로 조회해 관련 이벤트(Admin 정책부여/AccessKey 생성)를 SecurityEvent 리스트로 반환.
+    실패 시 빈 리스트로 조용히 넘기지 않고 예외를 그대로 전파한다 — 호출자(workflow.py)가
+    IncidentGroup.lookback_failed=True로 표시하고 audit에 남긴다(Sonnet이 불완전 정보로
+    판단하는 것을 방지 — FinOps의 blanket except-Exception-return-None 패턴 반복 금지).
+
+    CloudTrail → S3 → Athena 적재 지연 대응: 트리거(CreateAccessKey) 발생 수십 초 뒤에
+    lookback을 돌리면 그 직전 AttachUserPolicy 등이 아직 siem.cloudtrail에 반영 안 될 수
+    있다(실측: 41초 후에도 미반영, 그 이후엔 조회됨). 트리거 말고는 아무것도 안 잡히면
+    짧은 간격으로 재조회해 적재를 기다린다 — 그래도 안 잡히면 단일 이벤트로 그냥 진행
+    (지금과 동일하게 Sonnet이 단일 이벤트로 판정).
+    """
+    from .detection import parse_eventbridge, to_security_event
+
+    retry_max = int(os.getenv("SIEM_LOOKBACK_RETRY_MAX", "5"))
+    retry_interval_seconds = int(os.getenv("SIEM_LOOKBACK_RETRY_INTERVAL_SECONDS", "15"))
+
+    activity.heartbeat("lookback_user_events: querying siem.cloudtrail")
+    rows = await asyncio.to_thread(_query_siem_cloudtrail, target_user_arn, trigger_time)
+
+    attempt = 0
+    while attempt < retry_max and not _has_related_event(rows):
+        attempt += 1
+        activity.logger.info(
+            "lookback: target=%s 트리거 외 관련 이벤트 없음 — 적재 지연 대기 재조회 %d/%d (%ds 간격)",
+            target_user_arn, attempt, retry_max, retry_interval_seconds,
+        )
+        activity.heartbeat(f"lookback_user_events: retry {attempt}/{retry_max} 대기")
+        await asyncio.sleep(retry_interval_seconds)
+        activity.heartbeat(f"lookback_user_events: retry {attempt}/{retry_max} 재조회")
+        rows = await asyncio.to_thread(_query_siem_cloudtrail, target_user_arn, trigger_time)
+
+    if attempt:
+        activity.logger.info(
+            "lookback: target=%s 재조회 종료 — %d회 시도 후 %s",
+            target_user_arn, attempt,
+            "관련 이벤트 발견" if _has_related_event(rows) else "트리거 단일 이벤트로 진행",
+        )
+
+    events: list[SecurityEvent] = []
+    for row in rows:
+        try:
+            request_params = json.loads(row.get("requestparameters") or "{}")
+        except json.JSONDecodeError:
+            request_params = {}
+        try:
+            response_elements = json.loads(row.get("responseelements") or "{}")
+        except json.JSONDecodeError:
+            response_elements = {}
+        synthetic_message = {
+            "detail-type": "AWS API Call via CloudTrail",
+            "detail": {
+                "eventID": row.get("eventid", ""),
+                "eventName": row.get("eventname", ""),
+                "eventSource": row.get("eventsource", ""),
+                "awsRegion": row.get("awsregion", ""),
+                "sourceIPAddress": row.get("sourceipaddress", "0.0.0.0"),
+                "userIdentity": {"arn": row.get("user_arn", "")},
+                "requestParameters": request_params,
+                "responseElements": response_elements,
+                # Sonnet 인과판정용 원본 발생 시각 — Athena에서 이미 조회해온 값 그대로.
+                "eventTime": row.get("eventtime", ""),
+            },
+        }
+        parsed = parse_eventbridge(synthetic_message)
+        events.append(to_security_event(parsed, cluster_name))
+    activity.logger.info(
+        "lookback: target=%s window=1h rows=%d", target_user_arn, len(events),
+    )
+    return events
+
+
+# =====================================================================
+# Sonnet 인과판정 — 시간순 이벤트만 보고 계정 탈취 여부 + Attack Summary
+# =====================================================================
+def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
+    """(A)방식 — 개별 이벤트의 상세 맥락(정책 위험도 재판단 등) 없이, 시간순 이벤트
+    목록만 주고 인과관계 판단을 맡긴다."""
+    from botocore.exceptions import ClientError
+    from shared.bedrock import get_bedrock_client
+
+    from .detection import extract_evidence
+
+    client = get_bedrock_client()
+    system_prompt = (
+        "너는 클라우드 계정 탈취 여부를 판단하는 보안 분석가다. 아래 IAM 이벤트들을 시간순으로만 "
+        "보고, 이 사건이 계정 탈취(권한 상승 후 지속성 확보)인지 판단해라. 사건 요약(Attack Summary)도 "
+        "작성해라. 근거에 없는 사실을 지어내지 마라. 반드시 아래 JSON만 출력해라.\n"
+        '{"is_account_takeover": bool, "confidence": float, "causal_summary": string}'
+    )
+    lines = []
+    for i, event in enumerate(incident_group.events, start=1):
+        evidence = extract_evidence(event)
+        # detected_at은 파싱 처리 시각이라 이벤트 간 실제 간격을 안 보여줌 —
+        # evidence["event_time"](원본 CloudTrail eventTime)을 우선 쓰고, 없으면 폴백.
+        event_time = evidence.get("event_time") or event.detected_at.isoformat()
+        lines.append(
+            f"{i}. {event_time} event_name={evidence.get('event_name', '')} "
+            f"정책={evidence.get('policy_arn', '')} 행위자={evidence.get('user_arn', '')}"
+        )
+    user_text = (
+        f"[대상 IAM User]\n{incident_group.target_user_arn}\n\n"
+        f"[시간순 이벤트 목록 ({len(incident_group.events)}건)]\n" + "\n".join(lines)
+    )
+    try:
+        resp = client.converse(
+            modelId=BEDROCK_MODEL_SONNET,
+            system=[{"text": system_prompt}],
+            messages=[{"role": "user", "content": [{"text": user_text}]}],
+            inferenceConfig={"maxTokens": 1024, "temperature": 0},
+        )
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code == "ValidationException":
+            raise ApplicationError(
+                f"Bedrock Sonnet 인과판정 ValidationException: {e}", non_retryable=True
+            ) from e
+        raise
+    text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
+    data = _parse_llm_json(text)
+    return {
+        "is_account_takeover": bool(data.get("is_account_takeover", False)),
+        "confidence": float(data.get("confidence", 0.5)),
+        "causal_summary": str(data.get("causal_summary", "")),
+    }
+
+
+@activity.defn(name="correlate_incident")
+async def correlate_incident(incident_group: IncidentGroup) -> IncidentGroup:
+    """Sonnet 인과판정 1회 — IncidentGroup에 causal_summary/is_account_takeover/
+    correlation_confidence를 채워 반환. USE_REAL_BEDROCK=false면 결정적 stub."""
+    if not USE_REAL_BEDROCK:
+        is_takeover = len(incident_group.events) >= 2
+        return incident_group.model_copy(update={
+            "is_account_takeover": is_takeover,
+            "correlation_confidence": 0.8 if is_takeover else 0.3,
+            "causal_summary": (
+                f"(stub) {incident_group.target_user_arn} 대상 {len(incident_group.events)}건 "
+                f"이벤트 — {'계정 탈취 의심' if is_takeover else '단발성 이벤트'}"
+            ),
+        })
+    result = await asyncio.to_thread(_correlate_with_bedrock, incident_group)
+    return incident_group.model_copy(update={
+        "is_account_takeover": result["is_account_takeover"],
+        "correlation_confidence": result["confidence"],
+        "causal_summary": result["causal_summary"],
+    })
 
 
 @activity.defn(name="generate_compliance_report")
@@ -771,3 +1048,9 @@ async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
         slack_message_ts="1718000000.000100",
         channel_id="C_SECOPS_STUB",
     )
+
+
+@activity.defn(name="send_action_result")
+async def send_action_result(ticket: ApprovalTicket, message: str) -> None:
+    """대응 실행 결과 Slack 통지(stub). 실제 구현은 slack-hitl bot.py."""
+    activity.logger.info("Slack 결과 통지(stub): %s", message)

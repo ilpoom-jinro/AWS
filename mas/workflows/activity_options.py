@@ -95,8 +95,11 @@ class ActivityName(StrEnum):
     DETECT_THREAT = "detect_threat"
     MAP_REGULATION = "map_regulation"
     APPLY_ISOLATION = "apply_isolation"
+    REVOKE_IAM_PRIVILEGE = "revoke_iam_privilege"
     GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
     GENERATE_POSTMORTEM_REPORT = "generate_postmortem_report"
+    LOOKBACK_USER_EVENTS = "lookback_user_events"
+    CORRELATE_INCIDENT = "correlate_incident"
 
     # --------------------------------------------------------
     # Common
@@ -203,6 +206,17 @@ ACTIVITY_TIMEOUTS: dict[
         "heartbeat_timeout": timedelta(seconds=30),
     },
 
+    # apply_isolation과 달리 단발성 호출 1회뿐이라 heartbeat 불필요 — 지금은 VPC 밖
+    # IAM 회수 Lambda(secops-iam-responder.tf)를 invoke하는 형태(원래는 boto3 IAM 직접
+    # 호출이었으나 ops VPC 격리+IAM PrivateLink 미지원으로 Lambda 위임 구조로 변경).
+    # APPLY_ISOLATION 옵션(heartbeat_timeout=30s)을 그대로 재사용하면, 호출 중간에
+    # heartbeat를 칠 지점이 없는 단일 호출이 지연/재시도로 30초를 넘는 순간 Temporal이
+    # 무조건 취소(CancelledError)시켜 재시도 루프에 빠진다.
+    ActivityName.REVOKE_IAM_PRIVILEGE: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+    },
+
     ActivityName.GENERATE_COMPLIANCE_REPORT: {
         "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=5),
@@ -211,6 +225,20 @@ ACTIVITY_TIMEOUTS: dict[
     ActivityName.GENERATE_POSTMORTEM_REPORT: {
         # Bedrock 서술형 초안 생성 — compliance보다 토큰이 많아 여유를 둔다
         "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=8),
+    },
+
+    # Athena 쿼리(폴링 최대 SIEM_ATHENA_TIMEOUT_SECONDS=30s) 최대 6회(최초 1 + 재조회 5,
+    # CloudTrail→S3→Athena 적재 지연 대응 SIEM_LOOKBACK_RETRY_MAX/_INTERVAL_SECONDS) +
+    # 재조회 간 대기(기본 15s×5=75s) 를 합쳐도 start_to_close_timeout=2분 예산 안
+    ActivityName.LOOKBACK_USER_EVENTS: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=8),
+        "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.CORRELATE_INCIDENT: {
+        "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=8),
     },
 

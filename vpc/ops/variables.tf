@@ -192,3 +192,32 @@ variable "slack_hitl_outbound_queue_arn" {
   description = "financial-slack-hitl-outbound SQS 큐 ARN — slack-hitl 봇의 발행(SendMessage) 권한 스코프"
   type        = string
 }
+
+# 계정 탈취 lookback(siem.cloudtrail Athena 조회)용 — SIEM 레이어는 module.security 소속이라
+# 모듈 경계를 넘어 변수로 받는다(secops_trigger_queue_arn과 동일 패턴).
+variable "kms_key_cloudtrail_arn" {
+  description = "CloudTrail 로그 암호화 KMS CMK ARN (alias/key-cloudtrail) — siem.cloudtrail Athena 쿼리 시 S3 객체 복호화 권한 스코프"
+  type        = string
+}
+
+variable "siem_athena_workgroup_name" {
+  description = "SIEM Athena 워크그룹 이름 (module.security 출력) — secops-orchestrator lookback 쿼리 대상"
+  type        = string
+}
+
+variable "siem_glue_database_name" {
+  description = "SIEM Glue 데이터베이스 이름 (module.security 출력) — cloudtrail 테이블 소속 DB"
+  type        = string
+}
+
+variable "siem_athena_results_bucket_arn" {
+  description = "SIEM Athena 쿼리 결과 S3 버킷 ARN (module.security 출력)"
+  type        = string
+}
+
+# 계정 탈취 IAM 회수 — Lambda 자체는 루트 secops-iam-responder.tf 리소스라
+# 모듈 경계를 넘어 변수로 받는다(slack_hitl_*_queue_arn과 동일 패턴).
+variable "secops_iam_responder_lambda_arn" {
+  description = "financial-secops-iam-responder Lambda ARN — secops-orchestrator의 lambda:InvokeFunction 권한 스코프"
+  type        = string
+}

@@ -1,0 +1,126 @@
+name: AIOps Slack HITL test
+run-name: AIOps Slack HITL test - ${{ inputs.action }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Test action for the dedicated AIOps failure-injection Deployment.
+        required: true
+        default: inject
+        type: choice
+        options:
+          - inject
+          - status
+          - cleanup
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aiops-hitl-test
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-northeast-2' }}
+  CODEBUILD_PROJECT: financial-debug
+  TEST_NAMESPACE: aiops-mas
+  TEST_DEPLOYMENT: aiops-hitl-crashloop
+
+jobs:
+  run-test-command:
+    name: ${{ inputs.action }} AIOps HITL test workload
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 15
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          retry-max-attempts: 3
+          action-timeout-s: 120
+
+      - name: Select fixed test command
+        id: command
+        shell: bash
+        env:
+          ACTION: ${{ inputs.action }}
+          TEST_NAMESPACE: ${{ env.TEST_NAMESPACE }}
+          TEST_DEPLOYMENT: ${{ env.TEST_DEPLOYMENT }}
+        run: |
+          set -euo pipefail
+
+          case "${ACTION}" in
+            inject)
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=1; sleep 90; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide"
+              ;;
+            status)
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get role/aiops-hitl-test-remediation rolebinding/aiops-hitl-test-remediation"
+              ;;
+            cleanup)
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=0; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" delete pod -l app=\"${TEST_DEPLOYMENT}\" --ignore-not-found; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\""
+              ;;
+            *)
+              echo "Unsupported action: ${ACTION}" >&2
+              exit 1
+              ;;
+          esac
+
+          printf 'command=%s\n' "${command}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run test command in Ops VPC CodeBuild
+        id: build
+        shell: bash
+        env:
+          OPS_VPC_COMMAND: ${{ steps.command.outputs.command }}
+        run: |
+          set -euo pipefail
+
+          jq -n --arg command "${OPS_VPC_COMMAND}" \
+            '[{name: "OPS_VPC_COMMAND", value: $command, type: "PLAINTEXT"}]' \
+            > ops-vpc-command-override.json
+
+          build_id="$(
+            aws codebuild start-build \
+              --project-name "${CODEBUILD_PROJECT}" \
+              --environment-variables-override file://ops-vpc-command-override.json \
+              --query 'build.id' \
+              --output text
+          )"
+          echo "build_id=${build_id}" >> "${GITHUB_OUTPUT}"
+          echo "Started ${CODEBUILD_PROJECT}: ${build_id}"
+
+      - name: Wait for CodeBuild
+        shell: bash
+        env:
+          BUILD_ID: ${{ steps.build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 70); do
+            status="$(aws codebuild batch-get-builds --ids "${BUILD_ID}" --query 'builds[0].buildStatus' --output text)"
+            echo "${attempt}/70: ${status}"
+            case "${status}" in
+              SUCCEEDED)
+                aws codebuild batch-get-builds --ids "${BUILD_ID}" \
+                  --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus}' \
+                  --output table
+                exit 0
+                ;;
+              FAILED|FAULT|STOPPED|TIMED_OUT)
+                aws codebuild batch-get-builds --ids "${BUILD_ID}" \
+                  --query 'builds[0].phases[].{phase:phaseType,status:phaseStatus,contexts:contexts}' \
+                  --output json
+                exit 1
+                ;;
+            esac
+            sleep 6
+          done
+
+          echo "CodeBuild wait timed out: ${BUILD_ID}" >&2
+          exit 1

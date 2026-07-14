@@ -18,6 +18,7 @@ resources:
   # apiserver admission webhook allow (ops + service 양쪽)
   - allow-apiserver-albc-webhook.yaml
   - allow-apiserver-kyverno-webhook.yaml
+  - allow-apiserver-metrics-server.yaml
 
   # 앱별 allow (ops 클러스터)
   - allow-finops-mas.yaml
@@ -30,6 +31,7 @@ resources:
   - allow-teleport-secops-ui.yaml
   - allow-teleport-aiops-ui.yaml
   - allow-intra-aiops-mas.yaml
+  - allow-alertmanager-to-aiops.yaml
   - allow-teleport-app-service-to-proxy.yaml
   - allow-argocd-to-service-api.yaml
   - allow-aiops-cross-cluster-egress.yaml
@@ -38,6 +40,7 @@ resources:
   - allow-temporal-cluster.yaml
   - allow-observability-velero-metrics.yaml
   - allow-alloy-egress.yaml
+  - allow-alloy-ops-scraping.yaml
   - allow-platform-mas-sqs.yaml
   - allow-mas-rds.yaml
   - allow-secops-mas-sqs.yaml
