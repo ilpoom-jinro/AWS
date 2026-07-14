@@ -17,6 +17,14 @@ resource "aws_security_group" "headscale_router" {
     cidr_blocks = [var.gcp_fixed_ip]
   }
 
+  ingress {
+    description = "Allow RDS failback subscription to Cloud SQL proxy from VPC1"
+    from_port   = var.cloudsql_failback_proxy_port
+    to_port     = var.cloudsql_failback_proxy_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc1_cidr]
+  }
+
   egress {
     description = "Allow Tailscale UDP to GCP"
     from_port   = 41641
@@ -39,6 +47,14 @@ resource "aws_security_group" "headscale_router" {
     to_port     = 5432
     protocol    = "tcp"
     cidr_blocks = [var.vpc2_cidr]
+  }
+
+  egress {
+    description = "Allow PostgreSQL to GCP Cloud SQL PSA through Tailscale"
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [var.gcp_cloudsql_psa_cidr]
   }
 
   egress {
