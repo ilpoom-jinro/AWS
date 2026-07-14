@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 
@@ -76,6 +76,19 @@ _HIGH_RISK_MANAGED_POLICIES = {"AdministratorAccess", "PowerUserAccess", "IAMFul
 _POLICY_GRANT_EVENTS = ("AttachUserPolicy", "PutUserPolicy", "AttachRolePolicy", "AttachGroupPolicy")
 # 대응 분기용 — 이 event_name들은 apply_isolation(CNP) 대신 revoke_iam_privilege(IAM)를 태움.
 _IAM_RESPONSE_EVENTS = _POLICY_GRANT_EVENTS + ("CreateAccessKey",)
+
+
+def _parse_trigger_time(evidence: dict, fallback: datetime) -> datetime:
+    """lookback 시간창의 기준 시각 — evidence['event_time'](원본 CloudTrail eventTime)을
+    우선한다. event.detected_at은 파싱/처리 시각이라 실 이벤트 발생 시각과 어긋날 수 있어
+    lookback 창(과거 1시간) 계산에 그대로 쓰면 안 됨. 파싱 실패/누락 시에만 fallback."""
+    raw = evidence.get("event_time", "")
+    if not raw:
+        return fallback
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return fallback
 
 
 def _rule_filter_skip(evidence: dict) -> bool:
@@ -130,6 +143,9 @@ class SecOpsWorkflow:
 
         if is_account_takeover_trigger:
             # 1.5) lookback — target user 과거 1시간 siem.cloudtrail(us-east-1) 조회
+            # 창 기준 시각은 반드시 원본 CloudTrail eventTime — event.detected_at(파싱 시각)을
+            # 쓰면 처리 지연만큼 창이 뒤로 밀려 과거 이벤트를 놓칠 수 있다.
+            trigger_time = _parse_trigger_time(evidence, event.detected_at)
             user_arn_match = re.match(r"^(arn:aws:iam::\d+:)", evidence.get("user_arn", ""))
             account_prefix = user_arn_match.group(1) if user_arn_match else ""
             target_username = evidence.get("target_user", "")
@@ -145,7 +161,7 @@ class SecOpsWorkflow:
                 try:
                     lookback_events = await workflow.execute_activity(
                         lookback_user_events,
-                        args=[target_user_arn, event.detected_at, event.cluster_name],
+                        args=[target_user_arn, trigger_time, event.cluster_name],
                         **get_activity_options(ActivityName.LOOKBACK_USER_EVENTS),
                     )
                 except Exception as exc:  # noqa: BLE001 — lookback 실패가 워크플로우를 막으면 안 됨
@@ -199,8 +215,8 @@ class SecOpsWorkflow:
                     workflow_id=event.workflow_id,
                     target_user_arn=target_user_arn or "unknown",
                     events=judged_events,
-                    window_start=event.detected_at - timedelta(hours=1),
-                    window_end=event.detected_at,
+                    window_start=trigger_time - timedelta(hours=1),
+                    window_end=trigger_time,
                 )
                 incident_group = incident_group.model_copy(update={"lookback_failed": lookback_failed})
 
@@ -381,11 +397,16 @@ class SecOpsWorkflow:
         is_iam_threat = event.event_source == "cloudtrail" and event_name in _IAM_RESPONSE_EVENTS
         response_activity = revoke_iam_privilege if is_iam_threat else apply_isolation
         response_arg = event if is_iam_threat else mapping
+        # revoke_iam_privilege는 heartbeat 없는 단발성 boto3 호출 — apply_isolation과
+        # 옵션(heartbeat_timeout)을 공유하면 안 됨. 각자 맞는 ActivityName으로 분리.
+        response_options = get_activity_options(
+            ActivityName.REVOKE_IAM_PRIVILEGE if is_iam_threat else ActivityName.APPLY_ISOLATION
+        )
 
         # 5) 1차 승인 → dry-run 검증 → 그 결과를 2차 승인 카드로 재확인 → 승인 시 실제 실행
         dry_run_result = await workflow.execute_activity(
             response_activity, args=[response_arg, True],
-            **get_activity_options(ActivityName.APPLY_ISOLATION),
+            **response_options,
         )
         await self._audit(event.workflow_id, "action_dry_run", "대응 사전 검증",
                           {"result": dry_run_result.model_dump(mode="json")})
@@ -428,7 +449,7 @@ class SecOpsWorkflow:
                               {"result": second_approval_result.model_dump(mode="json")})
             result = await workflow.execute_activity(
                 response_activity, args=[response_arg, False],
-                **get_activity_options(ActivityName.APPLY_ISOLATION),
+                **response_options,
             )
             await self._audit(event.workflow_id, "action_executed", "대응 실행",
                               {"result": result.model_dump(mode="json")})

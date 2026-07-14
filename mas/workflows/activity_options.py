@@ -95,6 +95,7 @@ class ActivityName(StrEnum):
     DETECT_THREAT = "detect_threat"
     MAP_REGULATION = "map_regulation"
     APPLY_ISOLATION = "apply_isolation"
+    REVOKE_IAM_PRIVILEGE = "revoke_iam_privilege"
     GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
     GENERATE_POSTMORTEM_REPORT = "generate_postmortem_report"
     LOOKBACK_USER_EVENTS = "lookback_user_events"
@@ -205,6 +206,15 @@ ACTIVITY_TIMEOUTS: dict[
         "heartbeat_timeout": timedelta(seconds=30),
     },
 
+    # apply_isolation과 달리 detach/deactivate 단발성 boto3 호출 1회뿐이라 heartbeat 불필요.
+    # APPLY_ISOLATION 옵션(heartbeat_timeout=30s)을 그대로 재사용하면, 호출 중간에
+    # heartbeat를 칠 지점이 없는 단일 동기 호출이 boto3 재시도/지연으로 30초를 넘는 순간
+    # Temporal이 무조건 취소(CancelledError)시켜 재시도 루프에 빠진다.
+    ActivityName.REVOKE_IAM_PRIVILEGE: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=5),
+    },
+
     ActivityName.GENERATE_COMPLIANCE_REPORT: {
         "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=5),
@@ -216,7 +226,9 @@ ACTIVITY_TIMEOUTS: dict[
         "schedule_to_close_timeout": timedelta(minutes=8),
     },
 
-    # Athena 쿼리(폴링 최대 SIEM_ATHENA_TIMEOUT_SECONDS=30s) + 재시도 여유
+    # Athena 쿼리(폴링 최대 SIEM_ATHENA_TIMEOUT_SECONDS=30s) 최대 6회(최초 1 + 재조회 5,
+    # CloudTrail→S3→Athena 적재 지연 대응 SIEM_LOOKBACK_RETRY_MAX/_INTERVAL_SECONDS) +
+    # 재조회 간 대기(기본 15s×5=75s) 를 합쳐도 start_to_close_timeout=2분 예산 안
     ActivityName.LOOKBACK_USER_EVENTS: {
         "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=8),
