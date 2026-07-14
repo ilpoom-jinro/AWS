@@ -62,6 +62,12 @@ with workflow.unsafe.imports_passed_through():
         record_postmortem_report,
         send_approval_request,
     )
+    from .detection import extract_evidence
+
+# Rule Filter — 권한부여 이벤트 중 LLM(map_regulation) 판단 없이 통과시켜도 되는
+# 고위험 관리형 정책 목록(정책 ARN의 마지막 세그먼트로 매칭). 계정 탈취 대응.
+_HIGH_RISK_MANAGED_POLICIES = {"AdministratorAccess", "PowerUserAccess", "IAMFullAccess"}
+_POLICY_GRANT_EVENTS = ("AttachUserPolicy", "PutUserPolicy", "AttachRolePolicy", "AttachGroupPolicy")
 
 
 @workflow.defn
@@ -89,15 +95,42 @@ class SecOpsWorkflow:
         await self._audit(event.workflow_id, "workflow_started", "SecOps 워크플로우 시작",
                           {"input": event.model_dump(mode="json")})
 
-        # 2) 규제 매핑 (RAG + Claude)
-        mapping: RegulationMapping = await workflow.execute_activity(
-            map_regulation, event,
-            **get_activity_options(ActivityName.MAP_REGULATION),
-        )
-        # NOTE: README는 analysis_completed에 AnomalyReport를 기대하나 SecOps는 RegulationMapping을 씀.
-        #       컨트랙트 팀과 협의해 SecOps 전용 키("mapping")를 README에 추가 예정.
-        await self._audit(event.workflow_id, "analysis_completed", "규제 매핑 완료",
-                          {"mapping": mapping.model_dump(mode="json")})
+        # 1.5) Rule Filter — 순수 판정(I/O 없음)만으로 저위험 권한부여 이벤트는
+        #      map_regulation(LLM) 호출 없이 스킵. 계정 탈취 대응 v1.
+        evidence = extract_evidence(event)
+        event_name = evidence.get("event_name", "")
+        policy_arn = evidence.get("policy_arn", "")
+
+        skip_llm = False
+        if event_name in _POLICY_GRANT_EVENTS:
+            if policy_arn:
+                policy_name = policy_arn.rsplit("/", 1)[-1]
+                skip_llm = policy_name not in _HIGH_RISK_MANAGED_POLICIES
+            # policy_arn 없음(PutUserPolicy/PutRolePolicy 등 인라인 정책) → 내용 불명,
+            # 보수적으로 통과(skip_llm=False 유지)
+        # CreateAccessKey 및 그 외 event_name은 skip_llm=False 유지(보수적으로 통과)
+
+        # 2) 규제 매핑 (RAG + Claude) — Rule Filter 통과분만 LLM 태움
+        if skip_llm:
+            mapping = RegulationMapping(
+                workflow_id=event.workflow_id,
+                violated_regulations=[],
+                violation_description="Rule Filter: 저위험 이벤트로 자동 판정 스킵",
+                analyzed_at=workflow.now(),  # 결정성 위해 명시 (default_factory=utc_now 회피)
+                severity="low",
+                confidence=0.0,
+            )
+            await self._audit(event.workflow_id, "rule_filter_skipped", "Rule Filter — 저위험 자동 스킵",
+                              {"event_name": event_name, "policy_arn": policy_arn})
+        else:
+            mapping: RegulationMapping = await workflow.execute_activity(
+                map_regulation, event,
+                **get_activity_options(ActivityName.MAP_REGULATION),
+            )
+            # NOTE: README는 analysis_completed에 AnomalyReport를 기대하나 SecOps는 RegulationMapping을 씀.
+            #       컨트랙트 팀과 협의해 SecOps 전용 키("mapping")를 README에 추가 예정.
+            await self._audit(event.workflow_id, "analysis_completed", "규제 매핑 완료",
+                              {"mapping": mapping.model_dump(mode="json")})
 
         # 3) 분기 — 위반 없으면 조치 없이 종료
         if not mapping.violated_regulations:

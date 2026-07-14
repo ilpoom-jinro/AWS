@@ -87,6 +87,7 @@ def parse_eventbridge(data: dict) -> dict:
     src_ip = detail.get("sourceIPAddress", "0.0.0.0")
     if not _is_ip(src_ip):
         src_ip = "0.0.0.0"
+    request_params = detail.get("requestParameters") or {}
     return {
         "threat_type": "policy_violation",
         "event_source": "cloudtrail",
@@ -100,6 +101,11 @@ def parse_eventbridge(data: dict) -> dict:
             "aws_region": detail.get("awsRegion", ""),
             "user_arn": (detail.get("userIdentity") or {}).get("arn", ""),
             "detail_type": data.get("detail-type", ""),
+            # Rule Filter(workflow.py)의 권한부여 위험도 판단용 — 계정 탈취 대응
+            "policy_arn": request_params.get("policyArn", ""),
+            "target_user": request_params.get("userName", ""),
+            "target_role": request_params.get("roleName", ""),
+            "target_group": request_params.get("groupName", ""),
         },
     }
 
