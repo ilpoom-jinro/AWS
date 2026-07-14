@@ -387,18 +387,22 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
                                  event.workflow_id, event.event_source)
             return event
         activity.logger.warning("trigger 파싱 실패 → 더미로 폴백")
-    # 폴백/데모: 외부 유출 더미 이벤트
+    # 폴백/데모: 명백한 데이터 유출 시나리오 (AI가 high로 판단 → Slack 승인·격리 시연)
     event = SecurityEvent(
         cluster_name=input.cluster_name,         # SecurityEvent가 workflow_id 최초 생성
         namespace="financial-api",
         source_pod="payment-worker-7d9f",
         source_ip="10.0.12.34",
-        destination_ip="104.18.0.1",             # 공인 IP (외부 유출)
+        destination_ip="185.220.101.47",         # 외부 미상 IP (Tor exit 대역대 성격)
         destination_port=8443,
         protocol="tcp",
         direction="outbound",
-        threat_type="abnormal_outbound",
-        raw_log="[flowlog] 10.0.12.34 -> 104.18.0.1:8443 ACCEPT 1.2MB/5s",
+        threat_type="data_exfiltration",
+        raw_log=(
+            "[flowlog] 10.0.12.34 -> 185.220.101.47:8443 ACCEPT 847MB/32s "
+            "| payment-worker-7d9f가 카드결제 DB(신용정보) 대량 조회 직후 외부 미상 IP로 "
+            "847MB 대량 outbound 전송 감지 — 정상 업무 트래픽 대비 400배 급증, 데이터 유출 정황"
+        ),
     )
     activity.logger.info("threat detected (dummy): workflow_id=%s", event.workflow_id)
     return event
