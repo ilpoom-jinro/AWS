@@ -519,6 +519,105 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
     )
 
 
+# IAM 대응이 실제로 지원하는 event_name → revoke API 종류. 아래 3종만 지원 —
+# secops-role.tf에 부여된 권한(DetachUserPolicy/DetachRolePolicy/UpdateAccessKey)과
+# 정확히 일치시켜, 권한 없는 API를 호출하는 코드 경로가 생기지 않도록 한다.
+# PutUserPolicy/PutRolePolicy(인라인 정책, policy_arn 없음)와 AttachGroupPolicy는
+# 미지원 — evidence가 부족하거나(정책 이름 없음) 대응 권한이 없어 조치 없이 보고만 함.
+def _revoke_iam_privilege(evidence: dict) -> str:
+    """실제 IAM detach/deactivate 호출 (동기 boto3). 반환: 사람이 읽는 결과 설명."""
+    import boto3
+
+    event_name = evidence.get("event_name", "")
+    policy_arn = evidence.get("policy_arn", "")
+    target_user = evidence.get("target_user", "")
+    target_role = evidence.get("target_role", "")
+    access_key_id = evidence.get("access_key_id", "")
+
+    iam = boto3.client("iam")  # IAM은 글로벌 서비스 — region 불필요
+
+    if event_name == "AttachUserPolicy" and target_user and policy_arn:
+        iam.detach_user_policy(UserName=target_user, PolicyArn=policy_arn)
+        return f"DetachUserPolicy 완료: UserName={target_user}, PolicyArn={policy_arn}"
+
+    if event_name == "AttachRolePolicy" and target_role and policy_arn:
+        iam.detach_role_policy(RoleName=target_role, PolicyArn=policy_arn)
+        return f"DetachRolePolicy 완료: RoleName={target_role}, PolicyArn={policy_arn}"
+
+    if event_name == "CreateAccessKey" and target_user and access_key_id:
+        iam.update_access_key(UserName=target_user, AccessKeyId=access_key_id, Status="Inactive")
+        return f"AccessKey 비활성화 완료: UserName={target_user}, AccessKeyId={access_key_id}"
+
+    raise ValueError(
+        f"IAM 대응 미지원 또는 evidence 불충분: event_name={event_name}, "
+        f"target_user={target_user}, target_role={target_role}, "
+        f"policy_arn={policy_arn}, access_key_id={access_key_id}"
+    )
+
+
+def _describe_iam_action(evidence: dict) -> str | None:
+    """실행 전 '무엇을 할지' 설명 문자열. 지원 대상이 아니면 None."""
+    event_name = evidence.get("event_name", "")
+    policy_arn = evidence.get("policy_arn", "")
+    target_user = evidence.get("target_user", "")
+    target_role = evidence.get("target_role", "")
+    access_key_id = evidence.get("access_key_id", "")
+
+    if event_name == "AttachUserPolicy" and target_user and policy_arn:
+        return f"DetachUserPolicy(UserName={target_user}, PolicyArn={policy_arn})"
+    if event_name == "AttachRolePolicy" and target_role and policy_arn:
+        return f"DetachRolePolicy(RoleName={target_role}, PolicyArn={policy_arn})"
+    if event_name == "CreateAccessKey" and target_user and access_key_id:
+        return f"UpdateAccessKey(UserName={target_user}, AccessKeyId={access_key_id}, Status=Inactive)"
+    return None
+
+
+@activity.defn(name="revoke_iam_privilege")
+async def revoke_iam_privilege(event: SecurityEvent, dry_run: bool = False) -> ExecutionResult:
+    """
+    IAM 권한상승/지속성 확보 대응 — 부여된 관리형 정책 detach 또는 발급된 AccessKey 비활성화.
+      - dry_run=True (1단계 검증 호출): 실제 IAM API 호출 없이 '무엇을 할지'만 반환
+      - dry_run=False (2단계 실apply 호출): 실제 detach/update 실행
+      - ISOLATION_DRY_RUN=true(apply_isolation과 공유하는 안전 스위치)면 dry_run 인자와
+        무관하게 항상 canned dry-run(미적용)
+    지원 대상 외(PutUserPolicy 등 인라인 정책, AttachGroupPolicy, evidence 불충분)는
+    success=False로 '조치 없음' 보고 — 추측으로 잘못된 API를 부르지 않음.
+    """
+    from .detection import extract_evidence
+
+    activity.heartbeat("revoke_iam_privilege: start")
+    evidence = extract_evidence(event)
+    description = _describe_iam_action(evidence)
+
+    if description is None:
+        return ExecutionResult(
+            workflow_id=event.workflow_id,
+            success=False,
+            action_taken=(
+                f"IAM 대응 미지원 또는 정보 부족 (event_name={evidence.get('event_name', '')}) "
+                f"— 자동 조치 없음, 수동 확인 필요"
+            ),
+        )
+
+    force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
+    if force_dry_run or dry_run:
+        return ExecutionResult(
+            workflow_id=event.workflow_id,
+            success=True,
+            action_taken=f"[DRY-RUN] {description} — 실제 미적용",
+            output=description,
+        )
+
+    activity.heartbeat("revoke_iam_privilege: applying")
+    outcome = await asyncio.to_thread(_revoke_iam_privilege, evidence)
+    return ExecutionResult(
+        workflow_id=event.workflow_id,
+        success=True,
+        action_taken=outcome,
+        output=description,
+    )
+
+
 @activity.defn(name="generate_compliance_report")
 async def generate_compliance_report(input: GenerateComplianceReportInput) -> ComplianceReport:
     """event + mapping + 실행결과 → 규제 대응 보고서."""

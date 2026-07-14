@@ -60,6 +60,7 @@ with workflow.unsafe.imports_passed_through():
         record_audit_log,
         record_compliance_report,
         record_postmortem_report,
+        revoke_iam_privilege,
         send_approval_request,
     )
     from .detection import extract_evidence
@@ -68,22 +69,27 @@ with workflow.unsafe.imports_passed_through():
 # 고위험 관리형 정책 목록(정책 ARN의 마지막 세그먼트로 매칭). 계정 탈취 대응.
 _HIGH_RISK_MANAGED_POLICIES = {"AdministratorAccess", "PowerUserAccess", "IAMFullAccess"}
 _POLICY_GRANT_EVENTS = ("AttachUserPolicy", "PutUserPolicy", "AttachRolePolicy", "AttachGroupPolicy")
+# 대응 분기용 — 이 event_name들은 apply_isolation(CNP) 대신 revoke_iam_privilege(IAM)를 태움.
+_IAM_RESPONSE_EVENTS = _POLICY_GRANT_EVENTS + ("CreateAccessKey",)
 
 
 @workflow.defn
 class SecOpsWorkflow:
     def __init__(self) -> None:
-        # Slack에서 들어온 사람 결정. None이면 아직 대기 중.
-        self._decision: dict | None = None
+        # Slack에서 들어온 사람 결정들. 1차/2차 승인을 인덱스로 구분(0=1차, 1=2차) —
+        # bot.py는 매번 같은 "submit_approval" 시그널을 보내므로, 워크플로우가
+        # 몇 번째 승인을 기다리는지는 wait_condition의 인덱스 임계값으로 판단한다.
+        self._decisions: list[dict] = []
 
     # --- Slack HITL 봇이 버튼 클릭 시 이 signal을 보냄 ---
     @workflow.signal
     def submit_approval(self, approved: bool, reviewer_id: str, reason: str = "") -> None:
-        self._decision = {"approved": approved, "reviewer_id": reviewer_id, "reason": reason}
+        self._decisions.append({"approved": approved, "reviewer_id": reviewer_id, "reason": reason})
 
     @workflow.query
     def awaiting_approval(self) -> bool:
-        return self._decision is None
+        # 1차 결정조차 아직 없는지만 나타냄(2차 대기 여부는 이 query로 구분 안 됨).
+        return len(self._decisions) == 0
 
     @workflow.run
     async def run(self, detect_input: DetectThreatInput) -> ComplianceReport:
@@ -179,12 +185,10 @@ class SecOpsWorkflow:
 
         # 사람 결정을 durable하게 대기 (만료 시각까지). 워커가 죽어도 상태 보존.
         # TODO(다음): reminder_after_hours 경과 시 send_reminder를 race로 호출
-        try:
-            await workflow.wait_condition(
-                lambda: self._decision is not None,
-                timeout=timedelta(hours=approval_req.expire_after_hours),
-            )
-        except asyncio.TimeoutError:
+        approval_result = await self._wait_for_decision(
+            event.workflow_id, 0, approval_req.expire_after_hours,
+        )
+        if approval_result is None:
             timeout_result = ApprovalResult(
                 workflow_id=event.workflow_id, approved=False,
                 reviewer_id="system", reason="승인 시간 초과",
@@ -199,37 +203,7 @@ class SecOpsWorkflow:
             )
             return await self._finish(event, mapping, result)
 
-        # 4) 결정 반영 — signal로 받은 dict를 계약 모델 ApprovalResult로 변환
-        approval_result = ApprovalResult(
-            workflow_id=event.workflow_id,
-            approved=self._decision["approved"],
-            reviewer_id=self._decision["reviewer_id"],
-            reason=self._decision["reason"],
-            reviewed_at=workflow.now(),          # 결정성: default_factory 대신 now() 명시
-        )
-        if approval_result.approved:
-            await self._audit(event.workflow_id, "approval_granted", "승인됨",
-                              {"result": approval_result.model_dump(mode="json")})
-            if mapping.blast_radius_safe:
-                dry_run_result = await workflow.execute_activity(
-                    apply_isolation, args=[mapping, True],
-                    **get_activity_options(ActivityName.APPLY_ISOLATION),
-                )
-                await self._audit(event.workflow_id, "action_dry_run", "격리 사전 검증",
-                                  {"result": dry_run_result.model_dump(mode="json")})
-                result = await workflow.execute_activity(
-                    apply_isolation, args=[mapping, False],
-                    **get_activity_options(ActivityName.APPLY_ISOLATION),
-                )
-                await self._audit(event.workflow_id, "action_executed", "격리 실행",
-                                  {"result": result.model_dump(mode="json")})
-            else:
-                result = ExecutionResult(
-                    workflow_id=event.workflow_id, success=False,
-                    action_taken="승인됐으나 blast radius 위험 → 자동격리 보류",
-                    executed_at=workflow.now(),
-                )
-        else:
+        if not approval_result.approved:
             await self._audit(event.workflow_id, "approval_denied", "거부됨",
                               {"result": approval_result.model_dump(mode="json")})
             result = ExecutionResult(
@@ -237,8 +211,106 @@ class SecOpsWorkflow:
                 action_taken="승인 거부 → 격리 미실행",
                 executed_at=workflow.now(),
             )
+            return await self._finish(event, mapping, result)
+
+        await self._audit(event.workflow_id, "approval_granted", "승인됨",
+                          {"result": approval_result.model_dump(mode="json")})
+
+        if not mapping.blast_radius_safe:
+            result = ExecutionResult(
+                workflow_id=event.workflow_id, success=False,
+                action_taken="승인됐으나 blast radius 위험 → 자동격리 보류",
+                executed_at=workflow.now(),
+            )
+            return await self._finish(event, mapping, result)
+
+        # 4) 대응 분기 — IAM(권한상승/지속성 확보) 이벤트는 revoke_iam_privilege,
+        #    그 외(네트워크 위협)는 기존 apply_isolation(CNP)
+        is_iam_threat = event.event_source == "cloudtrail" and event_name in _IAM_RESPONSE_EVENTS
+        response_activity = revoke_iam_privilege if is_iam_threat else apply_isolation
+        response_arg = event if is_iam_threat else mapping
+
+        # 5) 1차 승인 → dry-run 검증 → 그 결과를 2차 승인 카드로 재확인 → 승인 시 실제 실행
+        dry_run_result = await workflow.execute_activity(
+            response_activity, args=[response_arg, True],
+            **get_activity_options(ActivityName.APPLY_ISOLATION),
+        )
+        await self._audit(event.workflow_id, "action_dry_run", "대응 사전 검증",
+                          {"result": dry_run_result.model_dump(mode="json")})
+
+        second_approval_req = ApprovalRequest(
+            workflow_id=event.workflow_id,
+            scenario="secops",
+            severity=mapping.severity,
+            summary=f"[2차 승인] 실제 대응 실행 확인: {event.source_pod}",
+            detail=(
+                f"1차 승인 완료. 사전 검증(dry-run) 결과:\n{dry_run_result.action_taken}\n\n"
+                f"위 내용이 실제로 적용됩니다. 실행할까요?"
+            ),
+            regulation_mapping=mapping,
+        )
+        await workflow.execute_activity(
+            send_approval_request, second_approval_req,
+            task_queue=HITL_TASK_QUEUE,
+            **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
+        )
+
+        second_approval_result = await self._wait_for_decision(
+            event.workflow_id, 1, second_approval_req.expire_after_hours,
+        )
+        if second_approval_result is None:
+            second_timeout_result = ApprovalResult(
+                workflow_id=event.workflow_id, approved=False,
+                reviewer_id="system", reason="2차 승인 시간 초과",
+                reviewed_at=workflow.now(),
+            )
+            await self._audit(event.workflow_id, "approval_timeout", "2차 승인 시간 초과",
+                              {"result": second_timeout_result.model_dump(mode="json")})
+            result = ExecutionResult(
+                workflow_id=event.workflow_id, success=False,
+                action_taken="2차 승인 시간 초과 — 실제 대응 미실행",
+                executed_at=workflow.now(),
+            )
+        elif second_approval_result.approved:
+            await self._audit(event.workflow_id, "second_approval_granted", "2차 승인됨",
+                              {"result": second_approval_result.model_dump(mode="json")})
+            result = await workflow.execute_activity(
+                response_activity, args=[response_arg, False],
+                **get_activity_options(ActivityName.APPLY_ISOLATION),
+            )
+            await self._audit(event.workflow_id, "action_executed", "대응 실행",
+                              {"result": result.model_dump(mode="json")})
+        else:
+            await self._audit(event.workflow_id, "approval_denied", "2차 승인 거부됨",
+                              {"result": second_approval_result.model_dump(mode="json")})
+            result = ExecutionResult(
+                workflow_id=event.workflow_id, success=False,
+                action_taken="2차 승인 거부 → 실제 대응 미실행",
+                executed_at=workflow.now(),
+            )
 
         return await self._finish(event, mapping, result)
+
+    async def _wait_for_decision(
+        self, workflow_id: str, index: int, expire_after_hours: int,
+    ) -> ApprovalResult | None:
+        """index번째(0=1차, 1=2차) 승인 결정을 durable하게 대기.
+        타임아웃 시 None(호출자가 타임아웃 처리)."""
+        try:
+            await workflow.wait_condition(
+                lambda: len(self._decisions) > index,
+                timeout=timedelta(hours=expire_after_hours),
+            )
+        except asyncio.TimeoutError:
+            return None
+        decision = self._decisions[index]
+        return ApprovalResult(
+            workflow_id=workflow_id,
+            approved=decision["approved"],
+            reviewer_id=decision["reviewer_id"],
+            reason=decision["reason"],
+            reviewed_at=workflow.now(),          # 결정성: default_factory 대신 now() 명시
+        )
 
     # --- 보고서 생성 + 완료 감사 로그 ---
     async def _finish(

@@ -88,6 +88,9 @@ def parse_eventbridge(data: dict) -> dict:
     if not _is_ip(src_ip):
         src_ip = "0.0.0.0"
     request_params = detail.get("requestParameters") or {}
+    # CreateAccessKey는 생성된 AccessKeyId가 요청이 아니라 응답(responseElements)에 실림.
+    response_elements = detail.get("responseElements") or {}
+    access_key_id = ((response_elements.get("accessKey") or {}).get("accessKeyId", ""))
     return {
         "threat_type": "policy_violation",
         "event_source": "cloudtrail",
@@ -106,6 +109,8 @@ def parse_eventbridge(data: dict) -> dict:
             "target_user": request_params.get("userName", ""),
             "target_role": request_params.get("roleName", ""),
             "target_group": request_params.get("groupName", ""),
+            # revoke_iam_privilege(activities.py)의 CreateAccessKey 대응용
+            "access_key_id": access_key_id,
         },
     }
 
