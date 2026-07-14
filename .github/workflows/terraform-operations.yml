@@ -787,6 +787,24 @@ jobs:
           -target=aws_wafv2_web_acl_association.slack_broker_api
           $TF_MOVED_RESOURCE_TARGETS
 
+      # 루트 레벨 secops-iam-responder.tf 리소스. 타겟 apply 구조라 명시하지 않으면 누락됨
+      # (waf.tf/secops-trigger.tf/slack-broker.tf와 동일 갭). 실제로 이 갭 때문에 부분 적용이
+      # 발생했었다: module.vpc2(Apply VPCs and EKS 스텝)의 secops_orchestrator_lambda_invoke
+      # 정책이 aws_lambda_function.secops_iam_responder.arn을 참조해서 -target=module.vpc2가
+      # Lambda 함수 + 그 역할(aws_iam_role.secops_iam_responder_lambda)까지는 의존성으로 자동
+      # 포함시켜 만들어졌지만, aws_iam_role_policy/aws_iam_role_policy_attachment는 module.vpc2로
+      # 흘러가는 출력이 없어 자동 포함 대상이 아니었다 — role은 생겼는데 정책만 안 붙는 상태로 남음.
+      - name: Apply SecOps IAM Responder
+        if: inputs.action == 'apply'
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          -target=data.archive_file.secops_iam_responder
+          -target=aws_iam_role.secops_iam_responder_lambda
+          -target=aws_iam_role_policy_attachment.secops_iam_responder_lambda_basic
+          -target=aws_iam_role_policy.secops_iam_responder_lambda_iam_response
+          -target=aws_lambda_function.secops_iam_responder
+          $TF_MOVED_RESOURCE_TARGETS
+
       - name: Re-apply changed infrastructure
         if: inputs.action == 'reapply'
         run: terraform apply -auto-approve -input=false -lock-timeout=5m
