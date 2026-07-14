@@ -1,0 +1,19 @@
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver-metrics-server
+spec:
+  # APIService(v1beta1.metrics.k8s.io)는 kube-apiserver가 Service(443)를 경유해
+  # metrics-server Pod의 HTTPS targetPort(10250)로 discovery 요청을 보낸다.
+  description: "kube-apiserver -> metrics-server:10250 ingress 허용 (aggregated API discovery)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: metrics-server
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "10250"
+              protocol: TCP
