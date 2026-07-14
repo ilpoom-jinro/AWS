@@ -107,6 +107,7 @@ class ActivityName(StrEnum):
 
     SEND_APPROVAL_REQUEST = "send_approval_request"
     SEND_REMINDER = "send_reminder"
+    SEND_ACTION_RESULT = "send_action_result"
     RECORD_AUDIT_LOG = "record_audit_log"
     RECORD_COMPLIANCE_REPORT = "record_compliance_report"
     RECORD_POSTMORTEM_REPORT = "record_postmortem_report"
@@ -252,6 +253,16 @@ ACTIVITY_TIMEOUTS: dict[
     },
 
     ActivityName.SEND_REMINDER: {
+        "start_to_close_timeout": timedelta(seconds=10),
+        "schedule_to_close_timeout": timedelta(seconds=30),
+    },
+
+    # send_action_result가 SEND_APPROVAL_REQUEST 옵션을 빌려 쓰던 걸 분리(send_reminder는
+    # 이미 자기 ActivityName이 있었음 — send_action_result만 누락). 지금은 둘 다
+    # heartbeat_timeout이 없어 당장 깨지진 않지만, revoke_iam_privilege 때처럼 의미상
+    # 무관한 Activity끼리 옵션을 공유하면 한쪽만 바뀔 때(예: 다른 Activity에 나중에
+    # heartbeat_timeout이 붙는 경우) 예기치 않게 같이 영향받는다 — 애초에 분리해 둔다.
+    ActivityName.SEND_ACTION_RESULT: {
         "start_to_close_timeout": timedelta(seconds=10),
         "schedule_to_close_timeout": timedelta(seconds=30),
     },

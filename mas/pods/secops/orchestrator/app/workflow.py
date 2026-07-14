@@ -166,6 +166,32 @@ def _render_evidence_for_card(evidence: dict) -> str:
     return "\n".join(lines)
 
 
+def _source_label(event: SecurityEvent, evidence: dict) -> str:
+    """카드 제목(summary)에 쓸 소스(주체) 라벨. event.source_pod는 CloudTrail로 들어온
+    IAM 이벤트엔 애초에 값이 없어 "unknown"으로 뜬다(detection.py의 to_security_event
+    기본값) — pod 자체가 없는 시나리오라 pod 이름 대신 행위자/대상으로 보여준다.
+    네트워크 경로(event_source != "cloudtrail")는 기존처럼 pod 이름 그대로."""
+    if event.event_source != "cloudtrail":
+        return event.source_pod
+
+    actor_arn = evidence.get("user_arn", "")
+    actor = actor_arn.rsplit("/", 1)[-1] if actor_arn else "불명"
+    target = evidence.get("target_user", "") or "불명"
+    return f"행위자 {actor} → 대상 {target}"
+
+
+def _wrap_summary_for_card(text: str) -> str:
+    """카드에 넣을 긴 서술형 텍스트(causal_summary 등)를 문장(". " 기준) 단위로
+    줄바꿈 — Sonnet 출력/프롬프트는 안 건드리고 카드 렌더링 시점에만 나눈다."""
+    if not text:
+        return text
+    sentences = [s.strip() for s in text.split(". ") if s.strip()]
+    return "\n".join(
+        s if idx == len(sentences) - 1 else f"{s}."
+        for idx, s in enumerate(sentences)
+    )
+
+
 @workflow.defn
 class SecOpsWorkflow:
     def __init__(self) -> None:
@@ -426,11 +452,11 @@ class SecOpsWorkflow:
             workflow_id=event.workflow_id,
             scenario="secops",
             severity=mapping.severity,
-            summary=f"보안 격리 승인 요청: {event.source_pod}",
+            summary=f"보안 격리 승인 요청: {_source_label(event, evidence)}",
             detail=(
                 f"{lookback_warning}"
                 f"[{mapping.severity.upper()}] confidence={mapping.confidence:.0%}\n"
-                f"{mapping.violation_description}\n\n"
+                f"{_wrap_summary_for_card(mapping.violation_description)}\n\n"
                 f"Evidence:\n{evidence_text}\n\n"
                 f"{blast_radius_line}"
             ),
@@ -512,7 +538,7 @@ class SecOpsWorkflow:
             workflow_id=event.workflow_id,
             scenario="secops",
             severity=mapping.severity,
-            summary=f"[2차 승인] 실제 대응 실행 확인: {event.source_pod}",
+            summary=f"[2차 승인] 실제 대응 실행 확인: {_source_label(event, evidence)}",
             detail=(
                 f"1차 승인 완료. 사전 검증(dry-run) 결과:\n{dry_run_result.action_taken}\n\n"
                 f"위 내용이 실제로 적용됩니다. 실행할까요?"
@@ -553,9 +579,9 @@ class SecOpsWorkflow:
             # 실행 결과를 2차 카드 스레드에 통지 (성공/실패/미지원/dry-run-안전망 전부 포함)
             await workflow.execute_activity(
                 send_action_result,
-                args=[second_ticket, f"대응 실행 결과 — {event.source_pod}\n{result.action_taken}"],
+                args=[second_ticket, f"대응 실행 결과 — {_source_label(event, evidence)}\n{result.action_taken}"],
                 task_queue=HITL_TASK_QUEUE,
-                **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
+                **get_activity_options(ActivityName.SEND_ACTION_RESULT),
             )
         else:
             await self._audit(event.workflow_id, "approval_denied", "2차 승인 거부됨",
