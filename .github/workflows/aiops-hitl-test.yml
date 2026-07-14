@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Test action for the dedicated AIOps failure-injection Deployment.
+        description: Test action for the dedicated AIOps remediation workload.
         required: true
         default: inject
         type: choice
@@ -13,6 +13,21 @@ on:
           - inject
           - status
           - cleanup
+      restart:
+        description: Inject the restart remediation scenario. Select exactly one scenario for inject.
+        required: false
+        default: false
+        type: boolean
+      scale_out:
+        description: Inject the HPA scale-out remediation scenario. Select exactly one scenario for inject.
+        required: false
+        default: false
+        type: boolean
+      rollback:
+        description: Inject the rollout rollback remediation scenario. Select exactly one scenario for inject.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   id-token: write
@@ -50,20 +65,37 @@ jobs:
         shell: bash
         env:
           ACTION: ${{ inputs.action }}
+          RESTART: ${{ inputs.restart }}
+          SCALE_OUT: ${{ inputs.scale_out }}
+          ROLLBACK: ${{ inputs.rollback }}
           TEST_NAMESPACE: ${{ env.TEST_NAMESPACE }}
           TEST_DEPLOYMENT: ${{ env.TEST_DEPLOYMENT }}
         run: |
           set -euo pipefail
 
+          selected=()
+          [[ "${RESTART}" == "true" ]] && selected+=("restart")
+          [[ "${SCALE_OUT}" == "true" ]] && selected+=("scale_out")
+          [[ "${ROLLBACK}" == "true" ]] && selected+=("rollback")
+
           case "${ACTION}" in
             inject)
-              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=1; sleep 90; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide"
+              if [[ "${#selected[@]}" -ne 1 ]]; then
+                echo "For inject, select exactly one of restart, scale_out, or rollback." >&2
+                exit 1
+              fi
+              scenario="${selected[0]}"
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" set env deployment/\"${TEST_DEPLOYMENT}\" AIOPS_TEST_MODE=healthy AIOPS_TEST_STRATEGY=; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=1; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" rollout status deployment/\"${TEST_DEPLOYMENT}\" --timeout=120s"
+              if [[ "${scenario}" == "scale_out" ]]; then
+                command="${command}; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get hpa \"${TEST_DEPLOYMENT}\"-hpa >/dev/null 2>&1 || kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" autoscale deployment/\"${TEST_DEPLOYMENT}\" --min=1 --max=1 --cpu-percent=80"
+              fi
+              command="${command}; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" set env deployment/\"${TEST_DEPLOYMENT}\" AIOPS_TEST_MODE=failure AIOPS_TEST_STRATEGY=${scenario}; sleep 90; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide"
               ;;
             status)
-              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get role/aiops-hitl-test-remediation rolebinding/aiops-hitl-test-remediation"
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\"; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get pods -l app=\"${TEST_DEPLOYMENT}\" -o wide; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get hpa \"${TEST_DEPLOYMENT}\"-hpa --ignore-not-found; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get role/aiops-hitl-test-remediation rolebinding/aiops-hitl-test-remediation"
               ;;
             cleanup)
-              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=0; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" delete pod -l app=\"${TEST_DEPLOYMENT}\" --ignore-not-found; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\""
+              command="kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" delete hpa \"${TEST_DEPLOYMENT}\"-hpa --ignore-not-found; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" set env deployment/\"${TEST_DEPLOYMENT}\" AIOPS_TEST_MODE=healthy AIOPS_TEST_STRATEGY=; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" scale deployment/\"${TEST_DEPLOYMENT}\" --replicas=0; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" delete pod -l app=\"${TEST_DEPLOYMENT}\" --ignore-not-found; kubectl --context \"\${OPS_CONTEXT}\" -n \"${TEST_NAMESPACE}\" get deployment/\"${TEST_DEPLOYMENT}\""
               ;;
             *)
               echo "Unsupported action: ${ACTION}" >&2

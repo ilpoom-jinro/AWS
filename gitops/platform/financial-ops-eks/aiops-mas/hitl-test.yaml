@@ -32,8 +32,17 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "AIOps HITL test: intentional CrashLoopBackOff" >&2
-              exit 1
+              if [ "${AIOPS_TEST_MODE}" = "failure" ]; then
+                echo "[AIOPS_HITL_TEST_STRATEGY=${AIOPS_TEST_STRATEGY}]" >&2
+                echo "FATAL: application startup configuration is invalid" >&2
+                exit 1
+              fi
+              exec tail -f /dev/null
+          env:
+            - name: AIOPS_TEST_MODE
+              value: healthy
+            - name: AIOPS_TEST_STRATEGY
+              value: ""
           resources:
             requests:
               cpu: 10m
@@ -65,6 +74,15 @@ rules:
       - replicasets
     verbs:
       - get
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    resourceNames:
+      - aiops-hitl-crashloop-hpa
+    verbs:
+      - get
+      - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

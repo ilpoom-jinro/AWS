@@ -140,7 +140,7 @@ def index() -> str:
         border-radius: 8px;
         background: #fbfdff;
         padding: 14px;
-        min-height: 104px;
+        min-height: 130px;
       }}
       .watch-title {{
         color: var(--muted);
@@ -155,6 +155,7 @@ def index() -> str:
       .watch-meta {{
         color: var(--muted);
         font-size: 13px;
+        white-space: pre-wrap;
       }}
       .watch-item.ok {{
         border-color: #b9dfcc;
@@ -455,8 +456,8 @@ def index() -> str:
       let currentWorkflowCluster = "";
       let namespaceRefreshMessage = "";
       const watchState = {{
-        "financial-ops-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "" }},
-        "financial-service-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "" }},
+        "financial-ops-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, otherPodCount: 0, problemNamespaces: [] }},
+        "financial-service-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, otherPodCount: 0, problemNamespaces: [] }},
       }};
 
       function incidentTextForCluster(clusterName) {{
@@ -489,8 +490,13 @@ def index() -> str:
           statusElement.className = "watch-status ok";
           statusElement.textContent = "정상";
         }}
-        const suffix = state.error ? ` / ${{state.error}}` : "";
-        metaElement.textContent = `마지막 확인: ${{formatElapsed(state.lastCheckedAt)}}${{suffix}}`;
+        const counts = `정상 Pod ${{state.normalPodCount}}개 / 장애 Pod ${{state.problemPodCount}}개`;
+        const namespaces = state.problemNamespaces.length
+          ? `장애 namespace: ${{state.problemNamespaces.join(", ")}}`
+          : "장애 namespace: 없음";
+        const suffix = state.otherPodCount ? ` / 기타 ${{state.otherPodCount}}개` : "";
+        const error = state.error ? `\n오류: ${{state.error}}` : "";
+        metaElement.textContent = `${{counts}}${{suffix}}\n${{namespaces}}\n마지막 확인: ${{formatElapsed(state.lastCheckedAt)}}${{error}}`;
       }}
 
       function updateWatchBoard() {{
@@ -566,45 +572,33 @@ def index() -> str:
         renderNamespaceSegments();
       }}
 
-      async function refreshNamespacesForCluster(clusterName) {{
-        const response = await fetch(`/api/clusters/${{clusterName}}/namespaces`);
-        if (!response.ok) throw new Error(await response.text());
-        const data = await response.json();
-        if (Array.isArray(data.namespaces)) {{
-          namespaceByCluster[clusterName] = data.namespaces;
+      function applyClusterSummary(summary) {{
+        const clusterName = summary.cluster_name;
+        if (!watchState[clusterName]) return;
+        if (Array.isArray(summary.namespace_names)) {{
+          namespaceByCluster[clusterName] = summary.namespace_names;
         }}
         watchState[clusterName].lastCheckedAt = Date.now();
-        watchState[clusterName].ok = true;
-        watchState[clusterName].error = "";
-        if (watchState[clusterName].incident === "checking") {{
-          watchState[clusterName].incident = "normal";
-        }}
-      }}
-
-      async function refreshNamespaces() {{
-        const errors = [];
-        await Promise.all(clusters.map(async (clusterName) => {{
-          try {{
-            await refreshNamespacesForCluster(clusterName);
-          }} catch (error) {{
-            watchState[clusterName].lastCheckedAt = Date.now();
-            watchState[clusterName].ok = false;
-            watchState[clusterName].error = String(error);
-            errors.push(`${{clusterName}}: ${{error}}`);
-          }}
-        }}));
-        namespaceRefreshMessage = errors.length ? `namespace refresh error: ${{errors.join("; ")}}` : "";
-        syncTargetCards();
-        updateWatchBoard();
+        watchState[clusterName].ok = !summary.error;
+        watchState[clusterName].error = summary.error || "";
+        watchState[clusterName].normalPodCount = Number(summary.normal_pod_count || 0);
+        watchState[clusterName].problemPodCount = Number(summary.problem_pod_count || 0);
+        watchState[clusterName].otherPodCount = Number(summary.other_pod_count || 0);
+        watchState[clusterName].problemNamespaces = Array.isArray(summary.problem_namespaces)
+          ? summary.problem_namespaces
+          : [];
+        watchState[clusterName].incident = watchState[clusterName].problemPodCount > 0 ? "alert" : "normal";
       }}
 
       async function refreshDashboard() {{
-        await refreshNamespaces();
-        syncTargetCards();
         try {{
           const response = await fetch("/api/dashboard");
           if (!response.ok) throw new Error(await response.text());
           const data = await response.json();
+          (data.cluster_summaries || []).forEach(applyClusterSummary);
+          namespaceRefreshMessage = "";
+          syncTargetCards();
+          updateWatchBoard();
           statusValue.textContent = "ready";
           statusValue.className = "value ok";
           queueValue.textContent = data.task_queue || "-";
@@ -612,6 +606,12 @@ def index() -> str:
             resultBox.textContent = namespaceRefreshMessage;
           }}
         }} catch (error) {{
+          clusters.forEach((clusterName) => {{
+            watchState[clusterName].lastCheckedAt = Date.now();
+            watchState[clusterName].ok = false;
+            watchState[clusterName].error = String(error);
+          }});
+          updateWatchBoard();
           statusValue.textContent = "error";
           statusValue.className = "value err";
           queueValue.textContent = "-";
@@ -711,7 +711,7 @@ def index() -> str:
       runButton.addEventListener("click", runWorkflow);
       updateWatchBoard();
       refreshDashboard();
-      setInterval(refreshNamespaces, 3000);
+      setInterval(refreshDashboard, 3000);
       setInterval(updateWatchBoard, 1000);
     </script>
   </body>
