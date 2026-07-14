@@ -97,6 +97,8 @@ class ActivityName(StrEnum):
     APPLY_ISOLATION = "apply_isolation"
     GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
     GENERATE_POSTMORTEM_REPORT = "generate_postmortem_report"
+    LOOKBACK_USER_EVENTS = "lookback_user_events"
+    CORRELATE_INCIDENT = "correlate_incident"
 
     # --------------------------------------------------------
     # Common
@@ -211,6 +213,18 @@ ACTIVITY_TIMEOUTS: dict[
     ActivityName.GENERATE_POSTMORTEM_REPORT: {
         # Bedrock 서술형 초안 생성 — compliance보다 토큰이 많아 여유를 둔다
         "start_to_close_timeout": timedelta(minutes=3),
+        "schedule_to_close_timeout": timedelta(minutes=8),
+    },
+
+    # Athena 쿼리(폴링 최대 SIEM_ATHENA_TIMEOUT_SECONDS=30s) + 재시도 여유
+    ActivityName.LOOKBACK_USER_EVENTS: {
+        "start_to_close_timeout": timedelta(minutes=2),
+        "schedule_to_close_timeout": timedelta(minutes=8),
+        "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    ActivityName.CORRELATE_INCIDENT: {
+        "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=8),
     },
 
