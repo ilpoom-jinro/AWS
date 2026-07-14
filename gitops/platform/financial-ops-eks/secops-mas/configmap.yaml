@@ -8,8 +8,9 @@ data:
   TEMPORAL_ADDRESS:       "temporal-frontend.temporal.svc.cluster.local:7233"
   TEMPORAL_TASK_QUEUE:    "secops-task-queue"
   HITL_TASK_QUEUE:        "hitl-approval-queue"      # 슬랙 HITL 봇 공용 큐
-  # 승인되어도 apply_isolation이 실제 CiliumNetworkPolicy를 적용하지 않고 dry-run 검증까지만 수행하는 안전 스위치.
-  ISOLATION_DRY_RUN:      "true"
+  # apply_isolation/revoke_iam_privilege의 안전 스위치. true면 2차 승인 후에도 실제 CNP
+  # 적용/IAM 회수를 안 하고 항상 dry-run만 함. false = 2차 승인 시 실제 대응 실행.
+  ISOLATION_DRY_RUN:      "false"
   # Bedrock (워크플로우 실행 시 사용 — 현재 trigger 없어 미호출)
   AWS_REGION:             "ap-northeast-2"
   BEDROCK_REGION:         "ap-northeast-2"
