@@ -13,6 +13,7 @@ resources:
   - service.yaml
   - ui-deployment.yaml
   - ui-service.yaml
+  - hitl-test.yaml
 
 images:
   - name: aiops-orchestrator-image

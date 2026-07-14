@@ -1,0 +1,81 @@
+# AIOps -> Slack HITL -> remediation E2E 확인용 장애 워크로드입니다.
+# 기본 replicas=0으로 유지하며, .github/workflows/aiops-hitl-test.yml의
+# inject 작업만 1로 올립니다. 정상 운영 워크로드에는 사용하지 않습니다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiops-hitl-crashloop
+  namespace: aiops-mas
+  labels:
+    app: aiops-hitl-crashloop
+    app.kubernetes.io/part-of: aiops-hitl-test
+    app.kubernetes.io/component: failure-injection
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: aiops-hitl-crashloop
+  template:
+    metadata:
+      labels:
+        app: aiops-hitl-crashloop
+        app.kubernetes.io/part-of: aiops-hitl-test
+        app.kubernetes.io/component: failure-injection
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: crashloop
+          # 이미 AIOps UI에 배포하는 내부 ECR 이미지를 재사용한다.
+          image: aiops-ui-image
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "AIOps HITL test: intentional CrashLoopBackOff" >&2
+              exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+---
+# AIOps runtime은 기존 ClusterRole로 탐지(read)를 수행한다.
+# 이 Role은 위 전용 Deployment만 restart/rollback할 수 있게 최소로 추가한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-hitl-test-remediation
+  namespace: aiops-mas
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    resourceNames:
+      - aiops-hitl-crashloop
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-hitl-test-remediation
+  namespace: aiops-mas
+subjects:
+  - kind: ServiceAccount
+    name: aiops-orchestrator
+    namespace: aiops-mas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aiops-hitl-test-remediation
