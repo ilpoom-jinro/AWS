@@ -771,3 +771,9 @@ async def send_approval_request(request: ApprovalRequest) -> ApprovalTicket:
         slack_message_ts="1718000000.000100",
         channel_id="C_SECOPS_STUB",
     )
+
+
+@activity.defn(name="send_action_result")
+async def send_action_result(ticket: ApprovalTicket, message: str) -> None:
+    """대응 실행 결과 Slack 통지(stub). 실제 구현은 slack-hitl bot.py."""
+    activity.logger.info("Slack 결과 통지(stub): %s", message)

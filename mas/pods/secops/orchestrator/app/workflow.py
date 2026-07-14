@@ -61,6 +61,7 @@ with workflow.unsafe.imports_passed_through():
         record_compliance_report,
         record_postmortem_report,
         revoke_iam_privilege,
+        send_action_result,
         send_approval_request,
     )
     from .detection import extract_evidence
@@ -249,7 +250,7 @@ class SecOpsWorkflow:
             ),
             regulation_mapping=mapping,
         )
-        await workflow.execute_activity(
+        second_ticket = await workflow.execute_activity(
             send_approval_request, second_approval_req,
             task_queue=HITL_TASK_QUEUE,
             **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
@@ -280,6 +281,13 @@ class SecOpsWorkflow:
             )
             await self._audit(event.workflow_id, "action_executed", "대응 실행",
                               {"result": result.model_dump(mode="json")})
+            # 실행 결과를 2차 카드 스레드에 통지 (성공/실패/미지원/dry-run-안전망 전부 포함)
+            await workflow.execute_activity(
+                send_action_result,
+                args=[second_ticket, f"대응 실행 결과 — {event.source_pod}\n{result.action_taken}"],
+                task_queue=HITL_TASK_QUEUE,
+                **get_activity_options(ActivityName.SEND_APPROVAL_REQUEST),
+            )
         else:
             await self._audit(event.workflow_id, "approval_denied", "2차 승인 거부됨",
                               {"result": second_approval_result.model_dump(mode="json")})
