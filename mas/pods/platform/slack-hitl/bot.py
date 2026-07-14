@@ -91,6 +91,22 @@ def _channel_for_scenario(scenario: str) -> str:
 # =====================================================================
 # Slack 메시지 구성 / 페이로드 파싱 (네트워크 없는 순수 함수 — 테스트 가능)
 # =====================================================================
+
+# Slack Block Kit section block의 text는 3000자 초과 시 chat.postMessage가
+# invalid_blocks로 실패한다. 호출자(secops workflow.py 등)가 카드 내용을 최대한
+# 간결하게 만들어 보내지만, 이 파일이 실제로 Slack API 제약을 지켜야 하는 경계라
+# 무엇이 들어오든 여기서 마지막으로 강제한다.
+_SLACK_SECTION_TEXT_LIMIT = 3000
+
+
+def _truncate_for_slack_block(text: str, limit: int = _SLACK_SECTION_TEXT_LIMIT) -> str:
+    """Slack section block text를 limit자 이하로 강제 — 넘으면 끝을 자르고 표시."""
+    if len(text) <= limit:
+        return text
+    marker = "\n… (내용이 길어 잘림, 전체는 감사 로그 참고)"
+    return text[: limit - len(marker)] + marker
+
+
 def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -> list[dict]:
     """승인/거부 버튼 메시지 블록.
     버튼 value에 workflow id와 scenario를 심는다 — 클릭 시 시나리오별 signal 분기에 사용.
@@ -102,11 +118,12 @@ def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -
         "finops": "FinOps 승인 요청",
     }
     title = title_by_scenario.get(request.scenario, "승인 요청")
+    section_text = _truncate_for_slack_block(f"*{request.summary}*\n{request.detail}")
     return [
         {"type": "header",
          "text": {"type": "plain_text", "text": f"🔐 {title} [{request.severity.upper()}]"}},
         {"type": "section",
-         "text": {"type": "mrkdwn", "text": f"*{request.summary}*\n{request.detail}"}},
+         "text": {"type": "mrkdwn", "text": section_text}},
         {"type": "context",
          "elements": [{"type": "mrkdwn",
                        "text": f"scenario: `{request.scenario}` · workflow: `{temporal_workflow_id}`"}]},
@@ -202,10 +219,12 @@ async def send_reminder(ticket: ApprovalTicket) -> None:
 @activity.defn(name="send_action_result")
 async def send_action_result(ticket: ApprovalTicket, message: str) -> None:
     """대응 실행 결과 통지 — 버튼 없는 일반 메시지, 원 카드 스레드에 게시.
-    send_reminder와 동일 패턴(카드 재사용 없이 채널/스레드에 텍스트만 전송)."""
+    send_reminder와 동일 패턴(카드 재사용 없이 채널/스레드에 텍스트만 전송).
+    blocks 없는 평문이라 Slack section 3000자 제한 대상은 아니지만(top-level text는
+    한도가 훨씬 큼), 모바일 가독성 + 다른 카드와의 일관성을 위해 동일하게 자른다."""
     payload = {
         "channel": ticket.channel_id,
-        "text": message,
+        "text": _truncate_for_slack_block(message),
     }
     if ticket.slack_message_ts:
         payload["thread_ts"] = ticket.slack_message_ts

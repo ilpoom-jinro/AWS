@@ -77,6 +77,13 @@ _POLICY_GRANT_EVENTS = ("AttachUserPolicy", "PutUserPolicy", "AttachRolePolicy",
 # 대응 분기용 — 이 event_name들은 apply_isolation(CNP) 대신 revoke_iam_privilege(IAM)를 태움.
 _IAM_RESPONSE_EVENTS = _POLICY_GRANT_EVENTS + ("CreateAccessKey",)
 
+# Slack Block Kit의 section text는 3000자 제한(넘으면 chat.postMessage가 invalid_blocks로
+# 실패 — bot.py의 build_approval_blocks가 이 제한을 진짜로 지키는 마지막 방어선이지만,
+# 여기서도 애초에 카드 내용을 짧게 만들어 모바일 가독성까지 같이 챙긴다.
+_MAX_EVENTS_IN_CARD = 5
+_MAX_SUMMARY_SENTENCES = 3
+_MAX_ACTION_LINES = 3
+
 
 def _parse_trigger_time(evidence: dict, fallback: datetime) -> datetime:
     """lookback 시간창의 기준 시각 — evidence['event_time'](원본 CloudTrail eventTime)을
@@ -101,6 +108,35 @@ def _rule_filter_skip(evidence: dict) -> bool:
         return policy_name not in _HIGH_RISK_MANAGED_POLICIES
     # policy_arn 없음(인라인 정책) 또는 CreateAccessKey/그 외 이벤트 → 보수적으로 통과
     return False
+
+
+def _dedup_iam_response_events(events: list[SecurityEvent]) -> list[SecurityEvent]:
+    """같은 회수 대상(정책 attach/키 생성)이 반복 lookback으로 여러 이벤트에 걸쳐
+    중복으로 잡혀도 회수는 한 번만 하도록 첫 등장분만 남긴다.
+    detection.py의 dedup_events는 cloudtrail_event_id 기준이라 "같은 정책을 서로
+    다른 시각에 두 번 attach"처럼 이벤트 자체는 다른데 실제 회수 대상(같은 유저의
+    같은 policy_arn, 또는 같은 access_key_id)은 같은 경우를 못 걸러서 여기서 따로
+    거른다. Lambda 쪽 현재상태 확인(list_access_keys 등)과는 별개 — 이건 "같은
+    타겟을 여러 번 호출하지 말자"는 워크플로우 단의 중복 제거, 그건 "그 타겟이
+    지금도 유효한지" Lambda 단의 최신성 확인."""
+    seen: set[tuple] = set()
+    deduped: list[SecurityEvent] = []
+    for e in events:
+        ev = extract_evidence(e)
+        name = ev.get("event_name", "")
+        if name == "AttachRolePolicy":
+            key = (name, ev.get("target_role", ""), ev.get("policy_arn", ""))
+        elif name == "CreateAccessKey":
+            key = (name, ev.get("access_key_id", ""))
+        elif name in _POLICY_GRANT_EVENTS:  # AttachUserPolicy/PutUserPolicy/AttachGroupPolicy
+            key = (name, ev.get("target_user", ""), ev.get("policy_arn", ""))
+        else:
+            key = (name, ev.get("target_user", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(e)
+    return deduped
 
 
 def _describe_event_for_card(event_dict: dict) -> str:
@@ -150,12 +186,15 @@ def _render_evidence_for_card(evidence: dict) -> str:
         )
 
     events = evidence.get("events", [])
+    shown_events = events[:_MAX_EVENTS_IN_CARD]
     lines = [f"관련 이벤트 ({len(events)}건):"]
-    for idx, event_dict in enumerate(events, start=1):
+    for idx, event_dict in enumerate(shown_events, start=1):
         time_str = _format_event_time_for_card(event_dict)
         event_name = event_dict.get("event_name", "알 수 없음")
         description = _describe_event_for_card(event_dict)
         lines.append(f"  {idx}. {time_str}  {event_name}  → {description}")
+    if len(events) > _MAX_EVENTS_IN_CARD:
+        lines.append(f"  … 외 {len(events) - _MAX_EVENTS_IN_CARD}건 (전체는 감사 로그 참고)")
 
     target_user_arn = evidence.get("target_user_arn", "")
     if target_user_arn:
@@ -182,14 +221,78 @@ def _source_label(event: SecurityEvent, evidence: dict) -> str:
 
 def _wrap_summary_for_card(text: str) -> str:
     """카드에 넣을 긴 서술형 텍스트(causal_summary 등)를 문장(". " 기준) 단위로
-    줄바꿈 — Sonnet 출력/프롬프트는 안 건드리고 카드 렌더링 시점에만 나눈다."""
+    줄바꿈하고, 모바일 가독성 + Slack 3000자 블록 제한을 위해 앞의
+    _MAX_SUMMARY_SENTENCES개까지만 보여준다(넘으면 요약 표시 추가). Sonnet 출력/
+    프롬프트나 audit 로그(mapping.violation_description 원본)는 안 건드리고
+    카드 렌더링 시점에만 축약한다 — 전체 내용이 필요하면 감사 로그를 봐야 함."""
     if not text:
         return text
     sentences = [s.strip() for s in text.split(". ") if s.strip()]
-    return "\n".join(
-        s if idx == len(sentences) - 1 else f"{s}."
-        for idx, s in enumerate(sentences)
+    truncated = len(sentences) > _MAX_SUMMARY_SENTENCES
+    shown = sentences[:_MAX_SUMMARY_SENTENCES]
+    if truncated:
+        lines = [f"{s}." for s in shown]
+        lines.append("(요약 — 전체 내용은 감사 로그 참고)")
+    else:
+        lines = [s if idx == len(shown) - 1 else f"{s}." for idx, s in enumerate(shown)]
+    return "\n".join(lines)
+
+
+_ACCESS_KEY_ID_PATTERN = re.compile(r"AccessKeyId=([A-Z0-9]+)")
+
+
+def _mask_access_key_ids(text: str) -> str:
+    """Slack 카드에 노출되는 AccessKeyId를 앞 4자 + 뒤 4자만 남기고 마스킹
+    (AKIA...PHUW → AKIA****PHUW). action_taken 문자열은 activities.py의
+    _describe_iam_action(dry-run 설명)과 lambda/secops-iam-responder/handler.py의
+    _revoke_iam_privilege(실제 결과)에서 "AccessKeyId=..." 형태로 만들어지는데,
+    그 원본 문자열 자체는 안 건드리고 카드에 넣기 직전에만 마스킹한다 — audit
+    로그(_audit 호출)는 이 함수를 거치지 않고 action_taken 원본 그대로 남아
+    추적 시 전체 값을 볼 수 있다."""
+    def _mask(match: re.Match) -> str:
+        key_id = match.group(1)
+        if len(key_id) <= 8:
+            return match.group(0)  # 너무 짧으면 마스킹 의미 없음 — 원본 유지
+        return f"AccessKeyId={key_id[:4]}****{key_id[-4:]}"
+
+    return _ACCESS_KEY_ID_PATTERN.sub(_mask, text)
+
+
+def _summarize_action_taken(action_taken: str) -> str:
+    """revoke_iam_privilege/apply_isolation의 action_taken(한 줄 = 이벤트/작업 하나)을
+    앞 _MAX_ACTION_LINES줄까지만 보여주고 나머지는 "외 N건"으로 줄인다. 단일 이벤트
+    경로(apply_isolation 등)는 원래 한 줄이라 그대로 통과한다."""
+    if not action_taken:
+        return action_taken
+    lines = action_taken.split("\n")
+    if len(lines) <= _MAX_ACTION_LINES:
+        return action_taken
+    shown = lines[:_MAX_ACTION_LINES]
+    remaining = len(lines) - _MAX_ACTION_LINES
+    return "\n".join(shown) + f"\n… 외 {remaining}건 (전체는 감사 로그 참고)"
+
+
+def _summarize_iam_actions(events: list[SecurityEvent]) -> str:
+    """"정책 회수 N건, 액세스 키 비활성화 M건" 형태의 건수 요약. 성공/실패 여부와
+    무관하게 몇 건을 시도했는지만 보여준다(성공/실패 상세는 action_taken 줄에서 확인) —
+    activities.py의 action_taken 문자열을 파싱하지 않고 workflow.py가 이미 들고 있는
+    iam_response_events를 직접 세어서 ExecutionResult 모델은 그대로 둔다."""
+    policy_count = sum(
+        1 for e in events if extract_evidence(e).get("event_name", "") in _POLICY_GRANT_EVENTS
     )
+    key_count = sum(
+        1 for e in events if extract_evidence(e).get("event_name", "") == "CreateAccessKey"
+    )
+    other_count = len(events) - policy_count - key_count
+
+    parts = []
+    if policy_count:
+        parts.append(f"정책 회수 {policy_count}건")
+    if key_count:
+        parts.append(f"액세스 키 비활성화 {key_count}건")
+    if other_count:
+        parts.append(f"기타 {other_count}건")
+    return ", ".join(parts) if parts else "대응 대상 없음"
 
 
 @workflow.defn
@@ -329,10 +432,13 @@ class SecOpsWorkflow:
                     # 트리거(CreateAccessKey)는 _IAM_RESPONSE_EVENTS에 항상 포함돼 있어
                     # 필터 결과가 비는 일은 지금 없지만, 그 상수 정의가 나중에 바뀔 수 있어
                     # (앞서 event_mappings[0] 가드와 동일한 이유) 트리거로 폴백해 방어한다.
-                    iam_response_events = [
+                    # 반복 lookback으로 같은 회수 대상(같은 정책/같은 키)이 여러 이벤트로
+                    # 중복 잡히는 걸 여기서 한 번 걸러 Lambda를 불필요하게 여러 번 안 부른다
+                    # (그 타겟이 지금도 유효한지는 Lambda 쪽 현재상태 확인이 별도로 함).
+                    iam_response_events = _dedup_iam_response_events([
                         e for e in incident_group.events
                         if extract_evidence(e).get("event_name", "") in _IAM_RESPONSE_EVENTS
-                    ] or [event]
+                    ]) or [event]
                     all_regs = sorted({r for m in event_mappings for r in m.violated_regulations})
                     # per-event evidence는 딕셔너리 병합(update)하면 같은 키(event_name 등)가
                     # 이벤트끼리 서로 덮어써서 정보가 사라진다 — events 리스트로 각각 보존.
@@ -534,13 +640,19 @@ class SecOpsWorkflow:
         await self._audit(event.workflow_id, "action_dry_run", "대응 사전 검증",
                           {"result": dry_run_result.model_dump(mode="json")})
 
+        # 대응 건수 요약 — IAM 경로만 의미 있음(네트워크는 pod 1개 격리라 요약 불필요).
+        # action_taken은 이벤트/작업당 한 줄이라 줄 수로 안전하게 잘라도 됨(Slack
+        # section 3000자 제한 + 모바일 가독성 둘 다 대비).
+        action_summary_prefix = f"{_summarize_iam_actions(iam_response_events)}\n" if is_iam_threat else ""
         second_approval_req = ApprovalRequest(
             workflow_id=event.workflow_id,
             scenario="secops",
             severity=mapping.severity,
             summary=f"[2차 승인] 실제 대응 실행 확인: {_source_label(event, evidence)}",
             detail=(
-                f"1차 승인 완료. 사전 검증(dry-run) 결과:\n{dry_run_result.action_taken}\n\n"
+                f"1차 승인 완료. 사전 검증(dry-run) 결과:\n"
+                f"{action_summary_prefix}"
+                f"{_mask_access_key_ids(_summarize_action_taken(dry_run_result.action_taken))}\n\n"
                 f"위 내용이 실제로 적용됩니다. 실행할까요?"
             ),
             regulation_mapping=mapping,
@@ -577,9 +689,18 @@ class SecOpsWorkflow:
             await self._audit(event.workflow_id, "action_executed", "대응 실행",
                               {"result": result.model_dump(mode="json")})
             # 실행 결과를 2차 카드 스레드에 통지 (성공/실패/미지원/dry-run-안전망 전부 포함)
+            # dry-run 카드와 동일하게 건수 요약 + 줄 수 제한 — send_action_result는
+            # blocks 없는 평문이라 Slack 3000자 제한 대상은 아니지만, 모바일 가독성과
+            # 카드 일관성을 위해 동일하게 축약한다.
+            result_summary_prefix = f"{_summarize_iam_actions(iam_response_events)}\n" if is_iam_threat else ""
             await workflow.execute_activity(
                 send_action_result,
-                args=[second_ticket, f"대응 실행 결과 — {_source_label(event, evidence)}\n{result.action_taken}"],
+                args=[
+                    second_ticket,
+                    f"대응 실행 결과 — {_source_label(event, evidence)}\n"
+                    f"{result_summary_prefix}"
+                    f"{_mask_access_key_ids(_summarize_action_taken(result.action_taken))}",
+                ],
                 task_queue=HITL_TASK_QUEUE,
                 **get_activity_options(ActivityName.SEND_ACTION_RESULT),
             )
