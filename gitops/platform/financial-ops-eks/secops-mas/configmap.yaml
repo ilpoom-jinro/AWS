@@ -27,6 +27,14 @@ data:
   SECOPS_VPC_ID:           "REPLACE_WITH_OPS_VPC_ID"
   # CloudWatch Alarm(신호)만 오면 워커가 이 Flow Logs 그룹을 재조회해 실제 REJECT 레코드로 보강.
   SECOPS_FLOWLOG_GROUP:    "/aws/vpc/flowlogs/vpc1"
+  # 침투 시나리오 lookback_network_flows가 Hubble DROPPED flow를 조회하는 대상.
+  # observability-indexer cronjob.yaml과 동일한 클러스터 내부 DNS(계정/리전 무관 고정값).
+  LOKI_URL:                "http://observability-loki.observability.svc.cluster.local:3100"
+  # 포트 개수 임계치(port_scan vs lateral_movement) — 10은 시작값, 튜닝 대상.
+  SECOPS_PORT_SCAN_THRESHOLD: "10"
+  # 같은 워크로드를 이 초 단위로 하위창을 나눠 분류 — 초반 포트스캔 버스트와 나중의
+  # targeted 접속(측면이동)이 서로 다른 개별판정으로 분리되게 함. 120은 시작값, 튜닝 대상.
+  SECOPS_NETWORK_SUBWINDOW_SECONDS: "120"
   # 계정 탈취 IAM 회수 Lambda(secops-iam-responder.tf) 함수명. ops VPC는 IAM PrivateLink가
   # 없어 revoke_iam_privilege가 IAM을 직접 안 부르고 이 Lambda를 invoke한다. 이름 자체는
   # 계정/리전에 안 걸린 고정값이라 REPLACE_WITH_* 치환 불필요.

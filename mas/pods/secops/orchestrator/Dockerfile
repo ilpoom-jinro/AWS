@@ -13,12 +13,15 @@ RUN pip install --no-cache-dir \
     "asyncpg==0.30.0" \
     "kubernetes==31.0.0" \
     "fastapi==0.115.6" \
-    "uvicorn[standard]==0.34.0"
+    "uvicorn[standard]==0.34.0" \
+    "requests==2.33.0"
     # temporalio: 1.9.0엔 temporalio.contrib.pydantic이 없어 SecOps가 깨짐 → pydantic 컨버터가 포함된
     #   1.27.2로 고정(requirements.txt와 동일). FinOps도 pydantic 도입 시 1.27.2로 정렬 권장.
     # sqlalchemy[asyncio]/asyncpg: record_audit_log(RDS 전용, activities.platform) 저장 경로에 필요.
     # kubernetes: apply_isolation의 Istio AuthorizationPolicy 실제 apply에 필요.
     # fastapi/uvicorn: app.run이 띄우는 HTTP API(api.py) — UI 조회 + /health 프로브에 필요.
+    # requests: lookback_network_flows의 Loki query_range 호출용 — monitoring/observability-indexer의
+    #   requirements.txt와 같은 버전으로 맞춤(observability-indexer/main.py:35-49 패턴 재사용).
 
 # SecOps는 contracts/workflows + activities(공통 platform.py 재-export)도 import하므로 함께 복사
 #   (activities 미복사 시 `from activities.platform import record_audit_log`가 ImportError → CrashLoop)

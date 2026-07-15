@@ -314,6 +314,14 @@ class SecurityEvent(WorkflowRootMixin):
     cluster_name: str
     namespace: str
     source_pod: str
+
+    # 워크로드 단위 격리(B-1)용. source_pod(Pod 이름)는 재기동마다 바뀌어 격리
+    # 셀렉터로 못 쓴다 — Hubble flow의 source.labels에서 뽑은 표준 레이블만 신뢰.
+    # 전부 기본값 있음(기존 계정 탈취 이벤트 생성 코드는 안 건드려도 계속 동작).
+    workload_name: str = ""
+    workload_kind: str = ""
+    isolation_labels: dict[str, str] = Field(default_factory=dict)
+
     source_ip: IPvAnyAddress
     destination_ip: IPvAnyAddress
 
@@ -338,12 +346,13 @@ class SecurityEvent(WorkflowRootMixin):
         "port_scan",
         "data_exfiltration",
         "policy_violation",
+        "lateral_movement",
     ]
 
     raw_log: str = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     severity: SeverityType = "low"
-    event_source: Literal["vpc_flow_log", "cloudtrail", "guardduty", "tetragon", "stub"] = "stub"
+    event_source: Literal["vpc_flow_log", "cloudtrail", "guardduty", "tetragon", "hubble", "stub"] = "stub"
 
 
 class RegulationMapping(WorkflowDerivedMixin):
@@ -352,7 +361,9 @@ class RegulationMapping(WorkflowDerivedMixin):
     violation_description: str
     blast_radius_safe: bool = False
     blast_radius_detail: str = ""
-    isolation_policy_yaml: str = ""
+    # 워크로드 건너가는 사슬(A→B)이 확정되면 여러 워크로드를 동시에 격리해야 하므로 리스트.
+    # 단일 워크로드면 원소 1개(build_isolation_policy는 이벤트 하나당 CNP 문자열 하나를 그대로 반환).
+    isolation_policy_yaml: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     severity: SeverityType = "low"
     evidence: dict[str, Any] = Field(
@@ -362,16 +373,21 @@ class RegulationMapping(WorkflowDerivedMixin):
 
 
 class IncidentGroup(WorkflowDerivedMixin):
-    """계정 탈취 lookback 상관분석 — 같은 IAM User(target_user_arn) + 1시간 창으로 묶인
-    이벤트 그룹. Sonnet 인과판정(causal_summary/is_account_takeover/correlation_confidence)은
+    """lookback 상관분석 — 같은 주체(correlation_key) + 시간창으로 묶인 이벤트 그룹.
+    시나리오 공용(계정 탈취/침투) — correlation_key는 계정 탈취면 대상 IAM User ARN,
+    침투면 관련 워크로드 이름(하나 또는 워크로드를 건너가는 사슬이면 "A → B"처럼 여러 개를
+    문자열 하나로 표현 — 타입은 그대로 str, 값만 다중 워크로드를 담을 수 있음).
+    scenario로 correlate_incident가 프롬프트를 나눠 태운다.
+    Sonnet 인과판정(causal_summary/is_threat_confirmed/correlation_confidence)은
     correlate_incident activity가 채운다(생성 시점엔 기본값)."""
 
-    target_user_arn: str
+    scenario: Literal["account_takeover", "intrusion"]
+    correlation_key: str
     events: list[SecurityEvent]
     window_start: datetime
     window_end: datetime
     causal_summary: str = ""
-    is_account_takeover: bool = False
+    is_threat_confirmed: bool = False
     correlation_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     lookback_failed: bool = False
 

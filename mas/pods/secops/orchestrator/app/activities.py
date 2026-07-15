@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
 from temporalio import activity
@@ -55,6 +56,7 @@ THREAT_QUERY_TERMS = {
     "data_exfiltration": "데이터 유출 외부 반출 대량 전송 신용정보 개인정보",
     "port_scan": "포트 스캔 침입 비정상 접근 탐지 차단",
     "policy_violation": "정책 위반 접근통제 비인가 통신",
+    "lateral_movement": "측면 이동 내부 확산 비정상 파드간 통신 침해 확산",
 }
 
 
@@ -312,8 +314,10 @@ def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
         factors.append({"factor": "inbound_direction", "value": "inbound", "weight": 0.3})
         score += 0.3
 
-    # 4) 위협 유형 가중 (port_scan/policy_violation은 단일 격리로 충분치 않을 수 있음)
-    if event.threat_type in ("port_scan", "policy_violation"):
+    # 4) 위협 유형 가중 (port_scan/policy_violation/lateral_movement은 단일 격리로
+    #    충분치 않을 수 있음 — lateral_movement는 port_scan과 동일 가중치로 시작,
+    #    실측 후 조정 대상)
+    if event.threat_type in ("port_scan", "policy_violation", "lateral_movement"):
         factors.append({"factor": "threat_type", "value": event.threat_type, "weight": 0.3})
         score += 0.3
 
@@ -351,21 +355,35 @@ def build_isolation_policy(event: SecurityEvent) -> str:
     레포의 default-deny.yaml과 동일하게 enableDefaultDeny(ingress/egress true)를
     명시해, 대상 pod의 모든 in/out 트래픽을 확실히 차단한다(Istio DENY와 동일 효과).
 
-    네임스페이스 스코프(CiliumNetworkPolicy)로 생성해 대상 pod가 있는 ns에만 적용.
+    네임스페이스 스코프(CiliumNetworkPolicy)로 생성해 대상 워크로드가 있는 ns에만 적용.
+
+    워크로드 단위 격리(B-1): endpointSelector는 event.isolation_labels(Hubble
+    source.labels에서 뽑은 app.kubernetes.io/name+instance)를 그대로 쓴다.
+    source_pod는 Pod 이름이라 재기동마다 바뀌고 "pod" 자체가 표준 레이블도 아니라
+    격리 셀렉터로 못 쓴다(증거 표시용으로만 event에 남아 있음).
     """
+    if not event.isolation_labels:
+        # 빈 matchLabels로 CNP를 만들면 네임스페이스의 모든 endpoint에 매칭돼
+        # 의도치 않은 전체 격리로 번질 수 있다 — 그 사고를 막는 방어적 중단.
+        raise ApplicationError(
+            f"격리 셀렉터 없음 — isolation_labels가 비어 있어 격리를 중단한다 "
+            f"(source_pod={event.source_pod}, namespace={event.namespace})",
+            non_retryable=True,
+        )
+    match_labels = "\n".join(f"      {k}: {v}" for k, v in event.isolation_labels.items())
     return f"""apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: isolate-{event.source_pod}
+  name: isolate-{event.workload_name}
   namespace: {event.namespace}
   labels:
     app.kubernetes.io/managed-by: secops-mas
     secops.mas/isolation: "true"
 spec:
-  description: "SecOps 자동 격리 - {event.source_pod} ({event.threat_type})"
+  description: "SecOps 자동 격리 - {event.workload_name} ({event.threat_type})"
   endpointSelector:
     matchLabels:
-      pod: {event.source_pod}
+{match_labels}
   enableDefaultDeny:
     ingress: true
     egress: true
@@ -397,6 +415,15 @@ async def detect_threat(input: DetectThreatInput) -> SecurityEvent:
         cluster_name=input.cluster_name,         # SecurityEvent가 workflow_id 최초 생성
         namespace="financial-api",
         source_pod="payment-worker-7d9f",
+        # 워크로드 단위 격리(B-1) 대응 — 이 데모가 apply_isolation까지 실제로 타는
+        # 유일한 경로라, 예전처럼 존재하지 않는 "pod" 레이블 대신 실제 표준
+        # 레이블(app.kubernetes.io/name+instance)로 채워야 격리가 헛돌지 않는다.
+        workload_name="payment-worker",
+        workload_kind="Deployment",
+        isolation_labels={
+            "app.kubernetes.io/name": "payment-worker",
+            "app.kubernetes.io/instance": "payment-worker",
+        },
         source_ip="10.0.12.34",
         destination_ip="185.220.101.47",         # 외부 미상 IP (Tor exit 대역대 성격)
         destination_port=8443,
@@ -424,13 +451,19 @@ async def map_regulation(event: SecurityEvent) -> RegulationMapping:
     # 분석 evidence + blast radius + 트리거 증적(raw_log에 실려온 CloudTrail Event ID 등) 병합
     from .detection import extract_evidence
     evidence = {**analysis.get("evidence", {}), **blast_evidence, **extract_evidence(event)}
+    # IAM(계정 탈취) 이벤트는 isolation_labels가 없다(그 경로는 revoke_iam_privilege가
+    # 대응하지, Cilium 격리를 안 씀) — build_isolation_policy는 이제 그 경우 ApplicationError를
+    # 내므로, map_regulation 자체는 모든 이벤트에 대해 여전히 성공해야 해 여기서 미리 분기한다.
+    # 리스트인 이유: 워크로드 건너가는 사슬(A→B)이 확정되면 workflow.py가 여러 이벤트의
+    # isolation_policy_yaml을 합쳐 apply_isolation에 한 번에 넘긴다(단일 이벤트는 원소 1개).
+    isolation_policy_yaml = [build_isolation_policy(event)] if event.isolation_labels else []
     return RegulationMapping(
         workflow_id=event.workflow_id,
         violated_regulations=analysis["violated_regulations"],
         violation_description=analysis["violation_description"],
         blast_radius_safe=safe,
         blast_radius_detail=detail,
-        isolation_policy_yaml=build_isolation_policy(event),
+        isolation_policy_yaml=isolation_policy_yaml,
         confidence=analysis.get("confidence", 0.0),
         severity=analysis.get("severity", "low"),
         evidence=evidence,
@@ -476,7 +509,9 @@ def _apply_isolation_policy(doc: dict, dry_run: bool = False) -> str:
 @activity.defn(name="apply_isolation")
 async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> ExecutionResult:
     """
-    CiliumNetworkPolicy(mapping.isolation_policy_yaml)를 클러스터에 멱등 적용.
+    CiliumNetworkPolicy(mapping.isolation_policy_yaml, 워크로드당 1개씩 리스트)를 전부
+    클러스터에 멱등 적용. 워크로드 건너가는 사슬(A→B)이 확정되면 여러 워크로드를 동시에
+    격리해야 하므로 리스트 전체를 순회한다(단일 워크로드면 원소 1개, 기존과 동일 동작).
       - dry_run=True (1단계 검증 호출): k8s API 서버측 dry_run="All"로 검증만, 미반영
       - dry_run=False (2단계 실apply 호출): in-cluster 자격증명으로 실제 apply (create-or-replace)
       - 로컬/발표(클러스터 미연결) 또는 ISOLATION_DRY_RUN=true: dry_run 인자와 무관하게 항상
@@ -486,9 +521,22 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
     import yaml
 
     activity.heartbeat("apply_isolation: start")
-    doc = yaml.safe_load(mapping.isolation_policy_yaml)
-    name = doc.get("metadata", {}).get("name", "?")
-    ns = doc.get("metadata", {}).get("namespace", "default")
+    docs = [d for d in (yaml.safe_load(p) for p in mapping.isolation_policy_yaml) if d]
+    if not docs:
+        # map_regulation은 isolation_labels 없는 이벤트(예: IAM 대응 — revoke_iam_privilege가
+        # 처리하지 Cilium 격리 대상이 아님)엔 isolation_policy_yaml=[]을 반환한다. 그 상태로
+        # 여기까지 왔다는 건 라우팅이 잘못됐거나 워크로드 레이블이 아직 안 채워진 것 —
+        # 재시도로 낭비하지 않고 바로 실패시켜 원인을 드러낸다.
+        raise ApplicationError(
+            f"apply_isolation: isolation_policy_yaml 없음(workflow_id={mapping.workflow_id}) "
+            f"— 격리 대상 워크로드 레이블이 없는 이벤트가 apply_isolation으로 들어옴",
+            non_retryable=True,
+        )
+    targets = [
+        f"{d.get('metadata', {}).get('name', '?')}(ns={d.get('metadata', {}).get('namespace', 'default')})"
+        for d in docs
+    ]
+    targets_str = ", ".join(targets)
 
     force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
     no_cluster = False
@@ -504,27 +552,34 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
         return ExecutionResult(
             workflow_id=mapping.workflow_id,
             success=True,
-            action_taken=f"[DRY-RUN] CiliumNetworkPolicy '{name}' (ns={ns}) 검증 완료 — 클러스터 미적용",
-            output=mapping.isolation_policy_yaml,
+            action_taken=f"[DRY-RUN] CiliumNetworkPolicy {len(docs)}건({targets_str}) 검증 완료 — 클러스터 미적용",
+            output="\n".join(mapping.isolation_policy_yaml),
         )
 
     if dry_run:
         activity.heartbeat("apply_isolation: server-side dry-run")
-        await asyncio.to_thread(_apply_isolation_policy, doc, True)
+        for doc in docs:
+            await asyncio.to_thread(_apply_isolation_policy, doc, True)
         return ExecutionResult(
             workflow_id=mapping.workflow_id,
             success=True,
-            action_taken=f"[DRY-RUN] CiliumNetworkPolicy '{name}' (ns={ns}) 서버 검증 완료 — 클러스터 미적용",
-            output=mapping.isolation_policy_yaml,
+            action_taken=f"[DRY-RUN] CiliumNetworkPolicy {len(docs)}건({targets_str}) 서버 검증 완료 — 클러스터 미적용",
+            output="\n".join(mapping.isolation_policy_yaml),
         )
 
     activity.heartbeat("apply_isolation: applying")
-    outcome = await asyncio.to_thread(_apply_isolation_policy, doc, False)
+    outcomes = []
+    for doc in docs:
+        name = doc.get("metadata", {}).get("name", "?")
+        ns = doc.get("metadata", {}).get("namespace", "default")
+        outcome = await asyncio.to_thread(_apply_isolation_policy, doc, False)
+        outcomes.append(f"{outcome}: {name} (ns={ns})")
+        activity.heartbeat(f"apply_isolation: applied {len(outcomes)}/{len(docs)}")
     return ExecutionResult(
         workflow_id=mapping.workflow_id,
         success=True,
-        action_taken=f"CiliumNetworkPolicy '{name}' (ns={ns}) {outcome} — pod 격리 적용",
-        output=f"{outcome}: {name} (ns={ns})",
+        action_taken=f"CiliumNetworkPolicy {len(docs)}건 적용 — pod 격리 적용: {', '.join(outcomes)}",
+        output="\n".join(outcomes),
     )
 
 
@@ -846,23 +901,242 @@ async def lookback_user_events(
 
 
 # =====================================================================
-# Sonnet 인과판정 — 시간순 이벤트만 보고 계정 탈취 여부 + Attack Summary
+# 침투 시나리오 lookback — Loki에서 최근 DROPPED(POLICY_DENIED) Hubble flow 조회
+# 계정 탈취의 lookback_user_events(Athena)와 같은 자리. 조회(LogQL)는 단순하게,
+# 분류/집계는 전부 여기(Python)서 한다 — 상관 윈도우 위치를 코드 쪽으로 정한 설계 그대로.
 # =====================================================================
-def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
-    """(A)방식 — 개별 이벤트의 상세 맥락(정책 위험도 재판단 등) 없이, 시간순 이벤트
-    목록만 주고 인과관계 판단을 맡긴다."""
-    from botocore.exceptions import ClientError
-    from shared.bedrock import get_bedrock_client
+LOKI_URL = os.getenv("LOKI_URL", "").rstrip("/")
+# 포트 개수 임계치 — 10은 시작값(튜닝 대상). env로 조정 가능하게.
+PORT_SCAN_THRESHOLD = int(os.getenv("SECOPS_PORT_SCAN_THRESHOLD", "10"))
+# 시간 하위창(초) — 같은 워크로드가 10분 lookback 창 안에서 "포트스캔(다수 포트, 짧은
+# 버스트) → 측면이동(소수 포트, 나중에 targeted 접속)"을 순서대로 했을 때 이 둘을 서로
+# 다른 개별판정으로 분리하기 위함. (워크로드, 카테고리) 하나로만 묶으면 전체 10분을 합산한
+# distinct port 수 하나로만 port_scan/lateral_movement가 갈려 둘이 동시에 못 나온다 —
+# 사슬 자체가 성립 안 됨. 120초는 시작값(튜닝 대상, PORT_SCAN_THRESHOLD와 같이 조정).
+NETWORK_SUBWINDOW_SECONDS = int(os.getenv("SECOPS_NETWORK_SUBWINDOW_SECONDS", "120"))
+# 네트워크 Rule Filter 제외 대상(하드코딩 대신 설정) — LogQL이 이미 좁혀오지만
+# 그 필터를 우회한 레코드가 섞여 들어와도 여기서 다시 걸러낸다(IAM Rule Filter와 동일 이유).
+_NETWORK_RULE_FILTER_EXCLUDED_SOURCES = {
+    s.strip() for s in os.getenv("SECOPS_NETWORK_EXCLUDED_SOURCES", "observability-grafana").split(",")
+    if s.strip()
+}
 
+
+def _network_rule_filter_skip(flow: dict) -> bool:
+    """순수 판정(I/O 없음) — IAM의 _rule_filter_skip(workflow.py)과 대응되는 네트워크판.
+    POLICY_DENIED가 아닌 drop(기술적 사유)이거나, 알려진 노이즈 소스(observability-grafana
+    등, env로 설정)면 판정에서 제외한다."""
+    if flow.get("drop_reason_desc", "") != "POLICY_DENIED":
+        return True
+    if flow.get("source_pod", "") in _NETWORK_RULE_FILTER_EXCLUDED_SOURCES:
+        return True
+    return False
+
+
+def _parse_hubble_time(raw: str, fallback: datetime) -> datetime:
+    """Hubble flow의 time 필드(RFC3339, 나노초 정밀도 가능) 파싱. fromisoformat은
+    마이크로초(6자리)까지만 받아 나노초면 실패할 수 있어, 그 경우 6자리로 절삭해 재시도.
+    그래도 실패하면 fallback(호출자가 안전하게 처리) — Sonnet 인과판정용 실제 발생
+    시각이라 workflow.py의 _parse_trigger_time과 동일한 이유로 신경 써서 파싱한다."""
+    text = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except (ValueError, TypeError):
+        pass
+    truncated = re.sub(r"(\.\d{6})\d+(?=[+-]\d{2}:\d{2}$)", r"\1", text)
+    try:
+        return datetime.fromisoformat(truncated)
+    except (ValueError, TypeError):
+        return fallback
+
+
+def _query_loki_dropped_flows(window_start: datetime, window_end: datetime) -> list[str]:
+    """Loki query_range 호출 — monitoring/observability-indexer/main.py:35-49의 requests
+    기반 패턴 그대로(query/start/end 나노초/limit/direction=backward). LogQL 자체는
+    cilium-agent(kube-system) 로그에서 POLICY_DENIED 줄만, observability-grafana 소스는
+    제외하고 가져온다 — 상세 분류는 이 함수가 아니라 호출자(파이썬)가 한다."""
+    import requests
+
+    if not LOKI_URL:
+        raise RuntimeError("LOKI_URL 미설정 — 침투 시나리오 lookback 불가")
+
+    query = (
+        '{namespace="kube-system", pod=~"cilium-.*"} '
+        '|= "POLICY_DENIED" != "observability-grafana"'
+    )
+    resp = requests.get(
+        f"{LOKI_URL}/loki/api/v1/query_range",
+        params={
+            "query": query,
+            "start": int(window_start.timestamp() * 1_000_000_000),
+            "end": int(window_end.timestamp() * 1_000_000_000),
+            "limit": 5000,
+            "direction": "backward",
+        },
+        timeout=20,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    return [
+        line
+        for stream in payload.get("data", {}).get("result", [])
+        for _ts_ns, line in stream.get("values", [])
+    ]
+
+
+@activity.defn(name="lookback_network_flows")
+async def lookback_network_flows(
+    cluster_name: str, window_start: datetime, window_end: datetime,
+) -> list[SecurityEvent]:
+    """
+    침투 시나리오 lookback — Loki에서 최근 DROPPED(POLICY_DENIED) flow를 조회해 같은
+    소스 워크로드(workload_name, 없으면 source_pod) + 목적지 카테고리(detection.py의
+    classify_destination_category) + 시간 하위창(NETWORK_SUBWINDOW_SECONDS) 기준으로
+    묶고, "internal" 그룹은 distinct destination_port 수로 port_scan/lateral_movement를,
+    "external" 그룹은 abnormal_outbound로 분류한다. 시간 하위창을 두는 이유: 카테고리로만
+    묶으면 10분 전체의 distinct port 합산 하나로만 갈려 포트스캔(초반 버스트)과 측면이동
+    (후반 targeted 접속)이 동시에 못 나온다 — "포트스캔→측면이동→outbound" 3단 사슬 자체가
+    성립하려면 이 셋이 서로 다른 개별판정으로 나와야 한다. 그룹 하나당 SecurityEvent 하나만
+    만든다 — 레코드 하나당 워크로드/LLM 호출을 만들면 포트스캔 하나가 레코드 수백~수만
+    건이라 폭증하기 때문(개별 레코드 전부가 아니라 그룹 단위가 "개별 판정").
+
+    워크로드 건너가는 사슬(A→B): internal 레코드의 목적지가 다른(식별된) 워크로드면 그
+    사이에 edge를 긋고, union-find로 서로 이어진 워크로드를 하나의 chain_id로 묶는다.
+    (워크로드, 카테고리, 하위창) 그룹은 여전히 워크로드별 개별판정 단위로 유지하되(격리
+    시 각자의 isolation_labels가 필요하므로), chain_id를 evidence에 심어 workflow.py가
+    "같은 침투 사슬"로 재조립할 수 있게 한다.
+    """
+    from .detection import (
+        EVIDENCE_SEP,
+        classify_destination_category,
+        parse_hubble_flow,
+        parse_isolation_labels,
+    )
+
+    activity.heartbeat("lookback_network_flows: querying loki")
+    raw_lines = await asyncio.to_thread(_query_loki_dropped_flows, window_start, window_end)
+
+    parsed_records = []
+    for line in raw_lines:
+        try:
+            flow = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        record = parse_hubble_flow(flow)
+        if record is None or _network_rule_filter_skip(record):
+            continue
+        parsed_records.append(record)
+
+    # 워크로드 간 사슬 연결 — union-find. internal 레코드의 목적지 워크로드가 식별되면
+    # (parse_hubble_flow의 destination_workload_name) 소스↔목적지를 같은 집합으로 묶는다.
+    parent: dict[str, str] = {}
+
+    def _find(w: str) -> str:
+        parent.setdefault(w, w)
+        while parent[w] != w:
+            parent[w] = parent[parent[w]]
+            w = parent[w]
+        return w
+
+    def _union(a: str, b: str) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for record in parsed_records:
+        src = record["workload_name"] or record["source_pod"]
+        _find(src)  # 아직 edge가 없는 워크로드도 union-find에 등록만 해둠
+        if record["destination_workload_name"]:
+            category = classify_destination_category(record["destination_labels"])
+            if category == "internal":
+                _union(src, record["destination_workload_name"])
+
+    # (워크로드, 목적지 카테고리, 시간 하위창)으로 그룹화. 카테고리만으로 묶으면 10분
+    # 전체를 합산한 distinct port 수 하나로 port_scan/lateral_movement 중 하나만 나와
+    # "포트스캔(다수 포트, 초반 버스트) → 측면이동(소수 포트, 나중에 targeted 접속)"
+    # 두 단계가 절대 동시에 안 나온다(사슬 자체가 성립 불가) — 시간 하위창으로 더
+    # 쪼개야 초반 버스트와 후반 targeted 접속이 서로 다른 개별판정으로 분리된다.
+    groups: dict[tuple[str, str, int], list[dict]] = {}
+    for record in parsed_records:
+        category = classify_destination_category(record["destination_labels"])
+        if category is None:
+            continue  # 클러스터 안/밖 어느 쪽도 아닌(기타 reserved 식별자 등) 판정 제외
+        record_time = _parse_hubble_time(record["time"], window_end)
+        subwindow = int((record_time - window_start).total_seconds() // NETWORK_SUBWINDOW_SECONDS)
+        key = (record["workload_name"] or record["source_pod"], category, subwindow)
+        groups.setdefault(key, []).append(record)
+
+    events: list[SecurityEvent] = []
+    for (workload_key, category, _subwindow), records in groups.items():
+        distinct_ports = sorted({r["destination_port"] for r in records})
+        latest = max(records, key=lambda r: r.get("time", ""))
+        latest_time = _parse_hubble_time(latest["time"], window_end)
+        if category == "external":
+            threat_type = "abnormal_outbound"
+        else:
+            threat_type = "port_scan" if len(distinct_ports) >= PORT_SCAN_THRESHOLD else "lateral_movement"
+
+        isolation_labels = parse_isolation_labels(latest["source_labels"])
+        evidence = {
+            "distinct_destination_ports": distinct_ports,
+            "flow_count": len(records),
+            "drop_reason_desc": latest["drop_reason_desc"],
+            # dedup_events(detection.py)가 cloudtrail_event_id 없는 이벤트는 raw_log
+            # 전체로 dedup한다 — 같은 워크로드가 서로 다른 하위창에서 우연히 동일한 포트
+            # 집합/건수를 만들면 raw_log가 같아져 잘못 dedup될 수 있어, 실제 발생 시각을
+            # 넣어 하위창마다 raw_log가 확실히 달라지게 한다.
+            "detected_at": latest_time.isoformat(),
+            # workflow.py가 이 값으로 워크로드를 건너가는 사슬을 재조립한다(by_workload가
+            # 아니라 by_chain으로 묶음). 정보 없음 워크로드는 자기 자신만의 chain_id를 가짐.
+            "chain_id": _find(workload_key),
+            "destination_workload": latest["destination_workload_name"],
+            "destination_namespace": latest["destination_namespace"],
+        }
+        raw_log = (
+            f"[hubble] {workload_key} — DROPPED flow {len(records)}건, "
+            f"목적지 포트 {len(distinct_ports)}개 (threat_type={threat_type})"
+            f"{EVIDENCE_SEP}{json.dumps(evidence, ensure_ascii=False)}"
+        )
+        events.append(SecurityEvent(
+            # Sonnet 인과판정(_describe_intrusion_events)이 시간순 정렬로 사슬을 판단하므로
+            # activity 실행 시각(기본값 utc_now)이 아니라 실제 flow 발생 시각을 명시해야 한다
+            # — 안 그러면 한 lookback 호출로 만들어진 이벤트들이 전부 같은 시각으로 찍혀
+            # 시간순 판단 자체가 무의미해진다.
+            detected_at=latest_time,
+            cluster_name=cluster_name,
+            namespace=latest["namespace"],
+            source_pod=latest["source_pod"],
+            workload_name=latest["workload_name"] or workload_key,
+            workload_kind=latest["workload_kind"],
+            isolation_labels=isolation_labels,
+            source_ip=latest["source_ip"],
+            destination_ip=latest["destination_ip"],
+            destination_port=latest["destination_port"] or 1,
+            protocol=latest["protocol"],
+            direction="outbound",
+            threat_type=threat_type,
+            raw_log=raw_log,
+            confidence=0.6,
+            severity="medium",
+            event_source="hubble",
+        ))
+
+    activity.logger.info(
+        "lookback_network_flows: window=%s~%s raw=%d groups=%d events=%d chains=%d",
+        window_start, window_end, len(raw_lines), len(groups), len(events),
+        len({_find(w) for w in parent}),
+    )
+    return events
+
+
+# =====================================================================
+# Sonnet 인과판정 — 시간순 이벤트만 보고 계정 탈취/침투 여부 + Attack Summary
+# 시나리오 공용(IncidentGroup.scenario) — 계정 탈취는 IAM 이벤트, 침투는 Cilium
+# DROPPED flow 이벤트라 프롬프트·이벤트 서술 방식이 서로 달라 여기서 분기한다.
+# =====================================================================
+def _describe_account_takeover_events(incident_group: IncidentGroup) -> tuple[str, str]:
     from .detection import extract_evidence
 
-    client = get_bedrock_client()
-    system_prompt = (
-        "너는 클라우드 계정 탈취 여부를 판단하는 보안 분석가다. 아래 IAM 이벤트들을 시간순으로만 "
-        "보고, 이 사건이 계정 탈취(권한 상승 후 지속성 확보)인지 판단해라. 사건 요약(Attack Summary)도 "
-        "작성해라. 근거에 없는 사실을 지어내지 마라. 반드시 아래 JSON만 출력해라.\n"
-        '{"is_account_takeover": bool, "confidence": float, "causal_summary": string}'
-    )
     lines = []
     for i, event in enumerate(incident_group.events, start=1):
         evidence = extract_evidence(event)
@@ -874,9 +1148,65 @@ def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
             f"정책={evidence.get('policy_arn', '')} 행위자={evidence.get('user_arn', '')}"
         )
     user_text = (
-        f"[대상 IAM User]\n{incident_group.target_user_arn}\n\n"
+        f"[대상 IAM User]\n{incident_group.correlation_key}\n\n"
         f"[시간순 이벤트 목록 ({len(incident_group.events)}건)]\n" + "\n".join(lines)
     )
+    system_prompt = (
+        "너는 클라우드 계정 탈취 여부를 판단하는 보안 분석가다. 아래 IAM 이벤트들을 시간순으로만 "
+        "보고, 이 사건이 계정 탈취(권한 상승 후 지속성 확보)인지 판단해라. 사건 요약(Attack Summary)도 "
+        "작성해라. 근거에 없는 사실을 지어내지 마라. 반드시 아래 JSON만 출력해라.\n"
+        '{"is_threat_confirmed": bool, "confidence": float, "causal_summary": string}'
+    )
+    return system_prompt, user_text
+
+
+def _describe_intrusion_events(incident_group: IncidentGroup) -> tuple[str, str]:
+    """워크로드 건너가는 사슬(A→B)일 수 있어 각 줄에 소스 워크로드를 명시하고, 목적지도
+    IP 대신 (알려진 경우) 목적지 워크로드 이름으로 보여준다 — Sonnet이 "이 레코드의 목적지가
+    다른 레코드의 소스와 같은 워크로드"임을 직접 읽어내 사슬을 재구성할 수 있게."""
+    from .detection import extract_evidence
+
+    lines = []
+    for i, event in enumerate(incident_group.events, start=1):
+        ev = extract_evidence(event)
+        if ev.get("destination_workload"):
+            destination_label = f"{ev['destination_workload']}({ev.get('destination_namespace', '')})"
+        else:
+            destination_label = str(event.destination_ip)
+        lines.append(
+            f"{i}. {event.detected_at.isoformat()} threat_type={event.threat_type} "
+            f"{event.workload_name or event.source_pod}({event.namespace}) -> "
+            f"{destination_label}:{event.destination_port}/{event.protocol} "
+            f"direction={event.direction}"
+        )
+    user_text = (
+        f"[관련 워크로드]\n{incident_group.correlation_key}\n\n"
+        f"[시간순 이벤트 목록 ({len(incident_group.events)}건)]\n" + "\n".join(lines)
+    )
+    system_prompt = (
+        "너는 클라우드 네트워크 침해 여부를 판단하는 보안 분석가다. 아래는 하나 이상의 "
+        "워크로드에 걸쳐 시간순으로 발생한 Cilium 차단(DROPPED) 이벤트들이다(포트스캔/"
+        "측면이동/비정상 외부 outbound 후보) — 한 레코드의 목적지가 다른 레코드의 소스와 "
+        "같은 워크로드면 워크로드를 건너가는 사슬(예: A가 스캔한 뒤 B로 이동, B가 외부로 "
+        "유출)일 수 있다. 이 사건이 포트스캔→측면이동→외부유출로 이어지는 다단계 침투인지 "
+        "판단해라. 사건 요약(Attack Summary)도 작성해라. 근거에 없는 사실을 지어내지 마라. "
+        "반드시 아래 JSON만 출력해라.\n"
+        '{"is_threat_confirmed": bool, "confidence": float, "causal_summary": string}'
+    )
+    return system_prompt, user_text
+
+
+def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
+    """(A)방식 — 개별 이벤트의 상세 맥락(정책 위험도 재판단 등) 없이, 시간순 이벤트
+    목록만 주고 인과관계 판단을 맡긴다."""
+    from botocore.exceptions import ClientError
+    from shared.bedrock import get_bedrock_client
+
+    client = get_bedrock_client()
+    if incident_group.scenario == "account_takeover":
+        system_prompt, user_text = _describe_account_takeover_events(incident_group)
+    else:
+        system_prompt, user_text = _describe_intrusion_events(incident_group)
     try:
         resp = client.converse(
             modelId=BEDROCK_MODEL_SONNET,
@@ -894,7 +1224,7 @@ def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
     text = "".join(b.get("text", "") for b in resp["output"]["message"]["content"])
     data = _parse_llm_json(text)
     return {
-        "is_account_takeover": bool(data.get("is_account_takeover", False)),
+        "is_threat_confirmed": bool(data.get("is_threat_confirmed", False)),
         "confidence": float(data.get("confidence", 0.5)),
         "causal_summary": str(data.get("causal_summary", "")),
     }
@@ -902,21 +1232,22 @@ def _correlate_with_bedrock(incident_group: IncidentGroup) -> dict:
 
 @activity.defn(name="correlate_incident")
 async def correlate_incident(incident_group: IncidentGroup) -> IncidentGroup:
-    """Sonnet 인과판정 1회 — IncidentGroup에 causal_summary/is_account_takeover/
+    """Sonnet 인과판정 1회 — IncidentGroup에 causal_summary/is_threat_confirmed/
     correlation_confidence를 채워 반환. USE_REAL_BEDROCK=false면 결정적 stub."""
     if not USE_REAL_BEDROCK:
-        is_takeover = len(incident_group.events) >= 2
+        is_confirmed = len(incident_group.events) >= 2
+        label = "계정 탈취 의심" if incident_group.scenario == "account_takeover" else "다단계 침투 의심"
         return incident_group.model_copy(update={
-            "is_account_takeover": is_takeover,
-            "correlation_confidence": 0.8 if is_takeover else 0.3,
+            "is_threat_confirmed": is_confirmed,
+            "correlation_confidence": 0.8 if is_confirmed else 0.3,
             "causal_summary": (
-                f"(stub) {incident_group.target_user_arn} 대상 {len(incident_group.events)}건 "
-                f"이벤트 — {'계정 탈취 의심' if is_takeover else '단발성 이벤트'}"
+                f"(stub) {incident_group.correlation_key} 대상 {len(incident_group.events)}건 "
+                f"이벤트 — {label if is_confirmed else '단발성 이벤트'}"
             ),
         })
     result = await asyncio.to_thread(_correlate_with_bedrock, incident_group)
     return incident_group.model_copy(update={
-        "is_account_takeover": result["is_account_takeover"],
+        "is_threat_confirmed": result["is_threat_confirmed"],
         "correlation_confidence": result["confidence"],
         "causal_summary": result["causal_summary"],
     })

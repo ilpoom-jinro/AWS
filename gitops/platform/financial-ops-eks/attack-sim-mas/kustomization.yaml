@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+
+images:
+  - name: intruder-image
+    # kubectl get ds cilium -n kube-system -o jsonpath 실측 확인(2026-07-16):
+    # 013131246630.dkr.ecr.ap-northeast-2.amazonaws.com/financial/cilium:v1.16.5
+    # — ansible/group_vars/all.yml:36 cilium_image_tag 기본값(v1.16.5)과 일치.
+    newName: 013131246630.dkr.ecr.ap-northeast-2.amazonaws.com/financial/cilium
+    newTag: v1.16.5
