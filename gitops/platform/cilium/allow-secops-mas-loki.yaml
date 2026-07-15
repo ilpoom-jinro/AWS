@@ -1,0 +1,30 @@
+# secops-mas(orchestrator) → observability(Loki) egress 허용
+#
+# 목적: lookback_network_flows(activities.py)가 Loki query_range API(HTTP)로 최근
+# DROPPED(POLICY_DENIED) Hubble flow를 조회한다. INGRESS 쪽은 이미 열려 있음
+# (allow-observability-nlb.yaml의 allow-observability-nlb-loki가 10.20.0.0/16
+# CIDR 기준으로 3100/9095 ingress를 허용 — chaining mode CIDR-identity 특성상
+# ops VPC 내 어떤 소스든 이 규칙에 매칭됨, thanos-receive에서 이미 실증된 패턴).
+# 그래서 이 파일은 EGRESS(secops-mas 쪽)만 추가하면 된다.
+#
+# allow-finops-mas.yaml의 주석 처리된 finops→alloy OTLP 블록과 동일 패턴, 포트만
+# Loki query API(3100)로 교체.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-secops-mas-to-loki
+spec:
+  description: "secops-mas → observability(Loki) query_range HTTP egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: secops-mas
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: loki
+            app.kubernetes.io/instance: observability-loki
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP

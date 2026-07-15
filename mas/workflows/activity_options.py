@@ -99,6 +99,7 @@ class ActivityName(StrEnum):
     GENERATE_COMPLIANCE_REPORT = "generate_compliance_report"
     GENERATE_POSTMORTEM_REPORT = "generate_postmortem_report"
     LOOKBACK_USER_EVENTS = "lookback_user_events"
+    LOOKBACK_NETWORK_FLOWS = "lookback_network_flows"
     CORRELATE_INCIDENT = "correlate_incident"
 
     # --------------------------------------------------------
@@ -236,6 +237,13 @@ ACTIVITY_TIMEOUTS: dict[
         "start_to_close_timeout": timedelta(minutes=2),
         "schedule_to_close_timeout": timedelta(minutes=8),
         "heartbeat_timeout": timedelta(seconds=30),
+    },
+
+    # Loki query_range HTTP 호출 1회 + 파싱/집계(Python) — Athena 폴링(LOOKBACK_USER_EVENTS)
+    # 같은 재조회 루프가 없어 heartbeat 불필요, 예산도 더 짧게 잡는다.
+    ActivityName.LOOKBACK_NETWORK_FLOWS: {
+        "start_to_close_timeout": timedelta(minutes=1),
+        "schedule_to_close_timeout": timedelta(minutes=5),
     },
 
     ActivityName.CORRELATE_INCIDENT: {
