@@ -9,7 +9,6 @@ spec:
     repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
     targetRevision: main
     path: kyverno
-    kustomize: {}
   destination:
     name: financial-service-eks
     namespace: kyverno

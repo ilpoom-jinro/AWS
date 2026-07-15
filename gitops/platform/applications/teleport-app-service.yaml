@@ -9,7 +9,6 @@ spec:
     repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
     targetRevision: main
     path: financial-ops-eks/teleport-app-service
-    kustomize: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: teleport-apps

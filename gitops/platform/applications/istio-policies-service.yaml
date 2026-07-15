@@ -9,7 +9,6 @@ spec:
     repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
     targetRevision: main
     path: istio
-    kustomize: {}
   destination:
     # Service EKS: 이름(name) 기반 참조 (server URL 아님)
     name: financial-service-eks
