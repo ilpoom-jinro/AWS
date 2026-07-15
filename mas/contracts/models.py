@@ -557,6 +557,14 @@ class AuditLog(WorkflowDerivedMixin):
         "analysis_completed",
         "rule_filter_skipped",
         "lookback_failed",
+        # 침투 시나리오(lookback_network_flows) 전용 — #647에서 lookback_failed를 추가했을 때와
+        # 동일한 방식으로, 새 event_type 문자열을 쓰는 호출부와 같은 커밋에서 등록한다.
+        # lookback_empty: 조회 자체는 성공했지만 대상 flow가 없었던 경우 — lookback_failed(조회
+        # 실패)와는 다른 의미라 재사용하지 않고 별도 값으로 둔다.
+        "lookback_empty",
+        # network_scenario_other_chains_deferred: 같은 lookback 창에 서로 무관한 침투 사슬이
+        # 여러 개 잡혀 이번 실행에서 처리 못 하고 다음 트리거로 미룬 사슬을 감사 로그에 남길 때 씀.
+        "network_scenario_other_chains_deferred",
         "iac_generated",
         "approval_requested",
         "approval_granted",
