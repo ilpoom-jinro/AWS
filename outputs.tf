@@ -83,6 +83,11 @@ output "service_cluster_status_codebuild_project_name" {
   value       = aws_codebuild_project.service_cluster_status.name
 }
 
+output "dr_write_fence_codebuild_project_name" {
+  description = "CodeBuild project used by GCP_sub DR workflows to fence AWS application database writes"
+  value       = aws_codebuild_project.dr_write_fence.name
+}
+
 output "ansible_codebuild_image_repository_url" {
   description = "ECR repository URL for the Ansible CodeBuild runtime image"
   value       = aws_ecr_repository.ansible_codebuild.repository_url

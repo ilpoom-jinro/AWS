@@ -163,6 +163,12 @@ variable "service_cluster_status_codebuild_project_name" {
   default     = "financial-service-cluster-status"
 }
 
+variable "dr_write_fence_codebuild_project_name" {
+  description = "CodeBuild project name for temporarily fencing stock-api database writes during DR switching"
+  type        = string
+  default     = "financial-service-dr-write-fence"
+}
+
 variable "manifest_updater_image" {
   description = "Full CodeBuild runtime image URI. If null, the repository name and tag variables are used."
   type        = string
