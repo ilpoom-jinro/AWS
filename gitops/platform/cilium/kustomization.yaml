@@ -46,7 +46,7 @@ resources:
   - allow-mas-rds.yaml
   - allow-secops-mas-sqs.yaml
   - allow-secops-mas-bedrock.yaml
-  - allow-secops-mas-to-loki.yaml
+  - allow-secops-mas-loki.yaml
   - allow-finops-orchestrator-sqs.yaml
 
   # 앱별 allow (service 클러스터)
