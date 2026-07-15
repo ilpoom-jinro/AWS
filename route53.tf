@@ -78,18 +78,19 @@ resource "aws_route53_record" "aws_health" {
 resource "aws_route53_health_check" "aws_primary" {
   count = local.service_alb_enabled
 
-  fqdn              = aws_route53_record.aws_health[0].fqdn
-  port              = 443
-  type              = "HTTPS"
-  resource_path     = "/"
-  failure_threshold = 3
-  request_interval  = 30
-  enable_sni        = true
+  fqdn               = aws_route53_record.aws_health[0].fqdn
+  port               = 443
+  type               = "HTTPS"
+  resource_path      = "/"
+  failure_threshold  = 3
+  request_interval   = 30
+  enable_sni         = true
+  invert_healthcheck = false
 
   # DR workflows own the temporary inversion used to force failover tests.
   # A routine Terraform apply must not silently route traffic back to AWS.
   lifecycle {
-    ignore_changes = [inverted]
+    ignore_changes = [invert_healthcheck]
   }
 
   tags = {
