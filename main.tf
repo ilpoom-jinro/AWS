@@ -123,6 +123,15 @@ resource "aws_iam_role_policy" "gcp_dr_reverse_replication" {
           "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${module.vpc4.headscale_router_instance_id}"
         ]
       },
+      {
+        Sid    = "RunReverseReplicationCleanupDocument"
+        Effect = "Allow"
+        Action = ["ssm:SendCommand"]
+        Resource = [
+          module.vpc4.cloudsql_reverse_replication_cleanup_document_arn,
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${module.vpc4.headscale_router_instance_id}"
+        ]
+      },
       # GetCommandInvocation은 SSM API가 명령 실행 ID로 상태를 조회하므로 리소스
       # 단위 제한을 지원하지 않습니다. SendCommand는 위의 문서와 Router 한 대로 제한됩니다.
       {
