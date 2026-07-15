@@ -9,7 +9,6 @@ spec:
     repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
     targetRevision: main
     path: istio
-    kustomize: {}
   destination:
     # Ops EKS: ArgoCD가 실행 중인 클러스터 (in-cluster)
     server: https://kubernetes.default.svc
