@@ -1,5 +1,7 @@
 # ── Hosted Zone ───────────────────────────────────────────────────────────────
 
+data "aws_region" "current" {}
+
 resource "aws_route53_zone" "main" {
   name = "ilpumjinro.store"
 }
@@ -82,20 +84,60 @@ resource "aws_route53_health_check" "aws_primary" {
   port = 443
   type = "HTTPS"
   # ALB target group과 동일한 frontend 전용 상태 검사 경로다.
-  resource_path      = "/healthz"
-  failure_threshold  = 3
-  request_interval   = 30
-  enable_sni         = true
-  invert_healthcheck = false
-
-  # DR workflows own the temporary inversion used to force failover tests.
-  # A routine Terraform apply must not silently route traffic back to AWS.
-  lifecycle {
-    ignore_changes = [invert_healthcheck]
-  }
-
+  resource_path     = "/healthz"
+  failure_threshold = 3
+  request_interval  = 30
+  enable_sni        = true
   tags = {
     Name = "financial-stock-web-health-check"
+  }
+}
+
+# 계획된 DR 리허설에서만 CloudWatch custom metric을 1로 기록해 ALARM을 만든다.
+# 실제 /healthz 검사와 분리했으므로 애플리케이션 엔드포인트를 일부러 실패시킬 필요가 없다.
+resource "aws_cloudwatch_metric_alarm" "dr_force_failover" {
+  alarm_name          = "financial-stock-web-dr-force-failover"
+  alarm_description   = "Test-only Route 53 failover gate for the AWS primary service"
+  namespace           = "Ilpoomjinro/DR"
+  metric_name         = "ForceFailover"
+  dimensions          = { Service = "stock-web" }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  actions_enabled     = false
+
+  tags = {
+    Name = "financial-stock-web-dr-force-failover"
+  }
+}
+
+resource "aws_route53_health_check" "dr_force_failover" {
+  type                            = "CLOUDWATCH_METRIC"
+  cloudwatch_alarm_name           = aws_cloudwatch_metric_alarm.dr_force_failover.alarm_name
+  cloudwatch_alarm_region         = data.aws_region.current.name
+  insufficient_data_health_status = "Healthy"
+
+  tags = {
+    Name = "financial-stock-web-dr-force-failover-health-check"
+  }
+}
+
+# 실제 endpoint 검사와 테스트 게이트가 모두 healthy여야 AWS PRIMARY로 라우팅한다.
+resource "aws_route53_health_check" "aws_primary_effective" {
+  count = local.service_alb_enabled
+
+  type = "CALCULATED"
+  child_healthchecks = [
+    aws_route53_health_check.aws_primary[0].id,
+    aws_route53_health_check.dr_force_failover.id,
+  ]
+  health_threshold = 2
+
+  tags = {
+    Name = "financial-stock-web-effective-health-check"
   }
 }
 
@@ -126,7 +168,7 @@ resource "aws_route53_record" "root_primary" {
   type    = "A"
 
   set_identifier  = "aws-primary"
-  health_check_id = aws_route53_health_check.aws_primary[0].id
+  health_check_id = aws_route53_health_check.aws_primary_effective[0].id
 
   failover_routing_policy {
     type = "PRIMARY"
