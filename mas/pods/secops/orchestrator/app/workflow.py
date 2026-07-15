@@ -59,6 +59,7 @@ with workflow.unsafe.imports_passed_through():
         detect_threat,
         generate_compliance_report,
         generate_postmortem_report,
+        lookback_network_flows,
         lookback_user_events,
         map_regulation,
         record_audit_log,
@@ -338,6 +339,10 @@ class SecOpsWorkflow:
         is_account_takeover_trigger = (
             event.event_source == "cloudtrail" and event_name == "CreateAccessKey"
         )
+        # 침투 시나리오 트리거 — 사람이 파라미터 없이 버튼만 누름(detect_threat가
+        # event_source="hubble"인 seed 이벤트만 만듦). 622행 대응 분기가 threat_type이
+        # 아니라 event_source로 IAM/네트워크를 가르므로, 여기 seed도 event_source만 보면 됨.
+        is_network_scenario_trigger = event.event_source == "hubble"
 
         if is_account_takeover_trigger:
             # 1.5) lookback — target user 과거 1시간 siem.cloudtrail(us-east-1) 조회
@@ -411,7 +416,8 @@ class SecOpsWorkflow:
                 # build_incident_group의 재적용은 멱등)
                 incident_group: IncidentGroup = build_incident_group(
                     workflow_id=event.workflow_id,
-                    target_user_arn=target_user_arn or "unknown",
+                    scenario="account_takeover",
+                    correlation_key=target_user_arn or "unknown",
                     events=judged_events,
                     window_start=trigger_time - timedelta(hours=1),
                     window_end=trigger_time,
@@ -427,7 +433,7 @@ class SecOpsWorkflow:
                                   {"incident_group": incident_group.model_dump(mode="json")})
 
                 trigger_mapping = event_mappings[0]  # judged_events[0]은 항상 트리거 이벤트
-                if incident_group.is_account_takeover:
+                if incident_group.is_threat_confirmed:
                     # 대응 분기(4번)용 — Incident에 묶인 이벤트 중 실제 IAM 회수 대상만 추림.
                     # 트리거(CreateAccessKey)는 _IAM_RESPONSE_EVENTS에 항상 포함돼 있어
                     # 필터 결과가 비는 일은 지금 없지만, 그 상수 정의가 나중에 바뀔 수 있어
@@ -444,7 +450,7 @@ class SecOpsWorkflow:
                     # 이벤트끼리 서로 덮어써서 정보가 사라진다 — events 리스트로 각각 보존.
                     merged_evidence: dict = {
                         "incident_event_count": len(incident_group.events),
-                        "target_user_arn": incident_group.target_user_arn,
+                        "target_user_arn": incident_group.correlation_key,
                         "lookback_failed": incident_group.lookback_failed,
                         "events": [
                             {
@@ -484,8 +490,182 @@ class SecOpsWorkflow:
                         confidence=incident_group.correlation_confidence,
                         evidence={
                             "incident_event_count": len(incident_group.events),
-                            "target_user_arn": incident_group.target_user_arn,
+                            "target_user_arn": incident_group.correlation_key,
                             "lookback_failed": incident_group.lookback_failed,
+                        },
+                    )
+        elif is_network_scenario_trigger:
+            # 침투 시나리오 — 계정 탈취와 동일 구조(lookback → 묶기 → Sonnet), 대상만
+            # IAM User가 아니라 워크로드. 트리거엔 조회 조건이 없음(설계 결정) — 항상
+            # "클러스터 전체·최근 10분"을 고정 창으로 조회한다.
+            window_end = event.detected_at
+            window_start = window_end - timedelta(minutes=10)
+
+            # 트리거 자체엔 내용이 없어(placeholder), lookback 실패 시 계정 탈취처럼
+            # "적어도 트리거 이벤트 하나로 진행"할 수가 없다 — 실패와 "찾은 게 없음"을
+            # 감사 로그에서 구분만 해두고, 아래 "이벤트 없음" 분기로 안전하게 합류시킨다.
+            try:
+                lookback_events = await workflow.execute_activity(
+                    lookback_network_flows,
+                    args=[event.cluster_name, window_start, window_end],
+                    **get_activity_options(ActivityName.LOOKBACK_NETWORK_FLOWS),
+                )
+            except Exception as exc:  # noqa: BLE001 — lookback 실패가 워크플로우를 막으면 안 됨
+                lookback_events = []
+                await self._audit(event.workflow_id, "lookback_failed", "Loki lookback 조회 실패",
+                                  {"error": str(exc)})
+            deduped_events = dedup_events(lookback_events)
+
+            event_mappings: list[RegulationMapping] = []
+            judged_events: list[SecurityEvent] = []
+            for grouped_event in deduped_events:
+                judged_events.append(grouped_event)
+                event_mapping: RegulationMapping = await workflow.execute_activity(
+                    map_regulation, grouped_event,
+                    **get_activity_options(ActivityName.MAP_REGULATION),
+                )
+                event_mappings.append(event_mapping)
+
+            if not event_mappings:
+                await self._audit(event.workflow_id, "lookback_empty",
+                                  "침투 시나리오 — 최근 10분간 정책 위반(DROPPED) flow 없음", {})
+                mapping = RegulationMapping(
+                    workflow_id=event.workflow_id,
+                    violated_regulations=[],
+                    violation_description="최근 10분간 정책 위반(DROPPED) flow 없음 — 조치 없음",
+                    analyzed_at=workflow.now(),
+                    severity="low",
+                    confidence=0.0,
+                )
+            else:
+                # 여러 워크로드가 같은 창에서 같이 잡힐 수 있음 — 그 워크로드들이 서로
+                # 무관한 별개 사건일 수도, lookback_network_flows가 이미 감지한(A→B) 같은
+                # 침투 사슬의 다른 단계일 수도 있다. 후자를 하나로 묶으려면 workload_name이
+                # 아니라 chain_id(activities.py가 destination 매칭으로 union-find 계산,
+                # evidence에 실어 보냄)로 그룹화해야 한다 — 그래야 A의 스캔과 B의 유출이
+                # 같은 IncidentGroup에 들어가 Sonnet이 사슬로 판단할 수 있다.
+                # 여전히 "1 워크플로우 = 1 사슬" 원칙이라, 서로 무관한 사슬이 여러 개면
+                # 이번 실행은 이벤트 수가 가장 많은 사슬 하나만 처리한다. 나머지는 유실이
+                # 아니라 다음 수동 트리거 때 다시 lookback 창에 걸려 잡힌다(지연 처리).
+                by_chain: dict[str, list[SecurityEvent]] = {}
+                for judged_event in judged_events:
+                    chain_id = extract_evidence(judged_event).get("chain_id") or judged_event.workload_name
+                    by_chain.setdefault(chain_id, []).append(judged_event)
+                primary_chain = max(by_chain, key=lambda k: len(by_chain[k]))
+                other_chains = [c for c in by_chain if c != primary_chain]
+                if other_chains:
+                    await self._audit(
+                        event.workflow_id, "network_scenario_other_chains_deferred",
+                        "같은 창에 다른 침투 사슬도 있음 — 이번 실행은 최다 이벤트 사슬만 처리",
+                        {"primary_chain": primary_chain, "deferred_chains": other_chains},
+                    )
+                primary_events = by_chain[primary_chain]
+                primary_mappings = [
+                    m for e, m in zip(judged_events, event_mappings)
+                    if (extract_evidence(e).get("chain_id") or e.workload_name) == primary_chain
+                ]
+
+                # correlation_key — 사슬에 실제로 걸친 워크로드들을, 각자 가장 이른
+                # detected_at 순으로 나열("A → B"). 그래프 위상정렬까진 안 하는 근사치라
+                # 완벽한 인과 순서 보장은 아니고 카드/감사로그 표시용 라벨일 뿐 — 실제
+                # 인과 판단은 Sonnet이 _describe_intrusion_events의 시간순 이벤트 목록
+                # (레코드별 소스→목적지 워크로드 명시)으로 한다.
+                workload_first_seen: dict[str, datetime] = {}
+                for e in primary_events:
+                    if (
+                        e.workload_name not in workload_first_seen
+                        or e.detected_at < workload_first_seen[e.workload_name]
+                    ):
+                        workload_first_seen[e.workload_name] = e.detected_at
+                ordered_workloads = sorted(workload_first_seen, key=lambda w: workload_first_seen[w])
+                correlation_key = " → ".join(ordered_workloads)
+
+                incident_group: IncidentGroup = build_incident_group(
+                    workflow_id=event.workflow_id,
+                    scenario="intrusion",
+                    correlation_key=correlation_key,
+                    events=primary_events,
+                    window_start=window_start,
+                    window_end=window_end,
+                )
+                incident_group = await workflow.execute_activity(
+                    correlate_incident, incident_group,
+                    **get_activity_options(ActivityName.CORRELATE_INCIDENT),
+                )
+                await self._audit(event.workflow_id, "analysis_completed", "침투 시나리오 인과판정 완료",
+                                  {"incident_group": incident_group.model_dump(mode="json")})
+
+                # seed(placeholder) 대신 실제 분류된 대표 이벤트로 교체 — 카드 제목/보고서
+                # threat_summary 등 아래 공용 코드가 event.threat_type/source_pod를 쓴다.
+                # 사슬의 진입점(가장 먼저 활동한 워크로드)의 가장 이른 이벤트를 대표로 삼는다.
+                # workflow_id는 seed 것을 유지해야 RegulationMapping/AuditLog와 계속 같은
+                # workflow_id로 묶인다(SecurityEvent.workflow_id는 WorkflowRootMixin이라
+                # 인스턴스마다 새로 생성돼 그대로 두면 서로 달라짐).
+                entry_workload = ordered_workloads[0]
+                representative_event = min(
+                    (e for e in primary_events if e.workload_name == entry_workload),
+                    key=lambda e: e.detected_at,
+                )
+                event = representative_event.model_copy(update={"workflow_id": event.workflow_id})
+
+                if incident_group.is_threat_confirmed:
+                    all_regs = sorted({r for m in primary_mappings for r in m.violated_regulations})
+                    merged_evidence: dict = {
+                        "incident_event_count": len(incident_group.events),
+                        "correlation_key": incident_group.correlation_key,
+                        "events": [
+                            {
+                                "detected_at": e.detected_at.isoformat(),
+                                "workload": e.workload_name,
+                                "threat_type": e.threat_type,
+                                "destination": f"{e.destination_ip}:{e.destination_port}",
+                            }
+                            for e in incident_group.events
+                        ],
+                    }
+                    # blast radius — 사슬에 걸친 워크로드 전부 안전해야 전체가 안전(보수적
+                    # 판단). isolation_policy_yaml도 워크로드 하나만이 아니라 사슬에 걸친
+                    # 전부를 합쳐야(중복 제거) apply_isolation이 전부 격리한다 — 안 그러면
+                    # Sonnet이 A→B 사슬을 확정해도 한쪽 CNP가 조용히 버려진다.
+                    blast_radius_safe = all(m.blast_radius_safe for m in primary_mappings)
+                    if blast_radius_safe:
+                        blast_radius_detail = primary_mappings[0].blast_radius_detail
+                    else:
+                        blast_radius_detail = "; ".join(
+                            f"{e.workload_name}: {m.blast_radius_detail}"
+                            for e, m in zip(primary_events, primary_mappings)
+                            if not m.blast_radius_safe
+                        )
+                    isolation_policy_yaml: list[str] = []
+                    for m in primary_mappings:
+                        for policy in m.isolation_policy_yaml:
+                            if policy not in isolation_policy_yaml:
+                                isolation_policy_yaml.append(policy)
+                    mapping = RegulationMapping(
+                        workflow_id=event.workflow_id,
+                        violated_regulations=all_regs or ["전자금융감독규정 — 네트워크 침해(다단계 침투) 의심"],
+                        violation_description=incident_group.causal_summary,
+                        blast_radius_safe=blast_radius_safe,
+                        blast_radius_detail=blast_radius_detail,
+                        analyzed_at=workflow.now(),
+                        severity="critical",
+                        confidence=incident_group.correlation_confidence,
+                        evidence=merged_evidence,
+                        isolation_policy_yaml=isolation_policy_yaml,
+                    )
+                else:
+                    mapping = RegulationMapping(
+                        workflow_id=event.workflow_id,
+                        violated_regulations=[],
+                        violation_description=(
+                            incident_group.causal_summary or "Sonnet 인과판정: 다단계 침투 아님으로 판단"
+                        ),
+                        analyzed_at=workflow.now(),
+                        severity="low",
+                        confidence=incident_group.correlation_confidence,
+                        evidence={
+                            "incident_event_count": len(incident_group.events),
+                            "correlation_key": incident_group.correlation_key,
                         },
                     )
         elif _rule_filter_skip(evidence):

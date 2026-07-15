@@ -28,6 +28,7 @@ from .activities import (
     detect_threat,
     generate_compliance_report,
     generate_postmortem_report,
+    lookback_network_flows,
     lookback_user_events,
     map_regulation,
     record_audit_log,
@@ -51,6 +52,7 @@ async def main() -> None:
         activities=[
             detect_threat,
             lookback_user_events,
+            lookback_network_flows,
             correlate_incident,
             map_regulation,
             apply_isolation,

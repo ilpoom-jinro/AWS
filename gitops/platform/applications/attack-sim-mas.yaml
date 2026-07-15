@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: attack-sim-mas
+  namespace: argocd
+spec:
+  project: mas-workloads-project
+  source:
+    repoURL: http://internal-git-http.git.svc.cluster.local:3000/gitadmin/platform.git
+    targetRevision: main
+    path: financial-ops-eks/attack-sim-mas
+    kustomize: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: attack-sim-mas
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    # automated(prune/selfHeal) 의도적으로 비움 — 다른 MAS 앱과 달리 시연용이라
+    # 자동 sync 없이 수동 통제(ArgoCD UI/CLI sync)로만 배포되게 함.

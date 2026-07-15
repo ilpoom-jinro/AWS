@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intruder
+  namespace: attack-sim-mas
+  labels:
+    app.kubernetes.io/name: intruder
+    app.kubernetes.io/instance: attack-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intruder
+      app.kubernetes.io/instance: attack-sim
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: intruder
+        app.kubernetes.io/instance: attack-sim
+    spec:
+      # attack-sim-mas는 default-deny.yaml의 예외 목록(exclude)에 없다 — 의도적으로
+      # 넣지 않음. 이 파드의 미허가 egress(포트스캔/측면이동)가 그대로 DROP돼야
+      # Hubble flow exporter(hubble.export, cilium-install.yml)로 잡히는 게 목적.
+      containers:
+        - name: intruder
+          image: intruder-image   # kustomization images에서 실제 ECR 경로로 치환
+          imagePullPolicy: IfNotPresent
+          # financial/cilium(이미 ECR에 있고 cosign 서명된 이미지) 재사용 — 새
+          # 이미지 빌드/서명 없이 Kyverno verify-images 통과. 원래 cilium-agent
+          # 대신 대기만 시킨다("털린 파드" 역할 — 공격 시뮬레이션은 exec로 별도 실행).
+          # bash/`sleep infinity` 존재 여부를 이 환경에서 이미지 pull로 실측 확인은
+          # 못 해(샌드박스에 클러스터/레지스트리 접근 없음) 가장 보편적인 /bin/sh
+          # 무한루프로 대체 — 배포 전 실제 셸 유무를 한 번 확인 권장.
+          command: ["/bin/sh", "-c", "while true; do sleep 3600; done"]
+          securityContext:
+            # attack-sim-mas는 kyverno/policies/add-pss-labels.yaml에 의해 신규
+            # 네임스페이스로서 pod-security.kubernetes.io/enforce=baseline이 자동
+            # 부여된다(exclude 목록에 없음). baseline은 runAsNonRoot를 강제하지
+            # 않고, sleep/bash는 특권이 전혀 필요 없어 최소 권한만 명시한다.
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"

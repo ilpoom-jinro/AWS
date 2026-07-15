@@ -42,7 +42,7 @@ def _is_ip(s) -> bool:
 
 
 def classify_message(body: str) -> str:
-    """SQS body(JSON) → 'alarm' | 'eventbridge' | 'unknown'."""
+    """SQS body(JSON) → 'alarm' | 'eventbridge' | 'intrusion_trigger' | 'unknown'."""
     try:
         data = json.loads(body)
     except (json.JSONDecodeError, TypeError):
@@ -53,6 +53,8 @@ def classify_message(body: str) -> str:
         return "alarm"
     if str(data.get("source", "")).startswith("aws.") or "detail-type" in data:
         return "eventbridge"
+    if data.get("scenario") == "intrusion":
+        return "intrusion_trigger"
     return "unknown"
 
 
@@ -120,6 +122,21 @@ def parse_eventbridge(data: dict) -> dict:
     }
 
 
+def parse_intrusion_trigger(data: dict) -> dict:
+    """침투 시나리오 수동 트리거 — 조회 조건 없음(설계 결정: 트리거는 사람이 버튼만
+    누르고, 조회 범위는 "클러스터 전체·최근 10분"으로 고정). 이 파싱 결과엔 실제 Hubble
+    데이터가 없다 — event_source="hubble"만 찍힌 seed SecurityEvent를 만들어
+    workflow.py가 이를 보고 lookback_network_flows(Loki 조회)를 돌린다(계정 탈취의
+    CreateAccessKey 트리거와 같은 역할, 실제 판정은 lookback 이후 개별 이벤트가 가짐)."""
+    return {
+        "threat_type": "policy_violation",  # placeholder — workflow.py가 lookback 후 대표 이벤트로 교체
+        "event_source": "hubble",
+        "summary": "침투 시나리오 수동 트리거 — Loki lookback 예정",
+        "needs_enrichment": False,
+        "evidence": {},
+    }
+
+
 def parse_message(body: str) -> dict | None:
     """SQS body → 파싱 결과 dict (kind 포함). 파싱 불가 시 None."""
     kind = classify_message(body)
@@ -128,6 +145,8 @@ def parse_message(body: str) -> dict | None:
         return {"kind": kind, **parse_alarm(data)}
     if kind == "eventbridge":
         return {"kind": kind, **parse_eventbridge(data)}
+    if kind == "intrusion_trigger":
+        return {"kind": kind, **parse_intrusion_trigger(data)}
     return None
 
 
@@ -182,6 +201,97 @@ def message_to_event(body: str, cluster_name: str, enrich_flow_logs=None) -> Sec
     return to_security_event(parsed, cluster_name, enrichment)
 
 
+# 워크로드를 특정하는 표준 레이블 조합. io.kubernetes.pod.namespace 등 메타
+# 레이블은 워크로드 식별에 안 쓰이므로 제외.
+_ISOLATION_LABEL_KEYS = {"app.kubernetes.io/name", "app.kubernetes.io/instance"}
+
+
+def parse_isolation_labels(labels: list[str]) -> dict[str, str]:
+    """Hubble flow의 source.labels(["k8s:키=값", ...])에서 격리 셀렉터로 쓸 표준
+    레이블만 추출. k8s: 접두어를 떼고 app.kubernetes.io/name + instance 조합만
+    남긴다 — 이 둘이 워크로드를 특정하는 조합(파드 이름은 재기동마다 바뀜).
+    activities.py의 lookback_network_flows가 Loki에서 받은 source.labels를 여기로 넘긴다.
+    이 함수 자체는 파싱만 하는 순수 함수라 단위테스트하기 쉽다.
+    둘 중 하나라도 없으면 워크로드를 특정할 수 없어 빈 dict 반환(호출부가 격리
+    불가로 처리해야 함)."""
+    parsed: dict[str, str] = {}
+    for raw in labels:
+        key_value = raw.removeprefix("k8s:")
+        key, sep, value = key_value.partition("=")
+        if sep and key in _ISOLATION_LABEL_KEYS:
+            parsed[key] = value
+    if not _ISOLATION_LABEL_KEYS <= parsed.keys():
+        return {}
+    return parsed
+
+
+def parse_hubble_flow(raw: dict) -> dict | None:
+    """Loki에서 받은 Hubble flow(JSON) 한 줄 → 판정 재료 dict. DROPPED verdict가 아니면
+    None(hubble.export의 allowList가 DROPPED만 내보내지만, 방어적으로 다시 확인).
+
+    표준 Hubble export 포맷(GetFlowsResponse, "flow" 키로 감싸짐) — source/destination
+    실측 확인됨(destination도 namespace/pod_name/labels를 source와 동일하게 가짐).
+    단, destination엔 source와 달리 workloads 필드가 없음(실측 확인) — 그래서 destination
+    워크로드 식별자는 app.kubernetes.io/name+instance 레이블 조합에서 직접 뽑는다
+    (parse_isolation_labels 재사용, source의 workloads[0].name과 동일한 의미:
+    두 값 다 app.kubernetes.io/instance에 대응됨).
+
+    threat_type은 여기서 안 정한다 — 단일 레코드로는 포트스캔(다중 레코드 상관 필요)을 못
+    가리므로, lookback_network_flows가 여러 레코드를 워크로드+목적지 카테고리(classify_destination_category)
+    로 묶은 뒤 분류한다."""
+    flow = raw.get("flow", raw)
+    if flow.get("verdict") != "DROPPED":
+        return None
+
+    source = flow.get("source") or {}
+    destination = flow.get("destination") or {}
+    l4 = flow.get("l4") or {}
+    tcp_or_udp = l4.get("TCP") or l4.get("UDP") or {}
+    ip = flow.get("IP") or {}
+    workloads = source.get("workloads") or [{}]
+    destination_labels = destination.get("labels") or []
+    destination_isolation_labels = parse_isolation_labels(destination_labels)
+
+    return {
+        "time": flow.get("time", ""),
+        "drop_reason_desc": flow.get("drop_reason_desc", ""),
+        "namespace": source.get("namespace", "unknown"),
+        "source_pod": source.get("pod_name", "unknown"),
+        "source_labels": source.get("labels") or [],
+        "workload_name": workloads[0].get("name", ""),
+        "workload_kind": workloads[0].get("kind", ""),
+        "destination_namespace": destination.get("namespace", "unknown"),
+        "destination_pod": destination.get("pod_name", "unknown"),
+        # 워크로드 건너가는 사슬(A→B) 연결용 — 비어 있으면(레이블 둘 다 없음) 목적지
+        # 워크로드를 특정 못 하는 것(예: 클러스터 밖, 또는 라벨 없는 워크로드) — 호출부가
+        # 이 경우 edge를 안 긋는다.
+        "destination_workload_name": destination_isolation_labels.get("app.kubernetes.io/instance", ""),
+        "destination_labels": destination_labels,
+        "source_ip": ip.get("source", "0.0.0.0"),
+        "destination_ip": ip.get("destination", "0.0.0.0"),
+        "destination_port": int(tcp_or_udp.get("destination_port", 0) or 0),
+        "protocol": "udp" if "UDP" in l4 else "tcp",
+    }
+
+
+def classify_destination_category(destination_labels: list[str]) -> str | None:
+    """레코드 하나의 목적지가 클러스터 밖/안 중 어느 쪽인지 destination.labels로 판별한다
+    (IP 대역 체크 안 함, 설계 결정). "reserved:world"가 있으면 "external"(클러스터 밖).
+    "k8s:" 레이블(클러스터 내부 pod/서비스)이 있으면 "internal". 어느 쪽도 아니면(다른
+    reserved 식별자 등) None — 판정 제외(추측으로 잘못 분류 안 함).
+
+    같은 워크로드라도 목적지가 external인 레코드와 internal인 레코드는 서로 다른 threat_type
+    후보(abnormal_outbound vs port_scan/lateral_movement)라 반드시 레코드 단위로 갈라야 한다 —
+    워크로드 전체를 대표 레코드 하나로만 보면 같은 창에서 스캔+외부유출이 같이 일어나도
+    한쪽이 다른 쪽에 묻힌다. lookback_network_flows가 이 카테고리로 먼저 그룹을 나눈 뒤,
+    "internal" 그룹 안에서만 distinct destination_port 수로 port_scan/lateral_movement를 가른다."""
+    if any("reserved:world" in label for label in destination_labels):
+        return "external"
+    if any(label.startswith("k8s:") for label in destination_labels):
+        return "internal"
+    return None
+
+
 def dedup_events(events: list[SecurityEvent]) -> list[SecurityEvent]:
     """CloudTrail eventid 기준 dedup(첫 등장분 유지). 순수 함수(I/O 없음) —
     workflow.py가 개별 판정(map_regulation) 호출 전에 직접 불러 중복 호출을 막는다."""
@@ -199,18 +309,22 @@ def dedup_events(events: list[SecurityEvent]) -> list[SecurityEvent]:
 
 def build_incident_group(
     workflow_id: str,
-    target_user_arn: str,
+    scenario: str,
+    correlation_key: str,
     events: list[SecurityEvent],
     window_start,
     window_end,
 ) -> "IncidentGroup":
-    """계정 탈취 lookback 상관분석 — dedup_events 재적용(멱등) 후 IncidentGroup 구성.
-    순수 함수(I/O 없음) — Rule Filter와 동일하게 workflow.py에서 직접 호출 가능."""
+    """lookback 상관분석 — dedup_events 재적용(멱등) 후 IncidentGroup 구성. 시나리오 공용
+    (scenario="account_takeover"|"intrusion") — correlation_key는 호출부가 시나리오에 맞는
+    값(IAM User ARN 또는 워크로드 이름)을 채운다. 순수 함수(I/O 없음) — Rule Filter와
+    동일하게 workflow.py에서 직접 호출 가능."""
     from contracts.models import IncidentGroup
 
     return IncidentGroup(
         workflow_id=workflow_id,
-        target_user_arn=target_user_arn,
+        scenario=scenario,
+        correlation_key=correlation_key,
         events=dedup_events(events),
         window_start=window_start,
         window_end=window_end,
