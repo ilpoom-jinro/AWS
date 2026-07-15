@@ -86,6 +86,12 @@ resource "aws_route53_health_check" "aws_primary" {
   request_interval  = 30
   enable_sni        = true
 
+  # DR workflows own the temporary inversion used to force failover tests.
+  # A routine Terraform apply must not silently route traffic back to AWS.
+  lifecycle {
+    ignore_changes = [inverted]
+  }
+
   tags = {
     Name = "financial-stock-web-health-check"
   }
