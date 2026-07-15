@@ -1,0 +1,63 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+
+        : "${DR_WRITE_FENCE_ACTION:?DR_WRITE_FENCE_ACTION is required}"
+
+        # Keep the target immutable even when CodeBuild environment values are
+        # overridden by the caller. This project is deliberately scoped to the
+        # production Service EKS cluster only.
+        aws_region="ap-northeast-2"
+        service_eks_cluster_name="financial-service-eks"
+        context="dr-write-fence-${service_eks_cluster_name}"
+        policy_name="dr-fence-stock-api-rds"
+
+        aws eks update-kubeconfig \
+          --region "${aws_region}" \
+          --name "${service_eks_cluster_name}" \
+          --alias "${context}"
+
+        case "${DR_WRITE_FENCE_ACTION}" in
+          status)
+            kubectl --context "${context}" get ciliumclusterwidenetworkpolicy "${policy_name}" \
+              -o yaml || true
+            ;;
+          fence)
+            rds_host="$(kubectl --context "${context}" -n stock-demo get secret stock-api-db \
+              -o jsonpath='{.data.DB_HOST}' | base64 --decode)"
+            rds_ip="$(getent ahostsv4 "${rds_host}" | awk 'NR == 1 { print $1 }')"
+            test -n "${rds_ip}"
+
+            cat <<EOF | kubectl --context "${context}" apply -f -
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: ${policy_name}
+spec:
+  description: "Temporary DR fence: deny stock-api egress to RDS PostgreSQL"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: stock-demo
+      app: stock-api
+  egressDeny:
+    - toCIDRSet:
+        - cidr: ${rds_ip}/32
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+EOF
+            kubectl --context "${context}" get ciliumclusterwidenetworkpolicy "${policy_name}" -o yaml
+            ;;
+          unfence)
+            kubectl --context "${context}" delete ciliumclusterwidenetworkpolicy "${policy_name}" --ignore-not-found
+            ;;
+          *)
+            echo "DR_WRITE_FENCE_ACTION must be one of: status, fence, unfence" >&2
+            exit 2
+            ;;
+        esac

@@ -667,3 +667,61 @@ resource "aws_codebuild_project" "service_cluster_status" {
     aws_security_group_rule.service_cluster_status_to_service_eks_api
   ]
 }
+
+# GCP_sub DR workflows cannot reach the private Service EKS API directly.
+# This fixed-buildspec project runs inside the Service VPC and accepts only the
+# fence/unfence action through an environment-variable override.
+resource "aws_codebuild_project" "dr_write_fence" {
+  name          = var.dr_write_fence_codebuild_project_name
+  description   = "Temporarily blocks stock-api database access for controlled DR switching"
+  service_role  = aws_iam_role.ansible_codebuild.arn
+  build_timeout = 15
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = coalesce(var.ansible_codebuild_image, "${local.ansible_codebuild_image_repository}:latest")
+    type                        = "LINUX_CONTAINER"
+    image_pull_credentials_type = "SERVICE_ROLE"
+
+    environment_variable {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    }
+
+    environment_variable {
+      name  = "SERVICE_EKS_CLUSTER_NAME"
+      value = module.vpc1.eks_cluster_name
+    }
+
+    environment_variable {
+      name  = "DR_WRITE_FENCE_ACTION"
+      value = "status"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("buildspec-dr-write-fence.yml")
+  }
+
+  vpc_config {
+    vpc_id             = module.vpc1.vpc_id
+    subnets            = module.vpc1.private_subnet_ids
+    security_group_ids = [aws_security_group.service_cluster_status_codebuild.id]
+  }
+
+  tags = {
+    Name      = var.dr_write_fence_codebuild_project_name
+    ManagedBy = "terraform"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.ansible_codebuild,
+    aws_eks_access_policy_association.ansible_codebuild_service_admin,
+    aws_security_group_rule.service_cluster_status_to_service_eks_api
+  ]
+}
