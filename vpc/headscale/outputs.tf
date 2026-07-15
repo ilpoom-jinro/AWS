@@ -32,6 +32,11 @@ output "cloudsql_reverse_replication_document_arn" {
   value       = aws_ssm_document.cloudsql_reverse_replication.arn
 }
 
+output "cloudsql_reverse_replication_cleanup_document_arn" {
+  description = "다음 DMS 주기 전 Cloud SQL to RDS 역복제 객체를 정리하는 SSM 문서 ARN"
+  value       = aws_ssm_document.cloudsql_reverse_replication_cleanup.arn
+}
+
 output "headscale_router_eip" {
   description = "Tailscale Router EC2 Elastic IP (OCI Headscale 등록 주소)"
   value       = aws_eip.headscale_router.public_ip

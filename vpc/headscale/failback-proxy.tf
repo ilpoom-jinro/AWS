@@ -156,3 +156,51 @@ resource "aws_ssm_document" "cloudsql_reverse_replication" {
     }]
   })
 }
+
+# 다음 AWS -> GCP DMS 주기를 만들기 전에 failback용 native logical replication
+# 객체만 제거합니다. Cloud SQL 인스턴스나 RDS 데이터는 삭제하지 않습니다.
+resource "aws_ssm_document" "cloudsql_reverse_replication_cleanup" {
+  name            = "financial-vpc4-cloudsql-reverse-replication-cleanup"
+  document_type   = "Command"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "Remove controlled Cloud SQL to AWS RDS reverse replication before DMS rearm"
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "cleanupCloudSqlReverseReplication"
+      inputs = {
+        runCommand = [<<-EOT
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          command -v aws >/dev/null
+          command -v jq >/dev/null
+          test -x /usr/local/sbin/cloudsql-reverse-replication
+
+          failback_secret="$$(aws secretsmanager get-secret-value \
+            --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
+            --query SecretString --output text)"
+          rds_secret="$$(aws secretsmanager get-secret-value \
+            --secret-id '${var.service_rds_secret_arn}' \
+            --query SecretString --output text)"
+
+          export CLOUDSQL_ADMIN_USER="$$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
+          export CLOUDSQL_ADMIN_PASSWORD="$$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
+          export REPLICATION_PASSWORD="$$(jq -er '.replication_password' <<<"$${failback_secret}")"
+          export RDS_HOST="$$(jq -er '.host' <<<"$${rds_secret}")"
+          export RDS_ADMIN_USER="$$(jq -er '.username' <<<"$${rds_secret}")"
+          export RDS_ADMIN_PASSWORD="$$(jq -er '.password' <<<"$${rds_secret}")"
+          export FAILBACK_PROXY_HOST='${aws_instance.headscale_router.private_ip}'
+
+          exec /usr/local/sbin/cloudsql-reverse-replication \
+            --cleanup \
+            --gcp-writes-fenced \
+            --confirm REMOVE_REVERSE_REPLICATION
+        EOT
+        ]
+      }
+    }]
+  })
+}

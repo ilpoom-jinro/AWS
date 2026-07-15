@@ -13,6 +13,7 @@ REPLICATION_USER="${REPLICATION_USER:-cloudsql_failback_repl}"
 MAX_LAG_BYTES="${MAX_LAG_BYTES:-0}"
 
 EXECUTE=false
+CLEANUP=false
 GCP_WRITES_FENCED=false
 REBUILD_RDS=false
 TERMINATE_RDS_SESSIONS=false
@@ -24,6 +25,8 @@ Usage:
   cloudsql-reverse-replication [--execute] [--gcp-writes-fenced]
       [--rebuild-rds-from-cloudsql] [--terminate-rds-sessions]
       [--confirm CREATE_REVERSE_REPLICATION]
+  cloudsql-reverse-replication --cleanup --gcp-writes-fenced \
+      --confirm REMOVE_REVERSE_REPLICATION
 
 Required environment variables:
   CLOUDSQL_ADMIN_USER      Cloud SQL administrator (normally postgres)
@@ -37,12 +40,17 @@ Required environment variables:
 Default mode performs connectivity, configuration, schema, and replication-lag
 checks only. Execute mode exports Cloud SQL, replaces the RDS database contents,
 creates a Cloud SQL publication, and creates an AWS RDS subscription.
+
+Cleanup mode removes only the failback publication and subscription after AWS
+has become the authoritative writer. It is required before Cloud SQL can be
+returned to the DMS standby role for the next DR cycle.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --execute) EXECUTE=true; shift ;;
+    --cleanup) CLEANUP=true; shift ;;
     --gcp-writes-fenced) GCP_WRITES_FENCED=true; shift ;;
     --rebuild-rds-from-cloudsql) REBUILD_RDS=true; shift ;;
     --terminate-rds-sessions) TERMINATE_RDS_SESSIONS=true; shift ;;
@@ -51,6 +59,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+[[ "$EXECUTE" == true && "$CLEANUP" == true ]] && {
+  echo "--execute and --cleanup cannot be used together." >&2
+  exit 2
+}
 
 require_env() {
   local variable_name="$1"
@@ -126,6 +139,40 @@ echo "AWS RDS: ${rds_identity}, wal_level=${rds_wal_level}"
   echo "AWS RDS logical replication is not enabled." >&2
   exit 1
 }
+
+if [[ "$CLEANUP" == true ]]; then
+  [[ "$GCP_WRITES_FENCED" == true ]] || {
+    echo "GCP application writes must be fenced before reverse-replication cleanup." >&2
+    exit 1
+  }
+  [[ "$CONFIRMATION" == "REMOVE_REVERSE_REPLICATION" ]] || {
+    echo "Confirmation must equal REMOVE_REVERSE_REPLICATION." >&2
+    exit 1
+  }
+
+  existing_subscription="$(rds_psql -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT 1 FROM pg_subscription WHERE subname = '${SUBSCRIPTION_NAME}'")"
+  if [[ -n "$existing_subscription" ]]; then
+    echo "Disabling and dropping AWS RDS subscription ${SUBSCRIPTION_NAME}..."
+    rds_psql -v ON_ERROR_STOP=1 -c "ALTER SUBSCRIPTION ${SUBSCRIPTION_NAME} DISABLE;"
+    rds_psql -v ON_ERROR_STOP=1 -c "DROP SUBSCRIPTION ${SUBSCRIPTION_NAME};"
+  else
+    echo "AWS RDS subscription ${SUBSCRIPTION_NAME} is already absent."
+  fi
+
+  echo "Dropping Cloud SQL publication ${PUBLICATION_NAME}..."
+  cloudsql_psql -v ON_ERROR_STOP=1 -c "DROP PUBLICATION IF EXISTS ${PUBLICATION_NAME};"
+
+  remaining_slot="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT 1 FROM pg_replication_slots WHERE slot_name = '${SUBSCRIPTION_NAME}'")"
+  [[ -z "$remaining_slot" ]] || {
+    echo "Publisher slot ${SUBSCRIPTION_NAME} remains. Do not rearm DMS until it is removed." >&2
+    exit 1
+  }
+
+  echo "Reverse replication cleanup completed. AWS RDS is the sole writer."
+  exit 0
+fi
 
 echo "Checking source tables without a primary key or REPLICA IDENTITY FULL..."
 tables_without_identity="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc "
