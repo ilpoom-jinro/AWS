@@ -68,3 +68,8 @@ output "gcp_dr_route53_failover_role_arn" {
   description = "GCP_sub Secret AWS_DR_ROUTE53_ROLE_ARN value"
   value       = aws_iam_role.gcp_dr_route53_failover.arn
 }
+
+output "gcp_dr_route53_failover_role_name" {
+  description = "DR control role name for root-level least-privilege policies"
+  value       = aws_iam_role.gcp_dr_route53_failover.name
+}
