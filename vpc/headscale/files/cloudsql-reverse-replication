@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+DATABASE_NAME="${DATABASE_NAME:-financial_service}"
+CLOUDSQL_HOST="${CLOUDSQL_HOST:-127.0.0.1}"
+CLOUDSQL_PORT="${CLOUDSQL_PORT:-15432}"
+RDS_PORT="${RDS_PORT:-5432}"
+FAILBACK_PROXY_PORT="${FAILBACK_PROXY_PORT:-15432}"
+PUBLICATION_NAME="${PUBLICATION_NAME:-cloudsql_failback_publication}"
+SUBSCRIPTION_NAME="${SUBSCRIPTION_NAME:-cloudsql_failback_subscription}"
+REPLICATION_USER="${REPLICATION_USER:-cloudsql_failback_repl}"
+MAX_LAG_BYTES="${MAX_LAG_BYTES:-65536}"
+
+EXECUTE=false
+GCP_WRITES_FENCED=false
+REBUILD_RDS=false
+TERMINATE_RDS_SESSIONS=false
+CONFIRMATION=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cloudsql-reverse-replication [--execute] [--gcp-writes-fenced]
+      [--rebuild-rds-from-cloudsql] [--terminate-rds-sessions]
+      [--confirm CREATE_REVERSE_REPLICATION]
+
+Required environment variables:
+  CLOUDSQL_ADMIN_USER      Cloud SQL administrator (normally postgres)
+  CLOUDSQL_ADMIN_PASSWORD  Cloud SQL administrator password
+  RDS_HOST                 AWS RDS endpoint
+  RDS_ADMIN_USER           AWS RDS administrator (normally financial_admin)
+  RDS_ADMIN_PASSWORD       AWS RDS administrator password
+  FAILBACK_PROXY_HOST      AWS Router private IP reachable from RDS
+  REPLICATION_PASSWORD     Password for the Cloud SQL logical-replication role
+
+Default mode performs connectivity, configuration, schema, and replication-lag
+checks only. Execute mode exports Cloud SQL, replaces the RDS database contents,
+creates a Cloud SQL publication, and creates an AWS RDS subscription.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --execute) EXECUTE=true; shift ;;
+    --gcp-writes-fenced) GCP_WRITES_FENCED=true; shift ;;
+    --rebuild-rds-from-cloudsql) REBUILD_RDS=true; shift ;;
+    --terminate-rds-sessions) TERMINATE_RDS_SESSIONS=true; shift ;;
+    --confirm) CONFIRMATION="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+require_env() {
+  local variable_name="$1"
+  [[ -n "${!variable_name:-}" ]] || {
+    echo "Missing required environment variable: ${variable_name}" >&2
+    exit 1
+  }
+}
+
+require_identifier() {
+  local value="$1"
+  local label="$2"
+  [[ "$value" =~ ^[a-z_][a-z0-9_]*$ ]] || {
+    echo "${label} must be a lowercase PostgreSQL identifier." >&2
+    exit 1
+  }
+}
+
+conninfo_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\'/\\\'}"
+  printf "'%s'" "$value"
+}
+
+for command in psql pg_dump pg_restore; do
+  command -v "$command" >/dev/null || {
+    echo "${command} is required. Re-run the Terraform reapply to install postgresql-client." >&2
+    exit 1
+  }
+done
+
+client_major="$(pg_dump --version | awk '{print $3}' | cut -d. -f1)"
+[[ "$client_major" == "16" ]] || {
+  echo "PostgreSQL 16 client is required; found pg_dump major version ${client_major}. Re-run the Terraform reapply." >&2
+  exit 1
+}
+
+for variable_name in CLOUDSQL_ADMIN_USER CLOUDSQL_ADMIN_PASSWORD RDS_HOST RDS_ADMIN_USER RDS_ADMIN_PASSWORD FAILBACK_PROXY_HOST REPLICATION_PASSWORD; do
+  require_env "$variable_name"
+done
+
+for identifier in "$DATABASE_NAME" "$PUBLICATION_NAME" "$SUBSCRIPTION_NAME" "$REPLICATION_USER"; do
+  require_identifier "$identifier" "PostgreSQL object name"
+done
+
+cloudsql_psql() {
+  PGPASSWORD="$CLOUDSQL_ADMIN_PASSWORD" psql \
+    "host=${CLOUDSQL_HOST} port=${CLOUDSQL_PORT} dbname=${DATABASE_NAME} user=${CLOUDSQL_ADMIN_USER} sslmode=require" \
+    "$@"
+}
+
+rds_psql() {
+  PGPASSWORD="$RDS_ADMIN_PASSWORD" psql \
+    "host=${RDS_HOST} port=${RDS_PORT} dbname=${DATABASE_NAME} user=${RDS_ADMIN_USER} sslmode=require" \
+    "$@"
+}
+
+echo "Checking Cloud SQL publisher connectivity..."
+cloudsql_identity="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc "SELECT current_database(), current_user;")"
+cloudsql_wal_level="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc "SHOW wal_level;")"
+echo "Cloud SQL: ${cloudsql_identity}, wal_level=${cloudsql_wal_level}"
+[[ "$cloudsql_wal_level" == "logical" ]] || {
+  echo "Cloud SQL logical decoding is not enabled." >&2
+  exit 1
+}
+
+echo "Checking AWS RDS subscriber connectivity..."
+rds_identity="$(rds_psql -v ON_ERROR_STOP=1 -Atqc "SELECT current_database(), current_user;")"
+rds_wal_level="$(rds_psql -v ON_ERROR_STOP=1 -Atqc "SHOW wal_level;")"
+echo "AWS RDS: ${rds_identity}, wal_level=${rds_wal_level}"
+[[ "$rds_wal_level" == "logical" ]] || {
+  echo "AWS RDS logical replication is not enabled." >&2
+  exit 1
+}
+
+echo "Checking source tables without a primary key or REPLICA IDENTITY FULL..."
+tables_without_identity="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc "
+  SELECT format('%I.%I', n.nspname, c.relname)
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary
+  WHERE c.relkind = 'r'
+    AND n.nspname = 'public'
+    AND i.indexrelid IS NULL
+    AND c.relreplident <> 'f'
+  ORDER BY 1;")"
+
+if [[ -n "$tables_without_identity" ]]; then
+  echo "Reverse replication blocked. Add a primary key or REPLICA IDENTITY FULL first:" >&2
+  echo "$tables_without_identity" >&2
+  exit 1
+fi
+
+existing_subscription="$(rds_psql -v ON_ERROR_STOP=1 -Atqc \
+  "SELECT 1 FROM pg_subscription WHERE subname = '${SUBSCRIPTION_NAME}'")"
+if [[ -n "$existing_subscription" ]]; then
+  echo "Subscription ${SUBSCRIPTION_NAME} already exists. Inspect its lag instead of recreating it."
+  rds_psql -P pager=off -c "SELECT subname, subenabled, subslotname FROM pg_subscription WHERE subname = '${SUBSCRIPTION_NAME}';"
+  lag_bytes="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT coalesce(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn), -1) FROM pg_replication_slots WHERE slot_name = '${SUBSCRIPTION_NAME}'")"
+  echo "Current publisher slot lag: ${lag_bytes} bytes"
+  [[ "$lag_bytes" =~ ^[0-9]+$ ]] && (( lag_bytes <= MAX_LAG_BYTES )) || {
+    echo "Reverse replication is not caught up yet." >&2
+    exit 1
+  }
+  echo "Reverse replication is caught up."
+  exit 0
+fi
+
+active_rds_sessions="$(rds_psql -v ON_ERROR_STOP=1 -Atqc "
+  SELECT count(*)
+  FROM pg_stat_activity
+  WHERE datname = current_database()
+    AND pid <> pg_backend_pid()
+    AND backend_type = 'client backend';")"
+echo "Active client sessions on RDS: ${active_rds_sessions}"
+
+if [[ "$EXECUTE" != true ]]; then
+  cat <<'EOF'
+
+Preflight passed. No data or replication object was changed.
+
+To execute after GCP writes are fenced, run:
+  cloudsql-reverse-replication --execute --gcp-writes-fenced \
+    --rebuild-rds-from-cloudsql --terminate-rds-sessions \
+    --confirm CREATE_REVERSE_REPLICATION
+EOF
+  exit 0
+fi
+
+[[ "$GCP_WRITES_FENCED" == true ]] || { echo "GCP writes must be fenced." >&2; exit 1; }
+[[ "$REBUILD_RDS" == true ]] || { echo "RDS rebuild acknowledgement is required." >&2; exit 1; }
+[[ "$TERMINATE_RDS_SESSIONS" == true ]] || { echo "RDS session termination acknowledgement is required." >&2; exit 1; }
+[[ "$CONFIRMATION" == "CREATE_REVERSE_REPLICATION" ]] || { echo "Confirmation must equal CREATE_REVERSE_REPLICATION." >&2; exit 1; }
+
+echo "Creating or updating Cloud SQL replication role..."
+cloudsql_psql -v ON_ERROR_STOP=1 \
+  --set=replication_user="$REPLICATION_USER" \
+  --set=replication_password="$REPLICATION_PASSWORD" \
+  --set=database_name="$DATABASE_NAME" <<'SQL'
+SELECT format('CREATE ROLE %I WITH LOGIN REPLICATION PASSWORD %L', :'replication_user', :'replication_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'replication_user')
+\gexec
+SELECT format('ALTER ROLE %I WITH LOGIN REPLICATION PASSWORD %L', :'replication_user', :'replication_password')
+\gexec
+GRANT CONNECT ON DATABASE :"database_name" TO :"replication_user";
+GRANT USAGE ON SCHEMA public TO :"replication_user";
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"replication_user";
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO :"replication_user";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO :"replication_user";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO :"replication_user";
+SQL
+
+publication_exists="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc \
+  "SELECT 1 FROM pg_publication WHERE pubname = '${PUBLICATION_NAME}'")"
+if [[ -z "$publication_exists" ]]; then
+  echo "Creating Cloud SQL publication ${PUBLICATION_NAME}..."
+  cloudsql_psql -v ON_ERROR_STOP=1 -c "CREATE PUBLICATION ${PUBLICATION_NAME} FOR ALL TABLES;"
+fi
+
+dump_file="$(mktemp /tmp/cloudsql-failback.XXXXXX.dump)"
+trap 'rm -f "$dump_file"' EXIT
+chmod 600 "$dump_file"
+
+echo "Exporting Cloud SQL data baseline..."
+PGPASSWORD="$CLOUDSQL_ADMIN_PASSWORD" pg_dump \
+  "host=${CLOUDSQL_HOST} port=${CLOUDSQL_PORT} dbname=${DATABASE_NAME} user=${CLOUDSQL_ADMIN_USER} sslmode=require" \
+  --format=custom --no-owner --no-privileges --file="$dump_file"
+
+if (( active_rds_sessions > 0 )); then
+  echo "Terminating RDS client sessions before restore..."
+  rds_psql -v ON_ERROR_STOP=1 -c "
+    SELECT pg_terminate_backend(pid)
+    FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND pid <> pg_backend_pid()
+      AND backend_type = 'client backend';"
+fi
+
+echo "Restoring Cloud SQL baseline into AWS RDS. Existing RDS data will be replaced."
+PGPASSWORD="$RDS_ADMIN_PASSWORD" pg_restore \
+  "host=${RDS_HOST} port=${RDS_PORT} dbname=${DATABASE_NAME} user=${RDS_ADMIN_USER} sslmode=require" \
+  --clean --if-exists --no-owner --no-privileges --exit-on-error "$dump_file"
+
+subscription_conninfo="host=$(conninfo_quote "$FAILBACK_PROXY_HOST") port=$(conninfo_quote "$FAILBACK_PROXY_PORT") dbname=$(conninfo_quote "$DATABASE_NAME") user=$(conninfo_quote "$REPLICATION_USER") password=$(conninfo_quote "$REPLICATION_PASSWORD") sslmode=require"
+echo "Creating AWS RDS subscription ${SUBSCRIPTION_NAME}..."
+rds_psql -v ON_ERROR_STOP=1 \
+  --set=subscription_conninfo="$subscription_conninfo" <<SQL
+CREATE SUBSCRIPTION ${SUBSCRIPTION_NAME}
+  CONNECTION :'subscription_conninfo'
+  PUBLICATION ${PUBLICATION_NAME}
+  WITH (copy_data = false, create_slot = true, enabled = true);
+SQL
+
+echo "Waiting for the subscription slot to catch up..."
+for _ in $(seq 1 60); do
+  lag_bytes="$(cloudsql_psql -v ON_ERROR_STOP=1 -Atqc \
+    "SELECT coalesce(pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn), -1) FROM pg_replication_slots WHERE slot_name = '${SUBSCRIPTION_NAME}'")"
+  echo "Current publisher slot lag: ${lag_bytes} bytes"
+  if [[ "$lag_bytes" =~ ^[0-9]+$ ]] && (( lag_bytes <= MAX_LAG_BYTES )); then
+    echo "Reverse replication is caught up. Keep GCP writes fenced until Route 53 failback is complete."
+    exit 0
+  fi
+  sleep 5
+done
+
+echo "Subscription was created but did not reach ${MAX_LAG_BYTES} bytes of lag in five minutes." >&2
+echo "Keep AWS writes fenced and inspect pg_stat_subscription and pg_replication_slots." >&2
+exit 1

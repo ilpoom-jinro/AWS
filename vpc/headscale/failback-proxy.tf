@@ -1,7 +1,8 @@
 # AWS RDS는 Cloud SQL PSA 대역으로 직접 route를 갖지 않습니다.
 # 따라서 VPC4 Headscale Router의 내부 전용 TCP proxy를 경유해 Cloud SQL publisher에 연결합니다.
 locals {
-  cloudsql_failback_proxy_enabled = trimspace(var.gcp_cloudsql_private_ip) != ""
+  cloudsql_failback_proxy_enabled     = trimspace(var.gcp_cloudsql_private_ip) != ""
+  cloudsql_reverse_replication_script = base64encode(file("${path.module}/files/cloudsql-reverse-replication"))
 }
 
 resource "aws_ssm_association" "cloudsql_failback_proxy" {
@@ -27,7 +28,21 @@ resource "aws_ssm_association" "cloudsql_failback_proxy" {
       done
 
       apt-get update -y
-      apt-get install -y socat
+      apt-get install -y ca-certificates curl gnupg socat
+
+      install -d -m 0755 /etc/apt/keyrings
+      curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
+        gpg --dearmor --yes -o /etc/apt/keyrings/postgresql.gpg
+      . /etc/os-release
+      echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $${VERSION_CODENAME}-pgdg main" \
+        >/etc/apt/sources.list.d/pgdg.list
+
+      apt-get update -y
+      apt-get install -y postgresql-client-16
+
+      install -d -m 0755 /usr/local/sbin
+      echo '${local.cloudsql_reverse_replication_script}' | base64 --decode >/usr/local/sbin/cloudsql-reverse-replication
+      chmod 0700 /usr/local/sbin/cloudsql-reverse-replication
 
       cat >/etc/systemd/system/cloudsql-failback-proxy.service <<'UNIT'
       [Unit]
