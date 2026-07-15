@@ -44,6 +44,27 @@
             - flow
             - port-distribution
             - icmp
+        # 신설: Hubble flow exporter
+        # 목적 = MAS SecOps 침투 시나리오의 탐지 재료
+        #   VPC Flow Log는 ENI/IP 레벨이라 pod 식별 불가(같은 노드 통신 미포착,
+        #   외부 egress는 노드 IP로 SNAT). Hubble flow는 레코드마다 pod 이름/
+        #   네임스페이스/레이블/정책 판정(verdict)을 담아 pod 단위 격리가 가능해짐.
+        export:
+          static:
+            enabled: true
+            # 파일 대신 stdout — Alloy가 이미 양 클러스터 kube-system 파드 로그를
+            # 수집 중임이 실측 확인됨(Loki에 cilium-agent 로그 6개 파드 도착).
+            # hostPath 마운트 없이 Loki로 자동 유입.
+            filePath: /dev/stdout
+            # 볼륨 통제: DROPPED만 export
+            #   enforce + default-deny 환경이라 침투 시도(포트스캔/측면이동/
+            #   미허가 egress)는 전부 DROPPED. 정상 트래픽(ALLOWED) 제외로
+            #   평소 볼륨 ≈ 0, 공격 시에만 발생 → Loki(filesystem 백엔드) 부담 없음
+            allowList:
+              - '{"verdict":["DROPPED"]}'
+            # fieldMask 미지정 = 전체 필드 유지
+            #   DROPPED만이라 볼륨이 작고, 마스킹 시 격리에 필요한 필드
+            #   (source.labels 등)를 놓칠 위험
       # 임시 audit — 재구축 후 누락 정책 보강 중. 전수 검증 후 false 복귀 (망분리 #79)
       policyAuditMode: false
       operator:
