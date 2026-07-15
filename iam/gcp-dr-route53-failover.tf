@@ -1,9 +1,9 @@
 # GCP_sub DR workflows can only control the dedicated DR operations below:
-# Route 53 health checks and the private-VPC CodeBuild write-fence project.
+# CloudWatch 테스트 게이트와 private-VPC CodeBuild write-fence project.
 # They cannot modify hosted-zone records or arbitrary AWS resources.
 resource "aws_iam_role" "gcp_dr_route53_failover" {
   name        = "ilpumjinro-gcp-dr-route53-failover-role"
-  description = "Route 53 health-check control role for GCP DR workflows"
+  description = "DR test-gate and write-fence control role for GCP workflows"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -46,10 +46,21 @@ resource "aws_iam_role_policy" "gcp_dr_route53_failover" {
         Resource = "*"
       },
       {
-        Sid      = "InvertHealthChecks"
+        Sid      = "EmitDrTestMetric"
         Effect   = "Allow"
-        Action   = ["route53:UpdateHealthCheck"]
-        Resource = "arn:aws:route53:::healthcheck/*"
+        Action   = ["cloudwatch:PutMetricData"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "cloudwatch:namespace" = "Ilpoomjinro/DR"
+          }
+        }
+      },
+      {
+        Sid      = "ReadDrTestAlarm"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:DescribeAlarms"]
+        Resource = "*"
       },
       {
         Sid    = "RunServiceWriteFence"
