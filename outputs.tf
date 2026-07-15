@@ -88,6 +88,11 @@ output "dr_write_fence_codebuild_project_name" {
   value       = aws_codebuild_project.dr_write_fence.name
 }
 
+output "vpc4_headscale_router_instance_id" {
+  description = "GCP_sub failback workflow의 AWS_DR_ROUTER_INSTANCE_ID 값"
+  value       = module.vpc4.headscale_router_instance_id
+}
+
 output "ansible_codebuild_image_repository_url" {
   description = "ECR repository URL for the Ansible CodeBuild runtime image"
   value       = aws_ecr_repository.ansible_codebuild.repository_url

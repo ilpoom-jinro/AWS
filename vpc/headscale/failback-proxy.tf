@@ -28,7 +28,7 @@ resource "aws_ssm_association" "cloudsql_failback_proxy" {
       done
 
       apt-get update -y
-      apt-get install -y ca-certificates curl gnupg socat
+      apt-get install -y awscli ca-certificates curl gnupg jq socat
 
       install -d -m 0755 /etc/apt/keyrings
       curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
@@ -64,4 +64,95 @@ resource "aws_ssm_association" "cloudsql_failback_proxy" {
       systemctl enable --now cloudsql-failback-proxy.service
     EOT
   }
+}
+
+# 값은 Terraform state에 넣지 않습니다. GCP failback workflow가 실행 직전에
+# PutSecretValue로 주입하고, Router만 읽어 역복제 실행기에 전달합니다.
+resource "aws_secretsmanager_secret" "cloudsql_failback_credentials" {
+  name                    = "financial-cloudsql-failback-credentials"
+  description             = "Ephemeral Cloud SQL to RDS reverse-replication credentials for DR failback"
+  recovery_window_in_days = 7
+
+  tags = {
+    Name               = "financial-cloudsql-failback-credentials"
+    DataClassification = "Restricted"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_iam_role_policy" "headscale_router_failback_credentials" {
+  name = "financial-vpc4-cloudsql-failback-credentials-read"
+  role = aws_iam_role.headscale_router_ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadFailbackCredentialsOnly"
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          aws_secretsmanager_secret.cloudsql_failback_credentials.arn,
+          var.service_rds_secret_arn
+        ]
+      },
+      {
+        Sid      = "DecryptServiceRdsCredentials"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:DescribeKey"]
+        Resource = var.service_rds_kms_key_arn
+      }
+    ]
+  })
+}
+
+resource "aws_ssm_document" "cloudsql_reverse_replication" {
+  name            = "financial-vpc4-cloudsql-reverse-replication"
+  document_type   = "Command"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "2.2"
+    description   = "Run controlled Cloud SQL to AWS RDS reverse replication on the VPC4 Router"
+    mainSteps = [{
+      action = "aws:runShellScript"
+      name   = "runCloudSqlReverseReplication"
+      inputs = {
+        runCommand = [<<-EOT
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          command -v aws >/dev/null
+          command -v jq >/dev/null
+          test -x /usr/local/sbin/cloudsql-reverse-replication
+
+          failback_secret="$$(aws secretsmanager get-secret-value \
+            --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
+            --query SecretString --output text)"
+          rds_secret="$$(aws secretsmanager get-secret-value \
+            --secret-id '${var.service_rds_secret_arn}' \
+            --query SecretString --output text)"
+
+          export CLOUDSQL_ADMIN_USER="$$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
+          export CLOUDSQL_ADMIN_PASSWORD="$$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
+          export REPLICATION_PASSWORD="$$(jq -er '.replication_password' <<<"$${failback_secret}")"
+          export RDS_HOST="$$(jq -er '.host' <<<"$${rds_secret}")"
+          export RDS_ADMIN_USER="$$(jq -er '.username' <<<"$${rds_secret}")"
+          export RDS_ADMIN_PASSWORD="$$(jq -er '.password' <<<"$${rds_secret}")"
+          export FAILBACK_PROXY_HOST='${aws_instance.headscale_router.private_ip}'
+
+          exec /usr/local/sbin/cloudsql-reverse-replication \
+            --execute \
+            --gcp-writes-fenced \
+            --rebuild-rds-from-cloudsql \
+            --terminate-rds-sessions \
+            --confirm CREATE_REVERSE_REPLICATION
+        EOT
+        ]
+      }
+    }]
+  })
 }

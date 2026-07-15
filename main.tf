@@ -88,10 +88,51 @@ module "vpc4" {
   source                  = "./vpc/headscale"
   gcp_fixed_ip            = var.gcp_fixed_ip
   gcp_cloudsql_private_ip = var.gcp_cloudsql_private_ip
+  service_rds_secret_arn  = aws_secretsmanager_secret.service_rds_password.arn
+  service_rds_kms_key_arn = data.aws_kms_key.key_secretsmanager.arn
   oci_headscale_ip        = var.oci_headscale_ip
   oci_headscale_ip_plain  = var.oci_headscale_ip_plain
   headscale_login_server  = var.headscale_login_server
   tailscale_auth_key      = var.tailscale_auth_key
+}
+
+# GCP_sub의 failback workflow는 이 역할로 Router의 고정 SSM 문서만 실행합니다.
+# 자격증명 값은 실행 인자에 넣지 않고, 전용 Secrets Manager 시크릿으로 전달합니다.
+resource "aws_iam_role_policy" "gcp_dr_reverse_replication" {
+  name = "gcp-dr-reverse-replication-control"
+  role = module.iam.gcp_dr_route53_failover_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "WriteFailbackCredentials"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:PutSecretValue"
+        ]
+        Resource = module.vpc4.cloudsql_failback_credentials_secret_arn
+      },
+      {
+        Sid    = "RunReverseReplicationDocument"
+        Effect = "Allow"
+        Action = ["ssm:SendCommand"]
+        Resource = [
+          module.vpc4.cloudsql_reverse_replication_document_arn,
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${module.vpc4.headscale_router_instance_id}"
+        ]
+      },
+      # GetCommandInvocation은 SSM API가 명령 실행 ID로 상태를 조회하므로 리소스
+      # 단위 제한을 지원하지 않습니다. SendCommand는 위의 문서와 Router 한 대로 제한됩니다.
+      {
+        Sid      = "ReadReverseReplicationCommand"
+        Effect   = "Allow"
+        Action   = ["ssm:GetCommandInvocation"]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 module "vpc_peering" {

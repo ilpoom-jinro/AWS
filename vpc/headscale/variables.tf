@@ -33,6 +33,16 @@ variable "gcp_cloudsql_private_ip" {
   default     = ""
 }
 
+variable "service_rds_secret_arn" {
+  description = "financial-service RDS 관리자 자격증명이 저장된 Secrets Manager ARN"
+  type        = string
+}
+
+variable "service_rds_kms_key_arn" {
+  description = "Service RDS Secrets Manager 시크릿을 복호화하는 KMS 키 ARN"
+  type        = string
+}
+
 variable "gcp_cloudsql_psa_cidr" {
   description = "GCP Cloud SQL Private Services Access CIDR"
   type        = string
