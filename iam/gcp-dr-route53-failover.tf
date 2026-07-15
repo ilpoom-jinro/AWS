@@ -15,7 +15,12 @@ resource "aws_iam_role" "gcp_dr_route53_failover" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:ilpoom-jinro/GCP_sub:ref:refs/heads/main"
+          # Jobs that declare the production Environment receive the environment
+          # subject, while non-environment jobs use the branch subject.
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:ilpoom-jinro/GCP_sub:ref:refs/heads/main",
+            "repo:ilpoom-jinro/GCP_sub:environment:production",
+          ]
         }
       }
     }]
