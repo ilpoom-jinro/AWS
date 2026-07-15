@@ -134,7 +134,7 @@ resource "aws_route53_health_check" "aws_primary_effective" {
     aws_route53_health_check.aws_primary[0].id,
     aws_route53_health_check.dr_force_failover.id,
   ]
-  health_threshold = 2
+  child_health_threshold = 2
 
   tags = {
     Name = "financial-stock-web-effective-health-check"
