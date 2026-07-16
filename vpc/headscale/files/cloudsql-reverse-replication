@@ -244,6 +244,7 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'replication_user')
 \gexec
 SELECT format('ALTER ROLE %I WITH LOGIN REPLICATION PASSWORD %L', :'replication_user', :'replication_password')
 \gexec
+GRANT cloudsqlsuperuser TO :"replication_user";
 GRANT CONNECT ON DATABASE :"database_name" TO :"replication_user";
 GRANT USAGE ON SCHEMA public TO :"replication_user";
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"replication_user";
