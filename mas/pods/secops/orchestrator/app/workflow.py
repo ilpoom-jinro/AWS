@@ -697,7 +697,19 @@ class SecOpsWorkflow:
                 )
                 event = representative_event.model_copy(update={"workflow_id": event.workflow_id})
 
-                if incident_group.is_threat_confirmed:
+                # 사슬 인과(is_threat_confirmed)와 개별 위협은 다른 질문이다 — "다단계
+                # 침투가 확정 안 됨"이 "위협이 아님"을 의미하지 않는다. 2026-07-16 실측:
+                # intruder의 port_scan(10포트, flow_count 40)이 DROPPED라 실제로
+                # temporal-frontend에 안 닿아 인과는 안 이어졌는데(Sonnet이 정확히 그렇게
+                # 판단, is_threat_confirmed=False) 예전엔 severity가 무조건 low로 깔려
+                # 카드 자체가 안 나갔다 — 포트스캔은 도달 성공 여부와 무관하게 그 자체로
+                # 위협인데도. threat_type=port_scan(이미 PORT_SCAN_THRESHOLD를 넘었다는
+                # 뜻 — 새 임계값이 아니라 기존 분류를 재사용)이 사슬에 하나라도 있으면
+                # 인과 미확정이어도 severity를 최소 high로 올린다. ringpop 노이즈만 있는
+                # 사슬(distinct_ports=2, threat_type=lateral_movement)은 이 조건에 안
+                # 걸려 여전히 low(카드 미발송, 재현 검증 완료).
+                has_port_scan = any(e.threat_type == "port_scan" for e in primary_events)
+                if incident_group.is_threat_confirmed or has_port_scan:
                     all_regs = sorted({r for m in primary_mappings for r in m.violated_regulations})
                     merged_evidence: dict = {
                         # 카드 렌더링(_render_evidence_for_card)이 이 값으로 IAM 전용 포맷과
@@ -743,14 +755,25 @@ class SecOpsWorkflow:
                         for policy in m.isolation_policy_yaml:
                             if policy not in isolation_policy_yaml:
                                 isolation_policy_yaml.append(policy)
+                    # 사슬 인과가 확정되면(다단계 침투 캠페인) critical, 인과는 미확정이나
+                    # 개별 포트스캔이 확인되면(단발 정찰 시도) high — "확정된 캠페인"과
+                    # "단발 스캔 시도"의 무게를 다르게 둔다. 둘 다 사람 승인 후 동일한
+                    # apply_isolation 경로를 타므로(승인하면 intruder 등 격리 가능)
+                    # severity/문구 외 구조는 동일하게 유지.
+                    if incident_group.is_threat_confirmed:
+                        severity = "critical"
+                        default_reg = "전자금융감독규정 — 네트워크 침해(다단계 침투) 의심"
+                    else:
+                        severity = "high"
+                        default_reg = "전자금융감독규정 — 포트스캔(정찰) 시도 확인, 다단계 침투 인과는 미확정"
                     mapping = RegulationMapping(
                         workflow_id=event.workflow_id,
-                        violated_regulations=all_regs or ["전자금융감독규정 — 네트워크 침해(다단계 침투) 의심"],
+                        violated_regulations=all_regs or [default_reg],
                         violation_description=incident_group.causal_summary,
                         blast_radius_safe=blast_radius_safe,
                         blast_radius_detail=blast_radius_detail,
                         analyzed_at=workflow.now(),
-                        severity="critical",
+                        severity=severity,
                         confidence=incident_group.correlation_confidence,
                         evidence=merged_evidence,
                         isolation_policy_yaml=isolation_policy_yaml,
