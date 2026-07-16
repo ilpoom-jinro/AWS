@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: secops-orchestrator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: secops-orchestrator
+subjects:
+  - kind: ServiceAccount
+    name: secops-orchestrator
+    namespace: secops-mas

@@ -5,6 +5,8 @@ resources:
   - namespace.yaml
   - serviceaccount.yaml
   - ui-serviceaccount.yaml
+  - clusterrole.yaml
+  - clusterrolebinding.yaml
   - external-secret.yaml
   - configmap.yaml
   - deployment.yaml

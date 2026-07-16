@@ -596,6 +596,25 @@ async def apply_isolation(mapping: RegulationMapping, dry_run: bool = False) -> 
     ]
     targets_str = ", ".join(targets)
 
+    # 최후 방어선(2026-07-17 추가) — workflow.py의 blast_radius_safe 게이트(critical
+    # 네임스페이스면 이 activity 자체가 안 불림)가 이미 있지만, RBAC을 ClusterRole로
+    # 넓히면서(네임스페이스가 가변이라 Role로 못 좁힘) 그 게이트가 버그로 뚫리는 경우의
+    # 피해 규모가 커졌다(kube-system/temporal 등에 enableDefaultDeny CNP가 실제로 나가면
+    # 클러스터/MAS 전체가 죽음). check_blast_radius(activities.py)와 동일한
+    # CRITICAL_NAMESPACES를 여기서도 재확인해 이중으로 막는다 — 이 검사가 걸리는 건
+    # 정상 경로에선 절대 없어야 하고(있으면 blast radius 계산 버그), 있으면 재시도해도
+    # 안 풀리므로 non_retryable.
+    blocked = [d for d in docs if d.get("metadata", {}).get("namespace", "") in CRITICAL_NAMESPACES]
+    if blocked:
+        blocked_str = ", ".join(
+            f"{d['metadata'].get('name', '?')}(ns={d['metadata']['namespace']})" for d in blocked
+        )
+        raise ApplicationError(
+            f"apply_isolation: critical 네임스페이스 대상 격리 거부 — {blocked_str} "
+            f"(blast_radius_safe 게이트를 통과했다면 그 계산 버그다, workflow_id={mapping.workflow_id})",
+            non_retryable=True,
+        )
+
     force_dry_run = os.getenv("ISOLATION_DRY_RUN", "").lower() == "true"
     no_cluster = False
     if not force_dry_run:
