@@ -11,6 +11,7 @@ resources:
   - allow-kube-apiserver.yaml
   - allow-node-local.yaml
   - allow-ztunnel-hbone.yaml
+  - allow-ebs-csi-ec2-endpoint.yaml
 
   # 네임스페이스별 intra allow (시스템)
   - allow-intra-namespace.yaml
@@ -42,11 +43,13 @@ resources:
   - allow-observability-velero-metrics.yaml
   - allow-alloy-egress.yaml
   - allow-alloy-ops-scraping.yaml
+  - allow-albc-metrics-from-alloy-ops.yaml
   - allow-platform-mas-sqs.yaml
   - allow-mas-rds.yaml
   - allow-secops-mas-sqs.yaml
   - allow-secops-mas-bedrock.yaml
   - allow-secops-mas-loki.yaml
+  - allow-loki-from-secops-mas.yaml
   - allow-finops-orchestrator-sqs.yaml
 
   # 앱별 allow (service 클러스터)

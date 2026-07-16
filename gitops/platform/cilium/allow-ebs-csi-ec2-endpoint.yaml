@@ -1,0 +1,41 @@
+# ebs-csi-controller(kube-system) → EC2 API(VPC 인터페이스 엔드포인트):443 egress 허용
+#
+# 실측(2026-07-16, 심각도 높음 — 단순 "새 프로비저닝 실패 예상"이 아니라 이미 장애 중):
+#   ebs-csi-controller-787d64f5f5-x7qk9 파드가 33시간째 CrashLoopBackOff(재시작 1527회) —
+#   health check(EC2 API dry-run: DescribeAvailabilityZones)가 "dial tcp 10.20.12.50:443:
+#   i/o timeout"으로 상시 실패해 컨테이너가 죽고 재시작을 반복 중이었다. 컨트롤러
+#   replica 중 하나가 이미 장기간 죽어있던 상태 — 이 정책이 그 원인을 없앤다.
+#
+# 라벨 실측 확인(kubectl get pod --show-labels):
+#   ebs-csi-controller-787d64f5f5-ptwl2: app.kubernetes.io/name=aws-ebs-csi-driver,
+#     app.kubernetes.io/component=csi-driver, app.kubernetes.io/managed-by=EKS, app=ebs-csi-controller
+#   (EKS 관리형 애드온이라 이 레포엔 로컬 Helm 차트가 없어 라벨을 여기서 직접 확인함)
+#
+# 목적지 판별(Hubble 실측): destination 라벨이 reserved:world + cidr:10.20.12.0/24 —
+# EC2 인터페이스 엔드포인트 ENI는 Cilium managed pod가 아니라 CIDR identity로만 잡히는
+# unmanaged 소스라 toEndpoints가 안 통한다(allow-dns-ingress.yaml:19 주석과 동일 케이스).
+# reserved:world이므로 인계 문서 규칙대로 toCIDR을 쓴다(reserved:unmanaged였다면
+# toEntities/fromEntities: [cluster]를 썼을 것).
+#
+# 대역: vpc/ops/endpoints.tf의 aws_vpc_endpoint.ec2가 쓰는
+# eks_bootstrap_endpoint_subnets = [private_a, private_b] (vpc/ops/subnets.tf:
+# private_a=10.20.11.0/24, private_b=10.20.12.0/24) — 실측 IP(10.20.12.50, 10.20.11.143)
+# 둘 다 이 안에 들어옴. allow-mas-rds.yaml(RDS 서브넷)과 동일 패턴.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ebs-csi-ec2-endpoint
+spec:
+  description: "ebs-csi-controller → EC2 VPC 엔드포인트:443 egress 허용"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: aws-ebs-csi-driver
+  egress:
+    - toCIDR:
+        - 10.20.11.0/24  # financial-vpc2-private-a
+        - 10.20.12.0/24  # financial-vpc2-private-b
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
