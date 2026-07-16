@@ -346,6 +346,36 @@ def _summarize_iam_actions(events: list[SecurityEvent]) -> str:
     return ", ".join(parts) if parts else "대응 대상 없음"
 
 
+def _chain_peak_signal(events: list[SecurityEvent]) -> tuple[int, int]:
+    """사슬 선택 기준 — "최다 이벤트 수(그룹 수)"를 대체한다.
+
+    2026-07-16 실측(workflow secops-ui-d19e6bdae737)으로 실패가 확인됨: 진짜 공격
+    (port_scan, 10개 포트, 단일 그룹 flow_count=40, 총 1개 그룹)이 temporal ringpop
+    stale membership 노이즈(포트 2개, 그룹당 flow_count 최대 16, 총 5개 그룹)에
+    5:1로 밀려 network_scenario_other_chains_deferred로 배제되고 노이즈가 "안전
+    (low)"으로 카드에 나갔다. 상시 노이즈는 NETWORK_SUBWINDOW_SECONDS(120초) 단위로
+    쪼개지는 구조상 항상 그룹 수가 많고, 버스트 공격은 짧은 시간에 끝나 항상 그룹
+    수가 적다 — 그룹 수(지속성)는 구조적으로 공격에 불리하게 작동해 기준이 될 수
+    없다(양이 아니라 지속성이 이기는 구조).
+
+    대신 사슬에 속한 이벤트들의 "가장 의심스러운 단일 순간"(그룹 하나하나의
+    강도, sum/average 아님 — MAX)을 대표값으로 삼는다. confidence/severity는 이
+    데이터셋에서 전 이벤트 동일(0.6/medium)이라 변별력이 없어 제외.
+    (distinct_destination_ports 개수, flow_count) 튜플을 사전식(lexicographic)으로
+    비교 — 포트 개수(정찰 폭)를 1순위로 둔 이유: flow_count는 정상 트래픽(스크레이핑
+    등)도 쉽게 커질 수 있어 단독 신호로 약하지만(수정 1의 Alloy 8085 노이즈가 실증
+    사례), distinct_destination_ports는 port_scan 분류 자체의 근거이자 정상 트래픽이
+    우연히 만들기 어려운 신호다. flow_count는 포트 수가 같을 때만 tiebreaker로 쓴다.
+    이 실측 데이터로 검증: 공격 (10, 40) vs 노이즈 최댓값 (2, 16) → (10,40) > (2,16)."""
+    best = (0, 0)
+    for e in events:
+        ev = extract_evidence(e)
+        ports = len(ev.get("distinct_destination_ports") or [])
+        flows = int(ev.get("flow_count") or 0)
+        best = max(best, (ports, flows))
+    return best
+
+
 @workflow.defn
 class SecOpsWorkflow:
     def __init__(self) -> None:
@@ -599,18 +629,21 @@ class SecOpsWorkflow:
                 # evidence에 실어 보냄)로 그룹화해야 한다 — 그래야 A의 스캔과 B의 유출이
                 # 같은 IncidentGroup에 들어가 Sonnet이 사슬로 판단할 수 있다.
                 # 여전히 "1 워크플로우 = 1 사슬" 원칙이라, 서로 무관한 사슬이 여러 개면
-                # 이번 실행은 이벤트 수가 가장 많은 사슬 하나만 처리한다. 나머지는 유실이
-                # 아니라 다음 수동 트리거 때 다시 lookback 창에 걸려 잡힌다(지연 처리).
+                # 이번 실행은 가장 위험한 사슬 하나만 처리한다(_chain_peak_signal — 더 이상
+                # "이벤트 수 최다"가 아님, 2026-07-16 실측으로 이벤트 수 기준의 실패가
+                # 확인됨: 상시 노이즈가 그룹 수만 많을 뿐인데 진짜 공격을 밀어냄).
+                # 나머지는 유실이 아니라 다음 수동 트리거 때 다시 lookback 창에 걸려
+                # 잡힌다(지연 처리, deferred_chain_count로 카드에도 노출).
                 by_chain: dict[str, list[SecurityEvent]] = {}
                 for judged_event in judged_events:
                     chain_id = extract_evidence(judged_event).get("chain_id") or judged_event.workload_name
                     by_chain.setdefault(chain_id, []).append(judged_event)
-                primary_chain = max(by_chain, key=lambda k: len(by_chain[k]))
+                primary_chain = max(by_chain, key=lambda k: _chain_peak_signal(by_chain[k]))
                 other_chains = [c for c in by_chain if c != primary_chain]
                 if other_chains:
                     await self._audit(
                         event.workflow_id, "network_scenario_other_chains_deferred",
-                        "같은 창에 다른 침투 사슬도 있음 — 이번 실행은 최다 이벤트 사슬만 처리",
+                        "같은 창에 다른 침투 사슬도 있음 — 이번 실행은 가장 위험한 사슬만 처리",
                         {"primary_chain": primary_chain, "deferred_chains": other_chains},
                     )
                 primary_events = by_chain[primary_chain]
