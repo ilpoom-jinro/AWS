@@ -33,24 +33,24 @@ phases:
             test -n "${rds_ip}"
 
             cat <<EOF | kubectl --context "${context}" apply -f -
-apiVersion: cilium.io/v2
-kind: CiliumClusterwideNetworkPolicy
-metadata:
-  name: ${policy_name}
-spec:
-  description: "Temporary DR fence: deny stock-api egress to RDS PostgreSQL"
-  endpointSelector:
-    matchLabels:
-      io.kubernetes.pod.namespace: stock-demo
-      app: stock-api
-  egressDeny:
-    - toCIDRSet:
-        - cidr: ${rds_ip}/32
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
-EOF
+        apiVersion: cilium.io/v2
+        kind: CiliumClusterwideNetworkPolicy
+        metadata:
+          name: ${policy_name}
+        spec:
+          description: "Temporary DR fence: deny stock-api egress to RDS PostgreSQL"
+          endpointSelector:
+            matchLabels:
+              io.kubernetes.pod.namespace: stock-demo
+              app: stock-api
+          egressDeny:
+            - toCIDRSet:
+                - cidr: ${rds_ip}/32
+              toPorts:
+                - ports:
+                    - port: "5432"
+                      protocol: TCP
+        EOF
             kubectl --context "${context}" get ciliumclusterwidenetworkpolicy "${policy_name}" -o yaml
             ;;
           unfence)
