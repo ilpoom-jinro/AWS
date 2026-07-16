@@ -12,7 +12,34 @@ type Recommendation = {
   recommendationDate: string;
 };
 
+type DeploymentOrigin = {
+  environment: "AWS" | "GCP" | "UNKNOWN";
+  label: string;
+  region: string;
+};
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+
+const defaultDeploymentOrigin: DeploymentOrigin = {
+  environment: "UNKNOWN",
+  label: "CHECKING",
+  region: "",
+};
+
+function isDeploymentOrigin(value: unknown): value is DeploymentOrigin {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate.environment === "AWS" ||
+      candidate.environment === "GCP" ||
+      candidate.environment === "UNKNOWN") &&
+    typeof candidate.label === "string" &&
+    typeof candidate.region === "string"
+  );
+}
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("ko-KR").format(value);
@@ -33,6 +60,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [deploymentOrigin, setDeploymentOrigin] =
+    useState<DeploymentOrigin>(defaultDeploymentOrigin);
 
   useEffect(() => {
     fetch(`${apiBaseUrl}/api/recommendations`)
@@ -51,6 +80,24 @@ function App() {
       })
       .finally(() => {
         setIsLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetch("/deployment.json", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load deployment origin.");
+        }
+        return response.json();
+      })
+      .then((data: unknown) => {
+        if (isDeploymentOrigin(data)) {
+          setDeploymentOrigin(data);
+        }
+      })
+      .catch(() => {
+        setDeploymentOrigin(defaultDeploymentOrigin);
       });
   }, []);
 
@@ -82,6 +129,14 @@ function App() {
           <a>Architecture</a>
           <a>Support</a>
         </nav>
+        <div
+          className={`deploymentBadge deploymentBadge${deploymentOrigin.environment}`}
+          aria-label={`Traffic origin: ${deploymentOrigin.label}`}
+        >
+          <span>TRAFFIC ORIGIN</span>
+          <strong>{deploymentOrigin.label}</strong>
+          {deploymentOrigin.region && <small>{deploymentOrigin.region}</small>}
+        </div>
       </header>
 
       <section className="subnav">

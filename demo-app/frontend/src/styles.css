@@ -76,6 +76,44 @@ a {
   color: #e60012;
 }
 
+.deploymentBadge {
+  align-items: center;
+  border: 1px solid #98a2b3;
+  color: #344054;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: auto;
+  min-width: 144px;
+  padding: 7px 10px;
+  text-align: center;
+}
+
+.deploymentBadge span {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.deploymentBadge strong {
+  font-size: 13px;
+}
+
+.deploymentBadge small {
+  font-size: 11px;
+}
+
+.deploymentBadgeAWS {
+  background: #fff2f3;
+  border-color: #e60012;
+  color: #b42318;
+}
+
+.deploymentBadgeGCP {
+  background: #eef4ff;
+  border-color: #2e67d1;
+  color: #1849a9;
+}
+
 .subnav {
   align-items: center;
   background: #252b36;
@@ -252,6 +290,11 @@ td:last-child {
     height: 50px;
     overflow-x: auto;
     width: 100%;
+  }
+
+  .deploymentBadge {
+    align-self: stretch;
+    margin: 0 0 14px;
   }
 
   .topbar nav a {
