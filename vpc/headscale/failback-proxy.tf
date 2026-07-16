@@ -125,6 +125,9 @@ resource "aws_ssm_document" "cloudsql_reverse_replication" {
           #!/usr/bin/env bash
           set -euo pipefail
 
+          export AWS_REGION='${var.aws_region}'
+          export AWS_DEFAULT_REGION='${var.aws_region}'
+
           command -v aws >/dev/null
           command -v jq >/dev/null
           test -x /usr/local/sbin/cloudsql-reverse-replication
@@ -174,6 +177,9 @@ resource "aws_ssm_document" "cloudsql_reverse_replication_cleanup" {
         runCommand = [<<-EOT
           #!/usr/bin/env bash
           set -euo pipefail
+
+          export AWS_REGION='${var.aws_region}'
+          export AWS_DEFAULT_REGION='${var.aws_region}'
 
           command -v aws >/dev/null
           command -v jq >/dev/null
