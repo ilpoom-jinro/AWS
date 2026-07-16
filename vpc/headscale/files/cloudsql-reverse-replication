@@ -265,7 +265,7 @@ chmod 600 "$dump_file"
 
 echo "Exporting Cloud SQL data baseline..."
 PGPASSWORD="$CLOUDSQL_ADMIN_PASSWORD" pg_dump \
-  "host=${CLOUDSQL_HOST} port=${CLOUDSQL_PORT} dbname=${DATABASE_NAME} user=${CLOUDSQL_ADMIN_USER} sslmode=require" \
+  --dbname="host=${CLOUDSQL_HOST} port=${CLOUDSQL_PORT} dbname=${DATABASE_NAME} user=${CLOUDSQL_ADMIN_USER} sslmode=require" \
   --format=custom --no-owner --no-privileges --file="$dump_file"
 
 if (( active_rds_sessions > 0 )); then
@@ -280,7 +280,7 @@ fi
 
 echo "Restoring Cloud SQL baseline into AWS RDS. Existing RDS data will be replaced."
 PGPASSWORD="$RDS_ADMIN_PASSWORD" pg_restore \
-  "host=${RDS_HOST} port=${RDS_PORT} dbname=${DATABASE_NAME} user=${RDS_ADMIN_USER} sslmode=require" \
+  --dbname="host=${RDS_HOST} port=${RDS_PORT} dbname=${DATABASE_NAME} user=${RDS_ADMIN_USER} sslmode=require" \
   --clean --if-exists --no-owner --no-privileges --exit-on-error "$dump_file"
 
 subscription_conninfo="host=$(conninfo_quote "$FAILBACK_PROXY_HOST") port=$(conninfo_quote "$FAILBACK_PROXY_PORT") dbname=$(conninfo_quote "$DATABASE_NAME") user=$(conninfo_quote "$REPLICATION_USER") password=$(conninfo_quote "$REPLICATION_PASSWORD") sslmode=require"
