@@ -94,7 +94,9 @@ resource "aws_route53_health_check" "aws_primary" {
 }
 
 # 계획된 DR 리허설에서만 CloudWatch custom metric을 1로 기록해 ALARM을 만든다.
-# 실제 /healthz 검사와 분리했으므로 애플리케이션 엔드포인트를 일부러 실패시킬 필요가 없다.
+# 지표가 없을 때는 마지막 상태를 유지해야 failover/failback workflow가 기록한 1/0이
+# 다음 전환까지 지속된다. 초기 INSUFFICIENT_DATA는 Route 53 health check에서 Healthy로
+# 취급하므로 평상시 AWS PRIMARY 라우팅에는 영향을 주지 않는다.
 resource "aws_cloudwatch_metric_alarm" "dr_force_failover" {
   alarm_name          = "financial-stock-web-dr-force-failover"
   alarm_description   = "Test-only Route 53 failover gate for the AWS primary service"
@@ -106,7 +108,7 @@ resource "aws_cloudwatch_metric_alarm" "dr_force_failover" {
   evaluation_periods  = 1
   comparison_operator = "GreaterThanThreshold"
   threshold           = 0
-  treat_missing_data  = "notBreaching"
+  treat_missing_data  = "missing"
   actions_enabled     = false
 
   tags = {
