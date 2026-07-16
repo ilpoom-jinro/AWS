@@ -129,19 +129,19 @@ resource "aws_ssm_document" "cloudsql_reverse_replication" {
           command -v jq >/dev/null
           test -x /usr/local/sbin/cloudsql-reverse-replication
 
-          failback_secret="$$(aws secretsmanager get-secret-value \
+          failback_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
             --query SecretString --output text)"
-          rds_secret="$$(aws secretsmanager get-secret-value \
+          rds_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${var.service_rds_secret_arn}' \
             --query SecretString --output text)"
 
-          export CLOUDSQL_ADMIN_USER="$$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
-          export CLOUDSQL_ADMIN_PASSWORD="$$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
-          export REPLICATION_PASSWORD="$$(jq -er '.replication_password' <<<"$${failback_secret}")"
-          export RDS_HOST="$$(jq -er '.host' <<<"$${rds_secret}")"
-          export RDS_ADMIN_USER="$$(jq -er '.username' <<<"$${rds_secret}")"
-          export RDS_ADMIN_PASSWORD="$$(jq -er '.password' <<<"$${rds_secret}")"
+          export CLOUDSQL_ADMIN_USER="$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
+          export CLOUDSQL_ADMIN_PASSWORD="$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
+          export REPLICATION_PASSWORD="$(jq -er '.replication_password' <<<"$${failback_secret}")"
+          export RDS_HOST="$(jq -er '.host' <<<"$${rds_secret}")"
+          export RDS_ADMIN_USER="$(jq -er '.username' <<<"$${rds_secret}")"
+          export RDS_ADMIN_PASSWORD="$(jq -er '.password' <<<"$${rds_secret}")"
           export FAILBACK_PROXY_HOST='${aws_instance.headscale_router.private_ip}'
 
           exec /usr/local/sbin/cloudsql-reverse-replication \
@@ -179,19 +179,19 @@ resource "aws_ssm_document" "cloudsql_reverse_replication_cleanup" {
           command -v jq >/dev/null
           test -x /usr/local/sbin/cloudsql-reverse-replication
 
-          failback_secret="$$(aws secretsmanager get-secret-value \
+          failback_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
             --query SecretString --output text)"
-          rds_secret="$$(aws secretsmanager get-secret-value \
+          rds_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${var.service_rds_secret_arn}' \
             --query SecretString --output text)"
 
-          export CLOUDSQL_ADMIN_USER="$$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
-          export CLOUDSQL_ADMIN_PASSWORD="$$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
-          export REPLICATION_PASSWORD="$$(jq -er '.replication_password' <<<"$${failback_secret}")"
-          export RDS_HOST="$$(jq -er '.host' <<<"$${rds_secret}")"
-          export RDS_ADMIN_USER="$$(jq -er '.username' <<<"$${rds_secret}")"
-          export RDS_ADMIN_PASSWORD="$$(jq -er '.password' <<<"$${rds_secret}")"
+          export CLOUDSQL_ADMIN_USER="$(jq -er '.cloudsql_admin_user' <<<"$${failback_secret}")"
+          export CLOUDSQL_ADMIN_PASSWORD="$(jq -er '.cloudsql_admin_password' <<<"$${failback_secret}")"
+          export REPLICATION_PASSWORD="$(jq -er '.replication_password' <<<"$${failback_secret}")"
+          export RDS_HOST="$(jq -er '.host' <<<"$${rds_secret}")"
+          export RDS_ADMIN_USER="$(jq -er '.username' <<<"$${rds_secret}")"
+          export RDS_ADMIN_PASSWORD="$(jq -er '.password' <<<"$${rds_secret}")"
           export FAILBACK_PROXY_HOST='${aws_instance.headscale_router.private_ip}'
 
           exec /usr/local/sbin/cloudsql-reverse-replication \
