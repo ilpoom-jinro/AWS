@@ -1,0 +1,36 @@
+# gitops/platform/cilium/ 단일 경로가 cilium-policies-ops/cilium-policies-service
+# 양쪽 ArgoCD Application에 동일하게 sync된다 — source가 observability-alloy-ops
+# 인스턴스(ops 클러스터 전용, service 클러스터는 observability-alloy-service를 씀)라
+# service 클러스터에는 매칭되는 파드가 없어 이 정책은 그쪽에서 사실상 no-op이다
+# (해는 없음, 단지 미사용).
+#
+# istio-system/istiod:15014 ingress 허용 (alloy-ops metrics scrape)
+#
+# egress는 이미 allow-alloy-egress.yaml의 toEntities:[unmanaged](istiod가
+# reserved:unmanaged로 인식되는 alloy-ops egress 쪽 규칙)로 열려 있음 — ingress
+# 짝이 빠져 allow-albc-metrics-from-alloy-ops.yaml과 동일 패턴으로 DROP됨.
+#
+# 확인한 사실(실측, 추측 아님):
+#   - 5분 창 110건
+#   - Hubble flow 실측: observability/observability-alloy-ops ->
+#     istio-system/istiod-dbfb6545d-pldvr:15014 INGRESS POLICY_DENIED
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-istiod-metrics-from-alloy-ops
+spec:
+  description: "istio-system/istiod:15014 ingress 허용 (alloy-ops scrape, allow-alloy-egress의 ingress 짝)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: istiod
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
+      toPorts:
+        - ports:
+            - port: "15014"
+              protocol: TCP

@@ -1,0 +1,35 @@
+# gitops/platform/cilium/ 단일 경로가 cilium-policies-ops/cilium-policies-service
+# 양쪽 ArgoCD Application에 동일하게 sync된다 — istio-system/istiod는 ops·service
+# 양쪽 클러스터 모두에 존재(Ambient 컨트롤플레인)하므로 이 정책은 양쪽에서 실제로
+# 유효하게 동작한다(no-op 아님, 양쪽 다 kube-apiserver→istiod admission webhook 필요).
+#
+# kube-apiserver → istiod:15017 admission webhook(mutating/validating) 호출 허용
+#
+# 확인한 사실(실측, 추측 아님):
+#   - 5분 창 POLICY_DENIED 280건(전체 1,192건 중 최다)
+#   - Hubble flow 실측:
+#       10.20.12.100 id=16777321
+#       labels=[cidr:10.20.12.100/32,reserved:kube-apiserver,reserved:world]
+#       -> 10.20.12.44:15017 INGRESS POLICY_DENIED
+#   - istio-sidecar-injector / istio-validator-istio-system /
+#     istiod-default-validator 전부 failurePolicy: Fail
+#     → 현재 Istio CRD 생성·수정이 실패하는 상태(CRITICAL)
+#   - identity가 reserved:world를 동시에 갖지만 fromEntities:[kube-apiserver]로
+#     매칭됨(allow-apiserver-kyverno-webhook이 동일 패턴으로 이미 정상 동작 중인 것으로 검증)
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-apiserver-istiod-webhook
+spec:
+  description: "kube-apiserver → istiod:15017 ingress 허용 (admission webhook: sidecar-injector/validator)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: istio-system
+      app: istiod
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "15017"
+              protocol: TCP

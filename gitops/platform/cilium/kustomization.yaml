@@ -18,6 +18,7 @@ resources:
 
   # apiserver admission webhook allow (ops + service 양쪽)
   - allow-apiserver-albc-webhook.yaml
+  - allow-apiserver-istiod-webhook.yaml
   - allow-apiserver-kyverno-webhook.yaml
   - allow-apiserver-metrics-server.yaml
 
@@ -44,6 +45,8 @@ resources:
   - allow-alloy-egress.yaml
   - allow-alloy-ops-scraping.yaml
   - allow-albc-metrics-from-alloy-ops.yaml
+  - allow-istiod-metrics-from-alloy-ops.yaml
+  - allow-temporal-metrics-from-alloy-ops.yaml
   - allow-platform-mas-sqs.yaml
   - allow-mas-rds.yaml
   - allow-secops-mas-sqs.yaml

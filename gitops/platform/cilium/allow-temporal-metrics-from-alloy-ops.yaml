@@ -1,0 +1,34 @@
+# gitops/platform/cilium/ 단일 경로가 cilium-policies-ops/cilium-policies-service
+# 양쪽 ArgoCD Application에 동일하게 sync된다 — temporal 네임스페이스와
+# observability-alloy-ops 인스턴스 둘 다 ops 클러스터 전용(temporal은 공용
+# 클러스터에 없고, service는 observability-alloy-service를 씀)이라 service
+# 클러스터에는 소스·대상 파드가 모두 없어 이 정책은 그쪽에서 사실상 이중 no-op이다.
+#
+# temporal(전 컴포넌트):9090 ingress 허용 (alloy-ops metrics scrape)
+#
+# egress는 이미 allow-alloy-egress.yaml의 toEntities:[cluster]로 열려 있음 —
+# ingress 짝이 빠져 DROP됨.
+#
+# 확인한 사실(실측, 추측 아님):
+#   - 5분 창 438건(frontend 110 / history 110 / matching 110 / worker 108)
+#   - 네임스페이스 단위 셀렉터 사용 — allow-temporal-from-mas와 동일하게, 컴포넌트별
+#     라벨로 좁히면 컴포넌트가 늘 때마다 또 구멍이 생기므로 네임스페이스 전체로 잡음
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-temporal-metrics-from-alloy-ops
+spec:
+  description: "temporal(전 컴포넌트):9090 ingress 허용 (alloy-ops scrape, allow-alloy-egress의 ingress 짝)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: temporal
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
