@@ -7,6 +7,19 @@
 #     (helmChart/charts/velero/templates/node-agent-daemonset.yaml:28 — app.kubernetes.io/name은
 #     velero 컴포넌트 전체에 공통이라 name: node-agent로 좁힘)
 #   - 컨테이너 포트 http-monitoring = 8085 (같은 템플릿:93-94, Velero 백업 메트릭 노출 포트)
+#
+# 2026-07-16 실측 후 정정 — ingress를 name: node-agent로 좁혔던 게 오히려 구멍이 됐다:
+#   velero Deployment(서버) 파드(name=velero, app.kubernetes.io/name=velero,
+#   app.kubernetes.io/instance=velero — node-agent와 app.kubernetes.io/name/instance를
+#   공유함, 실측 확인)의 8085 메트릭이 이 ingress 셀렉터에 안 걸려 DROP됐고, SecOps
+#   침투 시나리오가 이 DROP을 lateral_movement로 오탐했다(2026-07-16 실측).
+#   그래서 ingress 셀렉터를 두 컴포넌트가 공유하는 app.kubernetes.io/name=velero +
+#   app.kubernetes.io/instance=velero로 다시 넓혔다 — 범위 제한은 셀렉터가 아니라
+#   포트(8085 고정)가 담당한다. alloy→velero 단방향이라 velero가 침해돼도 이 경로로
+#   할 수 있는 게 없어(스크레이핑 대상일 뿐 응답 전송 방향), 셀렉터를 넓혀도 실질
+#   위험 증가는 없다고 판단함. 다음에 velero 하위 컴포넌트가 늘어도(예: backup-repo
+#   pod) app.kubernetes.io/name=velero만 공유하면 이 정책이 자동으로 커버한다 —
+#   컴포넌트 늘 때마다 정책을 따라 좁히는 구조가 이미 한 번 구멍을 냈다.
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -19,6 +32,10 @@ spec:
       app.kubernetes.io/name: alloy
       app.kubernetes.io/instance: observability-alloy-ops
   egress:
+    # node-agent로 좁힌 채 그대로 둠(위 ingress와 달리 넓히지 않음) — allow-alloy-egress.yaml의
+    # toEntities: cluster(포트 제한 없음)가 alloy-ops의 클러스터 내부 egress를 이미 전부
+    # 커버해서, 이 규칙은 2026-07-16 확인 시점 기준 이미 중복이다(있으나 없으나 영향 없음).
+    # 중복 규칙을 새로 넓혀봐야 실효가 없어 egress는 손대지 않는다.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: velero
@@ -33,11 +50,12 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: allow-velero-metrics-from-alloy-ops
 spec:
-  description: "velero/node-agent:8085 ingress 허용 (alloy-ops에서 수신)"
+  description: "velero(서버+node-agent, app.kubernetes.io/name=velero 공유):8085 ingress 허용 (alloy-ops에서 수신)"
   endpointSelector:
     matchLabels:
       io.kubernetes.pod.namespace: velero
-      name: node-agent
+      app.kubernetes.io/name: velero
+      app.kubernetes.io/instance: velero
   ingress:
     - fromEndpoints:
         - matchLabels:

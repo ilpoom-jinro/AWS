@@ -1,0 +1,32 @@
+# aws-load-balancer-controller:8080 ingress 허용 (alloy-ops metrics scrape)
+#
+# egress는 이미 allow-alloy-egress.yaml의 toEntities:cluster(포트 제한 없음)로 열려 있음
+# (그 파일 헤더 주석에 aws-load-balancer-controller:8080이 대상으로 명시돼 있음) — ingress
+# 짝이 빠져 secops-mas→Loki(allow-secops-mas-loki.yaml)와 동일 패턴으로 DROP됨.
+# 실측(Hubble, 2026-07-16): observability/observability-alloy-ops ->
+# kube-system/aws-load-balancer-controller-bd88f85-vw9wl:8080 POLICY_DENIED INGRESS
+#
+# 라벨 실측 확인(kubectl get pod --show-labels):
+#   aws-load-balancer-controller-bd88f85-vw9wl: app.kubernetes.io/name=aws-load-balancer-controller,
+#     app.kubernetes.io/instance=aws-load-balancer-controller
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-albc-metrics-from-alloy-ops
+spec:
+  description: "aws-load-balancer-controller:8080 ingress 허용 (alloy-ops scrape)"
+  endpointSelector:
+    matchLabels:
+      io.kubernetes.pod.namespace: kube-system
+      app.kubernetes.io/name: aws-load-balancer-controller
+      app.kubernetes.io/instance: aws-load-balancer-controller
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+            app.kubernetes.io/name: alloy
+            app.kubernetes.io/instance: observability-alloy-ops
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP

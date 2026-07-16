@@ -1,0 +1,34 @@
+# observability(Loki) <- secops-mas query_range HTTP ingress 허용
+# (allow-secops-mas-loki.yaml — secops-mas → Loki egress의 ingress 짝)
+#
+# 왜 필요한가: ops 클러스터는 default-deny(default-deny.yaml)라 egress만 열어두면
+# 목적지(Loki) 쪽에 대응하는 ingress allow가 없어 여전히 막힌다. allow-observability-nlb.yaml의
+# allow-observability-nlb-loki는 10.20.0.0/16 CIDR 기준 ingress라 "unmanaged pod(alloy 등)"
+# 소스에는 실증됐지만, secops-mas는 managed pod라 별도 endpointSelector 기반 규칙이 필요하다
+# (allow-secops-mas-loki.yaml 작성 당시 이 CIDR 규칙이 managed pod도 커버할 거라고 가정한 게
+# 틀렸다 — 실측: 이 정책 없이는 Hubble에서 policy-verdict:none INGRESS DENIED, 추가 후
+# policy-verdict:L3-L4 INGRESS ALLOWED로 확인됨).
+#
+# 범위를 네임스페이스 단위(io.kubernetes.pod.namespace: secops-mas)로 잡은 이유: egress
+# 쪽(allow-secops-mas-loki.yaml)의 endpointSelector도 ns 단위라 대칭이고, secops-mas 안
+# 파드 레이블 규칙이 제각각이라(secops-orchestrator: app=..., secops-ui: app.kubernetes.io/name=...)
+# 특정 파드 레이블로 좁히면 유지보수 부담만 커진다. 포트는 Loki query API(3100) 하나로 제한.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-loki-from-secops-mas
+spec:
+  description: "observability(Loki) <- secops-mas query_range HTTP ingress 허용 (allow-secops-mas-to-loki의 ingress 짝)"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: observability-loki
+      io.kubernetes.pod.namespace: observability
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: secops-mas
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
