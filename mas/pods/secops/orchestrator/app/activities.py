@@ -1328,7 +1328,17 @@ def _describe_account_takeover_events(incident_group: IncidentGroup) -> tuple[st
 def _describe_intrusion_events(incident_group: IncidentGroup) -> tuple[str, str]:
     """워크로드 건너가는 사슬(A→B)일 수 있어 각 줄에 소스 워크로드를 명시하고, 목적지도
     IP 대신 (알려진 경우) 목적지 워크로드 이름으로 보여준다 — Sonnet이 "이 레코드의 목적지가
-    다른 레코드의 소스와 같은 워크로드"임을 직접 읽어내 사슬을 재구성할 수 있게."""
+    다른 레코드의 소스와 같은 워크로드"임을 직접 읽어내 사슬을 재구성할 수 있게.
+
+    2026-07-16 실측으로 발견된 문제 수정: 카드 서사가 "인과 사슬이 성립한다"처럼 인과를
+    단정했는데, 이 레코드는 전부 verdict=DROPPED다(hubble.export.static.allowList가
+    {"verdict":["DROPPED"]}뿐이라 여기 들어오는 레코드는 구조적으로 전부 차단된 시도임) —
+    intruder는 목적지에 닿은 적이 없어 "닿지 못한 시도가 목적지를 침해했다"는 인과는 근거가
+    없다. 같은 데이터로 도는 postmortem(_draft_postmortem_with_bedrock)은 이벤트 전체를
+    JSON으로 그대로 넘겨(raw_log에 "DROPPED" 텍스트가 실제로 포함됨) 정확히 "차단된
+    상태"라고 썼는데, 여기는 threat_type/workload/destination만 요약해서 넘겨 DROPPED라는
+    사실 자체가 안 보였다 — 판단 로직(JSON 스키마, "판단해라" 지시)은 그대로 두고 사실만
+    명시적으로 추가한다(각 줄에 verdict, 시스템 프롬프트에 그 의미)."""
     from .detection import extract_evidence
 
     lines = []
@@ -1342,7 +1352,7 @@ def _describe_intrusion_events(incident_group: IncidentGroup) -> tuple[str, str]
             f"{i}. {event.detected_at.isoformat()} threat_type={event.threat_type} "
             f"{event.workload_name or event.source_pod}({event.namespace}) -> "
             f"{destination_label}:{event.destination_port}/{event.protocol} "
-            f"direction={event.direction}"
+            f"direction={event.direction} verdict=DROPPED(차단됨, 목적지 도달 실패)"
         )
     user_text = (
         f"[관련 워크로드]\n{incident_group.correlation_key}\n\n"
@@ -1351,11 +1361,16 @@ def _describe_intrusion_events(incident_group: IncidentGroup) -> tuple[str, str]
     system_prompt = (
         "너는 클라우드 네트워크 침해 여부를 판단하는 보안 분석가다. 아래는 하나 이상의 "
         "워크로드에 걸쳐 시간순으로 발생한 Cilium 차단(DROPPED) 이벤트들이다(포트스캔/"
-        "측면이동/비정상 외부 outbound 후보) — 한 레코드의 목적지가 다른 레코드의 소스와 "
-        "같은 워크로드면 워크로드를 건너가는 사슬(예: A가 스캔한 뒤 B로 이동, B가 외부로 "
-        "유출)일 수 있다. 이 사건이 포트스캔→측면이동→외부유출로 이어지는 다단계 침투인지 "
-        "판단해라. 사건 요약(Attack Summary)도 작성해라. 근거에 없는 사실을 지어내지 마라. "
-        "반드시 아래 JSON만 출력해라.\n"
+        "측면이동/비정상 외부 outbound 후보) — 전부 verdict=DROPPED, 즉 Cilium 정책에 막혀 "
+        "목적지에 도달하지 못한 시도다. 도달하지 못한 시도가 목적지를 실제로 침해했다고 "
+        "단정하지 마라(예: A→B가 DROPPED면 A가 B를 침해한 게 아니라 B로의 접근을 '시도'만 "
+        "한 것이다) — causal_summary에도 이 점을 반영해라(예: \"인과가 성립한다\"가 아니라 "
+        "\"시간적으로 근접한 차단된 시도들이며 실제 도달·침해는 없었다\"는 식으로). 한 레코드의 "
+        "목적지가 다른 레코드의 소스와 같은 워크로드면 워크로드를 건너가는 사슬(예: A가 B를 "
+        "스캔 시도한 뒤 B가 C로 접근을 시도)일 수 있으나, 이 역시 시도들의 시간적 근접일 뿐 "
+        "확정된 침해 경로가 아님을 명확히 해라. 이 사건이 포트스캔→측면이동→외부유출로 "
+        "이어지는 다단계 침투 '시도'인지 판단해라. 사건 요약(Attack Summary)도 작성해라. "
+        "근거에 없는 사실을 지어내지 마라. 반드시 아래 JSON만 출력해라.\n"
         '{"is_threat_confirmed": bool, "confidence": float, "causal_summary": string}'
     )
     return system_prompt, user_text

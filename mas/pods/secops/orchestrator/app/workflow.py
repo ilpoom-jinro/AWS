@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     from contracts.models import (
         ApprovalRequest,
         ApprovalResult,
+        ApprovalTicket,
         AuditLog,
         ComplianceReport,
         DetectThreatInput,
@@ -223,14 +224,15 @@ def _render_intrusion_evidence(evidence: dict) -> str:
     if correlation_key:
         lines.append(f"\n관련 워크로드: {correlation_key}")
 
-    # 최다 이벤트 사슬 하나만 이 카드에 실린다 — 같은 창에 배제된 다른 사슬이 있으면
-    # 운영자가 카드만 보고도 "이번 판정이 전부가 아니다"를 알 수 있게 명시한다
-    # (기존엔 audit 로그에만 남고 카드엔 안 보였음 — chain 선택 휴리스틱 자체는 안 건드리고
-    # 최소 안전장치만 추가, 2026-07-16).
+    # 가장 위험한 사슬(_chain_peak_signal) 하나만 이 카드에 실린다 — 같은 창에 배제된
+    # 다른 사슬이 있으면 운영자가 카드만 보고도 "이번 판정이 전부가 아니다"를 알 수
+    # 있게 명시한다(기존엔 audit 로그에만 남고 카드엔 안 보였음, 2026-07-16 추가).
+    # "최다 이벤트"는 이후 라운드에서 _chain_peak_signal(사슬 내 최대 (distinct_port
+    # 수, flow_count) 튜플)로 교체됐다 — 문구도 실제 기준에 맞게 갱신(2026-07-16).
     deferred = evidence.get("deferred_chain_count", 0)
     if deferred:
         lines.append(
-            f"\n⚠ 같은 창에 배제된 침투 사슬 {deferred}개 있음 — 이번 판정은 최다 이벤트 "
+            f"\n⚠ 같은 창에 배제된 침투 사슬 {deferred}개 있음 — 이번 판정은 가장 위험한 "
             f"사슬만 다룸, 다음 lookback에서 재평가됨"
         )
 
@@ -705,12 +707,12 @@ class SecOpsWorkflow:
                         "incident_event_count": len(incident_group.events),
                         "correlation_key": incident_group.correlation_key,
                         # chains>1이면(같은 창에 서로 무관한 침투 사슬이 더 있으면) 카드에
-                        # 경고를 남긴다 — 최다 이벤트 사슬 선택 자체는 안 건드림(2026-07-16
-                        # 결정: 수정 1로 노이즈 92% 제거 + 오늘 머지된 CCNP 3건으로 alloy가
-                        # 더는 DROPPED 레코드를 만들지 않아, 오늘 실제로 벌어진 "alloy와
-                        # istiod가 우연히 한 사슬로 묶인" 사례는 재발 불가로 판단했으나,
-                        # "공격자가 노이즈를 일부러 만들면 진짜 공격을 가릴 수 있다"는 지적은
-                        # 여전히 유효한 별개 위험이라 최소 가시성만 추가함).
+                        # 경고를 남긴다. 처음엔 "최다 이벤트" 선택 자체는 안 건드리고 가시성만
+                        # 추가했으나, 이후 실측(temporal ringpop 노이즈가 5:1로 진짜 공격을
+                        # 밀어냄)으로 그 가정 자체가 틀렸음이 드러나 _chain_peak_signal(사슬
+                        # 내 최대 (distinct_port 수, flow_count) 튜플)로 선택 기준 자체를
+                        # 교체했다(2026-07-16). 이 경고는 여전히 유효 — 최선의 기준으로 골라도
+                        # "다른 사슬은 이번에 처리 안 됐다"는 사실 자체는 알려야 하므로 유지.
                         "deferred_chain_count": len(other_chains),
                         "events": [
                             {
@@ -874,7 +876,7 @@ class SecOpsWorkflow:
                 action_taken="승인 시간 초과 — 격리 미실행",
                 executed_at=workflow.now(),
             )
-            return await self._finish(event, mapping, result)
+            return await self._finish(event, mapping, result, ticket)
 
         if not approval_result.approved:
             await self._audit(event.workflow_id, "approval_denied", "거부됨",
@@ -884,7 +886,7 @@ class SecOpsWorkflow:
                 action_taken="승인 거부 → 격리 미실행",
                 executed_at=workflow.now(),
             )
-            return await self._finish(event, mapping, result)
+            return await self._finish(event, mapping, result, ticket)
 
         await self._audit(event.workflow_id, "approval_granted", "승인됨",
                           {"result": approval_result.model_dump(mode="json")})
@@ -895,7 +897,7 @@ class SecOpsWorkflow:
                 action_taken="승인됐으나 blast radius 위험 → 자동격리 보류",
                 executed_at=workflow.now(),
             )
-            return await self._finish(event, mapping, result)
+            return await self._finish(event, mapping, result, ticket)
 
         # 4) 대응 분기 — IAM(권한상승/지속성 확보) 이벤트는 revoke_iam_privilege,
         #    그 외(네트워크 위협)는 기존 apply_isolation(CNP)
@@ -993,7 +995,7 @@ class SecOpsWorkflow:
                 executed_at=workflow.now(),
             )
 
-        return await self._finish(event, mapping, result)
+        return await self._finish(event, mapping, result, second_ticket)
 
     async def _wait_for_decision(
         self, workflow_id: str, index: int, expire_after_hours: int,
@@ -1022,7 +1024,13 @@ class SecOpsWorkflow:
         event: SecurityEvent,
         mapping: RegulationMapping,
         result: ExecutionResult,
+        ticket: ApprovalTicket | None = None,
     ) -> ComplianceReport:
+        """모든 종료 경로(무위반/저위험/1·2차 timeout·거부/blast radius 보류/실행 성공·실패)의
+        공통 도착점. ticket은 마지막으로 보낸 승인 카드(1차 또는 2차) — isolation_applied=False로
+        끝나는 경우 그 카드 스레드에 사후분석 요약을 통지하는 데 쓴다(아래). 카드를 아예 보낸 적
+        없는 경로(무위반/저위험 필터)는 ticket=None으로 호출되고, 그 경로는 severity가 애초에
+        critical/high가 아니라 postmortem 게이트 자체를 안 타므로 문제없다."""
         report = await workflow.execute_activity(
             generate_compliance_report,
             GenerateComplianceReportInput(event=event, mapping=mapping, result=result),
@@ -1049,6 +1057,33 @@ class SecOpsWorkflow:
             await self._audit(event.workflow_id, "postmortem_generated",
                               f"Post-Mortem 생성({mapping.severity})",
                               {"action_items": postmortem.action_items})
+
+            # 2026-07-16 실측: postmortem은 이미 여기서 매번(거부/보류 경로 포함) 만들어지고
+            # 있었지만 RDS에만 저장돼 운영자가 "격리 보류됨"만 보고 다음에 뭘 해야 할지 몰랐다
+            # — 만드는 게 아니라 노출하는 게 빠진 부분이었다. isolation_applied=False인
+            # 경우에만, 승인 요청이 아니라 참고용 정보로 기존 카드 스레드에 통지한다.
+            # send_action_result는 버튼 없는 평문 메시지를 기존 카드 스레드에 게시하는
+            # 기존 활동(2차 실행결과 통지에도 쓰임)을 그대로 재사용 — 새 활동/새 signal
+            # 대기(_wait_for_decision) 없음, 이 메시지 전송 후 워크플로우는 그대로 끝난다.
+            if not postmortem.isolation_applied and ticket is not None:
+                notice_lines = [
+                    "📋 사후분석 요약 (승인/거부 대상 아님 — 참고용, 회신 불필요)",
+                    f"격리 미적용 사유: {result.action_taken}",
+                ]
+                if postmortem.action_items:
+                    notice_lines.append("권장 조치:")
+                    notice_lines += [f"  - {item}" for item in postmortem.action_items]
+                deferred = postmortem.evidence.get("deferred_chain_count")
+                if deferred:
+                    notice_lines.append(
+                        f"⚠ 같은 창에 배제된 침투 사슬 {deferred}개 있음 — 다음 lookback에서 재평가됨"
+                    )
+                await workflow.execute_activity(
+                    send_action_result,
+                    args=[ticket, "\n".join(notice_lines)],
+                    task_queue=HITL_TASK_QUEUE,
+                    **get_activity_options(ActivityName.SEND_ACTION_RESULT),
+                )
 
         await self._audit(event.workflow_id, "workflow_completed", "워크플로우 완료",
                           {"summary": f"{result.action_taken} (격리 적용: {report.isolation_applied})"})
