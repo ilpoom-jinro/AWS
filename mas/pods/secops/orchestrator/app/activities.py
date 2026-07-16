@@ -1084,11 +1084,29 @@ async def lookback_network_flows(
     만든다 — 레코드 하나당 워크로드/LLM 호출을 만들면 포트스캔 하나가 레코드 수백~수만
     건이라 폭증하기 때문(개별 레코드 전부가 아니라 그룹 단위가 "개별 판정").
 
-    워크로드 건너가는 사슬(A→B): internal 레코드의 목적지가 다른(식별된) 워크로드면 그
-    사이에 edge를 긋고, union-find로 서로 이어진 워크로드를 하나의 chain_id로 묶는다.
+    워크로드 건너가는 사슬(A→B): "A가 t1에 B를 목적지로 접근 → B가 t2(>t1)에 스스로
+    소스가 되어 어딘가로 접근"할 때만 그 두 그룹을 병합한다(방향 + 시간 순서 둘 다 요구,
+    아래 상세 참고). union-find로 서로 이어진 그룹을 하나의 chain_id로 묶는다.
     (워크로드, 카테고리, 하위창) 그룹은 여전히 워크로드별 개별판정 단위로 유지하되(격리
     시 각자의 isolation_labels가 필요하므로), chain_id를 evidence에 심어 workflow.py가
     "같은 침투 사슬"로 재조립할 수 있게 한다.
+
+    2026-07-16 실측(workflow secops-ui-d19e6bdae737)으로 발견된 버그 2건, 같이 고침
+    (예전엔 "워크로드 이름 하나"만으로 무조건 병합했다):
+      1) 방향 없음: A→B와 C→B(공통 목적지 B)가 병합됐다 — B가 인기 있는 목적지일 뿐인데
+         서로 무관한 A/C가 하나의 사슬이 됨(오전 실측: kube-apiserver→istiod와
+         alloy→istiod가 이 버그로 병합돼 "서사는 istiod, 격리 대상은 alloy"로 카드가
+         뒤섞인 사고의 원인).
+      2) 시간 역행 + 워크로드 단위 뭉뚱그림: chain_id 조회가 워크로드 "이름" 하나로만
+         됐다. intruder→temporal-frontend(공격, 12:29:54) 이후 temporal-frontend가
+         딱 한 번(12:30:52) 병합 조건을 만족해도, 조회 키가 이름 하나뿐이라 그 이름을
+         공유하는 다른 모든 (하위창) 그룹(12:23~12:28, 공격보다 먼저 발생한 순수 ringpop
+         노이즈)까지 전부 같은 chain_id를 갖게 됐다 — A→B가 B→C보다 나중인데도 병합되고
+         (인과 역행), entry_workload(가장 먼저 관측된 워크로드)가 노이즈 쪽에서 뽑혀
+         "temporal-frontend가 공격자"로 오탐 카드가 나갔다.
+    고친 규칙: union-find 노드를 워크로드 이름이 아니라 (워크로드, 하위창)으로 잡는다 —
+    이래야 조건을 만족하는 "그 그룹 하나만" 병합되고 같은 워크로드의 무관한 다른 시각
+    그룹은 오염되지 않는다.
     """
     from .detection import (
         EVIDENCE_SEP,
@@ -1112,8 +1130,26 @@ async def lookback_network_flows(
             continue
         parsed_records.append(record)
 
-    # 워크로드 간 사슬 연결 — union-find. internal 레코드의 목적지 워크로드가 식별되면
-    # (parse_hubble_flow의 destination_workload_name) 소스↔목적지를 같은 집합으로 묶는다.
+    # (워크로드, 목적지 카테고리, 시간 하위창)으로 그룹화. 카테고리만으로 묶으면 10분
+    # 전체를 합산한 distinct port 수 하나로 port_scan/lateral_movement 중 하나만 나와
+    # "포트스캔(다수 포트, 초반 버스트) → 측면이동(소수 포트, 나중에 targeted 접속)"
+    # 두 단계가 절대 동시에 안 나온다(사슬 자체가 성립 불가) — 시간 하위창으로 더
+    # 쪼개야 초반 버스트와 후반 targeted 접속이 서로 다른 개별판정으로 분리된다.
+    # 사슬 연결(union-find)도 이 그룹 단위로 해야 한다 — 그래야 병합 조건을 만족하는
+    # 그룹 하나만 정확히 골라 병합할 수 있다(아래 참고).
+    groups: dict[tuple[str, str, int], list[dict]] = {}
+    for record in parsed_records:
+        category = classify_destination_category(record["destination_labels"])
+        if category is None:
+            continue  # 클러스터 안/밖 어느 쪽도 아닌(기타 reserved 식별자 등) 판정 제외
+        record_time = _parse_hubble_time(record["time"], window_end)
+        subwindow = int((record_time - window_start).total_seconds() // NETWORK_SUBWINDOW_SECONDS)
+        key = (record["workload_name"] or record["source_pod"], category, subwindow)
+        groups.setdefault(key, []).append(record)
+
+    # 워크로드 간 사슬 연결 — union-find. 노드는 워크로드 "이름"이 아니라 (워크로드,
+    # 하위창) — 이유는 위 docstring 참고(이름 하나로만 잡으면 같은 워크로드의 무관한
+    # 다른 시각 그룹까지 오염됨).
     parent: dict[str, str] = {}
 
     def _find(w: str) -> str:
@@ -1128,31 +1164,68 @@ async def lookback_network_flows(
         if ra != rb:
             parent[ra] = rb
 
-    for record in parsed_records:
-        src = record["workload_name"] or record["source_pod"]
-        _find(src)  # 아직 edge가 없는 워크로드도 union-find에 등록만 해둠
-        if record["destination_workload_name"]:
-            category = classify_destination_category(record["destination_labels"])
-            if category == "internal":
-                _union(src, record["destination_workload_name"])
+    def _node(workload: str, subwindow: int) -> str:
+        return f"{workload}#{subwindow}"
 
-    # (워크로드, 목적지 카테고리, 시간 하위창)으로 그룹화. 카테고리만으로 묶으면 10분
-    # 전체를 합산한 distinct port 수 하나로 port_scan/lateral_movement 중 하나만 나와
-    # "포트스캔(다수 포트, 초반 버스트) → 측면이동(소수 포트, 나중에 targeted 접속)"
-    # 두 단계가 절대 동시에 안 나온다(사슬 자체가 성립 불가) — 시간 하위창으로 더
-    # 쪼개야 초반 버스트와 후반 targeted 접속이 서로 다른 개별판정으로 분리된다.
-    groups: dict[tuple[str, str, int], list[dict]] = {}
-    for record in parsed_records:
-        category = classify_destination_category(record["destination_labels"])
-        if category is None:
-            continue  # 클러스터 안/밖 어느 쪽도 아닌(기타 reserved 식별자 등) 판정 제외
-        record_time = _parse_hubble_time(record["time"], window_end)
-        subwindow = int((record_time - window_start).total_seconds() // NETWORK_SUBWINDOW_SECONDS)
-        key = (record["workload_name"] or record["source_pod"], category, subwindow)
-        groups.setdefault(key, []).append(record)
+    # (워크로드, 하위창) 그룹 중 목적지가 internal(클러스터 내부, 식별된 워크로드)인
+    # 것만 병합 후보로 삼는다 — 시간순으로 훑으며 "이 그룹의 소스가 그 이전에 누군가의
+    # 목적지였다면" 병합한다(A가 t1에 B를 노림 → B가 t2>t1에 스스로 소스가 됨).
+    #
+    # 2026-07-16 실측으로 발견된 버그 수정: 그룹 하나(workload,category,subwindow)가 서로
+    # 다른 목적지 레코드를 동시에 담을 수 있다(이 데이터 전부 — temporal-frontend의 각
+    # 하위창이 slack-hitl(포트 6934)과 dummy-monitoring-agent(포트 6939) 레코드를 같이
+    # 가짐). 그룹 전체의 latest 레코드 목적지 "하나"만 보면 나머지 목적지가 targeted_at에서
+    # 유실돼, 그 목적지가 나중에 스스로 소스가 되는 경우를 놓친다 — 그룹 안에서 목적지별로
+    # "그 목적지로 간 마지막 시각"을 각각 구해 전부 후보로 넣는다(그룹 전체의 latest 시각이
+    # 아니라 목적지마다 다른 시각을 씀).
+    chain_candidates: list[tuple[str, str, str, datetime]] = []
+    for (workload_key, category, subwindow), records in groups.items():
+        if category != "internal":
+            continue
+        latest_by_dest: dict[str, dict] = {}
+        for r in records:
+            dest = r["destination_workload_name"]
+            if not dest:
+                continue
+            if dest not in latest_by_dest or r.get("time", "") > latest_by_dest[dest].get("time", ""):
+                latest_by_dest[dest] = r
+        for dest, r in latest_by_dest.items():
+            chain_candidates.append((
+                _node(workload_key, subwindow), workload_key, dest,
+                _parse_hubble_time(r["time"], window_end),
+            ))
+    chain_candidates.sort(key=lambda c: c[3])  # 시간순 — 병합은 반드시 과거→미래 방향으로만
+
+    # 워크로드 이름 -> (그 워크로드를 가장 최근에 목적지로 지목한 그룹의 node_id, 시각).
+    # 시간순으로 훑으며 매번 최신값으로 덮어써서 "이 시점 기준 가장 최근 targeting"을 유지.
+    targeted_at: dict[str, tuple[str, datetime]] = {}
+    for node_id, src, dest, t in chain_candidates:
+        prior = targeted_at.get(src)
+        if prior is not None and prior[1] < t:
+            _union(node_id, prior[0])
+        targeted_at[dest] = (node_id, t)
+
+    # 기록만 — 다음 세션 과제(이번엔 수정 안 함, 2026-07-16 실측 재확인):
+    #   여기 들어오는 레코드는 전부 verdict=DROPPED(hubble.export.static.allowList가
+    #   {"verdict":["DROPPED"]}뿐)다. intruder→temporal-frontend 40건 전부 POLICY_DENIED라
+    #   Cilium이 SYN 단계에서 막았고 intruder는 temporal-frontend에 닿은 적이 없다.
+    #   닿지 못한 시도가 그 대상을 침해했을 수 없으므로, 58초 뒤 temporal-frontend의
+    #   ringpop gossip은 인과가 아니라 우연(같은 120초 하위창에 떨어졌을 뿐)일 가능성이
+    #   높다 — 위 시간+방향 조건은 이 우연을 완전히 걸러내지 못한다(시간 순서만 보고
+    #   "닿았는지"는 안 봄).
+    #   구조적으로: DROPPED만 export하는 한 MAS는 차단된 시도의 시간적 우연만 이을 수
+    #   있다 — 성공한 실제 측면이동은 verdict=FORWARDED라 애초에 안 잡힌다. enforce +
+    #   default-deny가 잘 작동할수록(차단이 많을수록) 이 한계가 오히려 커진다.
+    #   병합 조건에 "A→B가 FORWARDED일 때만"을 넣으면 사슬 기능 자체가 죽는다(FORWARDED가
+    #   export 안 되므로 그런 레코드가 입력에 존재하지 않음) — allowList를 ALLOWED까지
+    #   넓히는 건 Loki 유입량 폭증(현재 DROPPED만으로도 5분 594건)을 동반해 별도 설계
+    #   판단이 필요하다(이번 범위 아님).
+    #   현재 영향: isolation_labels에 temporal-frontend가 포함된다. Blast Radius가
+    #   temporal을 critical로 잡아 자동격리는 막히지만(check_blast_radius, activities.py),
+    #   그건 안전망이지 "우연한 병합을 막는 정답"은 아니다.
 
     events: list[SecurityEvent] = []
-    for (workload_key, category, _subwindow), records in groups.items():
+    for (workload_key, category, subwindow), records in groups.items():
         distinct_ports = sorted({r["destination_port"] for r in records})
         latest = max(records, key=lambda r: r.get("time", ""))
         latest_time = _parse_hubble_time(latest["time"], window_end)
@@ -1172,8 +1245,10 @@ async def lookback_network_flows(
             # 넣어 하위창마다 raw_log가 확실히 달라지게 한다.
             "detected_at": latest_time.isoformat(),
             # workflow.py가 이 값으로 워크로드를 건너가는 사슬을 재조립한다(by_workload가
-            # 아니라 by_chain으로 묶음). 정보 없음 워크로드는 자기 자신만의 chain_id를 가짐.
-            "chain_id": _find(workload_key),
+            # 아니라 by_chain으로 묶음). 병합 안 된 그룹은 자기 자신(workload#하위창)만의
+            # chain_id를 가짐 — 워크로드 이름 하나가 아니라 (워크로드,하위창) 단위인 이유는
+            # 위 union-find 설명 참고.
+            "chain_id": _find(_node(workload_key, subwindow)),
             "destination_workload": latest["destination_workload_name"],
             "destination_namespace": latest["destination_namespace"],
             # workload_name/source_pod 둘 다 비어("unknown") 파드가 아닌 소스인 경우

@@ -204,25 +204,55 @@ def message_to_event(body: str, cluster_name: str, enrich_flow_logs=None) -> Sec
 # 워크로드를 특정하는 표준 레이블 조합. io.kubernetes.pod.namespace 등 메타
 # 레이블은 워크로드 식별에 안 쓰이므로 제외.
 _ISOLATION_LABEL_KEYS = {"app.kubernetes.io/name", "app.kubernetes.io/instance"}
+# temporal처럼 frontend/history/matching/worker가 전부 같은 name+instance를 공유하고
+# component만 다른 멀티 컴포넌트 차트(_helpers.tpl: selector.matchLabels에 component
+# 포함, 2026-07-16 실측)를 구분하는 데 필요 — 없으면 name+instance만으론 이 넷이
+# 전부 "temporal" 하나로 뭉개진다.
+_COMPONENT_LABEL_KEY = "app.kubernetes.io/component"
+# app.kubernetes.io/* 컨벤션 자체가 없는 손수 작성 매니페스트 폴백 — slack-hitl/
+# dummy-monitoring-agent(둘 다 라벨이 app: 하나뿐, 실측 확인)는 이게 없으면 워크로드를
+# 영원히 특정 못 해 destination_workload_name이 항상 공백, 격리도 불가했다(2026-07-16).
+_FALLBACK_LABEL_KEY = "app"
+_PARSEABLE_LABEL_KEYS = _ISOLATION_LABEL_KEYS | {_COMPONENT_LABEL_KEY, _FALLBACK_LABEL_KEY}
 
 
 def parse_isolation_labels(labels: list[str]) -> dict[str, str]:
-    """Hubble flow의 source.labels(["k8s:키=값", ...])에서 격리 셀렉터로 쓸 표준
-    레이블만 추출. k8s: 접두어를 떼고 app.kubernetes.io/name + instance 조합만
-    남긴다 — 이 둘이 워크로드를 특정하는 조합(파드 이름은 재기동마다 바뀜).
-    activities.py의 lookback_network_flows가 Loki에서 받은 source.labels를 여기로 넘긴다.
-    이 함수 자체는 파싱만 하는 순수 함수라 단위테스트하기 쉽다.
-    둘 중 하나라도 없으면 워크로드를 특정할 수 없어 빈 dict 반환(호출부가 격리
-    불가로 처리해야 함)."""
+    """Hubble flow의 labels(["k8s:키=값", ...])에서 격리 셀렉터로 쓸 표준 레이블을
+    추출한다. k8s: 접두어를 뗀 뒤:
+      1) app.kubernetes.io/name + instance(+있으면 component) — Helm 차트 컨벤션.
+      2) 1)이 안 되면 app 하나만 — app.kubernetes.io/*가 없는 손수 작성 매니페스트 폴백.
+    activities.py의 lookback_network_flows가 Loki에서 받은 source/destination.labels를
+    여기로 넘긴다. 이 함수 자체는 파싱만 하는 순수 함수라 단위테스트하기 쉽다.
+    둘 다 없으면 워크로드를 특정할 수 없어 빈 dict 반환(호출부가 격리 불가로 처리)."""
     parsed: dict[str, str] = {}
     for raw in labels:
         key_value = raw.removeprefix("k8s:")
         key, sep, value = key_value.partition("=")
-        if sep and key in _ISOLATION_LABEL_KEYS:
+        if sep and key in _PARSEABLE_LABEL_KEYS:
             parsed[key] = value
-    if not _ISOLATION_LABEL_KEYS <= parsed.keys():
-        return {}
-    return parsed
+    if _ISOLATION_LABEL_KEYS <= parsed.keys():
+        keep = _ISOLATION_LABEL_KEYS | {_COMPONENT_LABEL_KEY}
+        return {k: v for k, v in parsed.items() if k in keep}
+    if _FALLBACK_LABEL_KEY in parsed:
+        return {_FALLBACK_LABEL_KEY: parsed[_FALLBACK_LABEL_KEY]}
+    return {}
+
+
+def resolve_workload_name(isolation_labels: dict[str, str]) -> str:
+    """parse_isolation_labels 결과 → 사슬 매칭/카드 표시용 단일 문자열 식별자로 합성.
+
+    2026-07-16 실측으로 확정: Hubble이 source 쪽에서 native로 주는 workloads[].name
+    (owner-reference 기반, 예: "temporal-frontend")과 destination 쪽 레이블 재구성값이
+    같은 물리 파드인데도 서로 달랐다(destination은 기존에 instance만 써서 "temporal"로
+    뭉개짐). 이 레포 Helm 차트 다수가 "{release 이름}-{component}"를 실제 리소스 이름으로
+    쓰는 컨벤션이라(temporal.componentname 등 _helpers.tpl 패턴, temporal-frontend로
+    실측 확인) instance+component를 그 형태로 합성하면 두 경로가 같은 값을 낸다.
+    app.kubernetes.io/*가 없으면(app 폴백) app 값을 그대로 canonical 이름으로 쓴다."""
+    if "app.kubernetes.io/instance" in isolation_labels:
+        instance = isolation_labels["app.kubernetes.io/instance"]
+        component = isolation_labels.get(_COMPONENT_LABEL_KEY, "")
+        return f"{instance}-{component}" if component else instance
+    return isolation_labels.get(_FALLBACK_LABEL_KEY, "")
 
 
 def parse_hubble_flow(raw: dict) -> dict | None:
@@ -232,9 +262,13 @@ def parse_hubble_flow(raw: dict) -> dict | None:
     표준 Hubble export 포맷(GetFlowsResponse, "flow" 키로 감싸짐) — source/destination
     실측 확인됨(destination도 namespace/pod_name/labels를 source와 동일하게 가짐).
     단, destination엔 source와 달리 workloads 필드가 없음(실측 확인) — 그래서 destination
-    워크로드 식별자는 app.kubernetes.io/name+instance 레이블 조합에서 직접 뽑는다
-    (parse_isolation_labels 재사용, source의 workloads[0].name과 동일한 의미:
-    두 값 다 app.kubernetes.io/instance에 대응됨).
+    워크로드 식별자는 라벨 조합에서 직접 뽑는다(parse_isolation_labels + resolve_workload_name
+    재사용). instance만 쓰면 안 되고 component까지 합성해야 source의 workloads[0].name
+    (owner-reference 기반 실제 리소스 이름)과 값이 일치한다 — 2026-07-16 실측: temporal
+    frontend/history/matching/worker가 전부 같은 name+instance="temporal"을 공유해서
+    component 없이는 destination_workload_name이 넷 다 "temporal"로 뭉개지고, source
+    쪽 workload_name("temporal-frontend")과 값이 갈려 union-find가 같은 파드를 다른
+    워크로드로 취급했다.
 
     threat_type은 여기서 안 정한다 — 단일 레코드로는 포트스캔(다중 레코드 상관 필요)을 못
     가리므로, lookback_network_flows가 여러 레코드를 워크로드+목적지 카테고리(classify_destination_category)
@@ -262,10 +296,10 @@ def parse_hubble_flow(raw: dict) -> dict | None:
         "workload_kind": workloads[0].get("kind", ""),
         "destination_namespace": destination.get("namespace", "unknown"),
         "destination_pod": destination.get("pod_name", "unknown"),
-        # 워크로드 건너가는 사슬(A→B) 연결용 — 비어 있으면(레이블 둘 다 없음) 목적지
-        # 워크로드를 특정 못 하는 것(예: 클러스터 밖, 또는 라벨 없는 워크로드) — 호출부가
-        # 이 경우 edge를 안 긋는다.
-        "destination_workload_name": destination_isolation_labels.get("app.kubernetes.io/instance", ""),
+        # 워크로드 건너가는 사슬(A→B) 연결용 — 비어 있으면(라벨로 특정 불가) 목적지
+        # 워크로드를 특정 못 하는 것(예: 클러스터 밖, 또는 app.kubernetes.io/*도 app도
+        # 없는 워크로드) — 호출부가 이 경우 edge를 안 긋는다.
+        "destination_workload_name": resolve_workload_name(destination_isolation_labels),
         "destination_labels": destination_labels,
         "source_ip": ip.get("source", "0.0.0.0"),
         "destination_ip": ip.get("destination", "0.0.0.0"),
