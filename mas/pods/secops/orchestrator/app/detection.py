@@ -274,6 +274,18 @@ def parse_hubble_flow(raw: dict) -> dict | None:
     }
 
 
+def parse_reserved_identity(labels: list[str]) -> str:
+    """Hubble 라벨에서 reserved:* 식별자(kube-apiserver/world/unmanaged 등)를 뽑는다.
+    파드가 아닌 소스(EKS 컨트롤플레인 ENI, 클러스터 밖, Cilium 미관리 파드)는 pod_name/
+    workload가 비어("unknown"/"") 이 식별자가 유일한 단서다 — 카드 렌더링(workflow.py)이
+    "알 수 없음" 대신 이 값을 보여줘야 운영자가 판단할 수 있다(2026-07-16 확정).
+    여러 reserved: 라벨이 동시에 있으면(예: kube-apiserver+world) 첫 번째만 쓴다."""
+    for label in labels:
+        if label.startswith("reserved:"):
+            return label.removeprefix("reserved:")
+    return ""
+
+
 def classify_destination_category(destination_labels: list[str]) -> str | None:
     """레코드 하나의 목적지가 클러스터 밖/안 중 어느 쪽인지 destination.labels로 판별한다
     (IP 대역 체크 안 함, 설계 결정). "reserved:world"가 있으면 "external"(클러스터 밖).

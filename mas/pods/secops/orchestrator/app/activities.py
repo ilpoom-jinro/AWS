@@ -281,6 +281,37 @@ SHARED_COMPONENT_HINTS = (
     "gateway", "ingress", "proxy", "lb", "loadbalancer", "auth", "identity",
 )
 
+# critical 워크로드(네임스페이스 전체) — 격리 시 SecOps 자신의 관측/대응 능력이 무너지거나
+# MAS/클러스터 전체가 죽는 네임스페이스. 판정 기준: "격리하면 SecOps 자신 또는 MAS 실행이
+# 멈추는가". 2026-07-16 실측: temporal-frontend(단일 레플리카, MAS 백본)와
+# observability-alloy-ops(DaemonSet, 대체 불가)가 이 체크 없이 factors=[]/score=0.0("안전")으로
+# 오판된 사례 확인 — env로 목록 조정 가능(SECOPS_CRITICAL_NAMESPACES).
+# platform-mas는 네임스페이스 전체가 slack-hitl(HITL 승인 봇) 유일 워크로드라(namespace.yaml
+# 실측 확인, 다른 컴포넌트 공존 없음) observability와 달리 "이름 힌트로 좁힐 대상"이 아예
+# 없다 — 그래서 alloy/loki처럼 이름 힌트가 아니라 네임스페이스 전체로 등록함.
+# aiops-mas/finops-mas는 의도적으로 제외: 이 두 네임스페이스가 격리돼도 SecOps 자신의
+# 판정/대응 능력이나 지금 실행 중인 이 워크플로는 안 멈춘다 — 오히려 SecOps가 이 둘의
+# 침해를 탐지했을 때 격리를 못 하게 막으면 안 되므로(보호 대상이 아니라 잠재적 격리 대상).
+CRITICAL_NAMESPACES = {
+    ns.strip() for ns in os.getenv(
+        "SECOPS_CRITICAL_NAMESPACES", "temporal,secops-mas,kube-system,istio-system,platform-mas",
+    ).split(",") if ns.strip()
+}
+CRITICAL_NAMESPACE_REASONS = {
+    "temporal": "MAS 백본 — 격리 시 워크플로 자체가 죽음",
+    "secops-mas": "SecOps 자기 자신 — 격리하면 판정/대응 주체가 사라짐",
+    "kube-system": "클러스터 기반 컴포넌트(cilium-agent/coredns 등)",
+    "istio-system": "Ambient mTLS 컨트롤플레인 — 2026-07-16까지 3일간 미동작 상태였던 것을 복구함",
+    "platform-mas": "slack-hitl(HITL 승인 봇) 유일 워크로드 — 격리 시 2단계 승인 플로우가 워크플로 중간에 끊김",
+}
+# observability는 네임스페이스 전체가 아니라 alloy/loki만 critical — Grafana/Tempo/Thanos까지
+# critical로 볼지는 이번 범위 밖(SecOps가 직접 쓰는 건 이 둘뿐이라 이것만 확정).
+CRITICAL_WORKLOAD_NAME_HINTS_BY_NAMESPACE = {"observability": ("alloy", "loki")}
+CRITICAL_WORKLOAD_NAME_HINT_REASONS = {
+    "alloy": "격리 시 SecOps 자신의 관측 데이터 수집(Hubble flow → Loki) 경로 상실",
+    "loki": "침투 시나리오 lookback(LOKI_URL)이 Loki를 직접 조회함 — 격리 시 SecOps가 자기 데이터를 못 읽음",
+}
+
 
 def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
     """
@@ -293,8 +324,30 @@ def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
     factors: list[dict] = []
     score = 0.0
 
-    # 1) 민감/시스템 네임스페이스 — 격리 시 클러스터 전반 영향
+    # 0) critical 워크로드 — 단일 요인만으로 threshold(0.5)를 넘기도록 0.9 가중.
+    #    네임스페이스 전체(temporal/secops-mas/kube-system/istio-system/platform-mas) 또는
+    #    네임스페이스+이름 힌트(observability/alloy·loki)로 판정.
     ns = event.namespace
+    if ns in CRITICAL_NAMESPACES:
+        reason = CRITICAL_NAMESPACE_REASONS.get(ns, "critical 워크로드")
+        factors.append({"factor": "critical_workload", "value": f"{ns}: {reason}", "weight": 0.9})
+        score += 0.9
+    else:
+        workload_l = (event.workload_name or "").lower()
+        name_hint = next(
+            (h for h in CRITICAL_WORKLOAD_NAME_HINTS_BY_NAMESPACE.get(ns, ()) if h in workload_l),
+            None,
+        )
+        if name_hint:
+            reason = CRITICAL_WORKLOAD_NAME_HINT_REASONS.get(name_hint, "critical 워크로드")
+            factors.append({
+                "factor": "critical_workload",
+                "value": f"{event.workload_name}: {reason}",
+                "weight": 0.9,
+            })
+            score += 0.9
+
+    # 1) 민감/시스템 네임스페이스 — 격리 시 클러스터 전반 영향
     if ns in SENSITIVE_NAMESPACES:
         factors.append({"factor": "sensitive_namespace", "value": ns, "weight": 0.7})
         score += 0.7
@@ -314,12 +367,9 @@ def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
         factors.append({"factor": "inbound_direction", "value": "inbound", "weight": 0.3})
         score += 0.3
 
-    # 4) 위협 유형 가중 (port_scan/policy_violation/lateral_movement은 단일 격리로
-    #    충분치 않을 수 있음 — lateral_movement는 port_scan과 동일 가중치로 시작,
-    #    실측 후 조정 대상)
-    if event.threat_type in ("port_scan", "policy_violation", "lateral_movement"):
-        factors.append({"factor": "threat_type", "value": event.threat_type, "weight": 0.3})
-        score += 0.3
+    # (이전 4번 "threat_type 가중"은 제거함 — 위협 심각도와 격리 위험도는 서로 다른 축이라
+    #  섞으면 안 된다는 설계 결정. 2026-07-16: threat_type이 아니라 critical 워크로드
+    #  여부/공유 컴포넌트 여부가 격리 위험도를 결정해야 한다는 쪽으로 정리함.)
 
     score = round(min(score, 1.0), 2)
     # 위험 요인 점수 합이 임계치 미만이면 "단일 pod 격리로 흡수 가능 → 안전"
@@ -327,8 +377,16 @@ def check_blast_radius(event: SecurityEvent) -> tuple[bool, str, dict]:
     level = "low" if score < 0.5 else ("high" if score >= 0.8 else "medium")
 
     if safe:
-        detail = (f"단일 worker pod({event.source_pod}) 격리, 동일 서비스 다른 replica가 처리 가능 "
-                  f"→ 안전 (blast score={score})")
+        if event.workload_kind == "DaemonSet":
+            # DaemonSet은 노드당 1개라 "다른 replica가 처리 가능"이 성립하지 않는다 —
+            # score가 낮게 나온 경우(critical 목록에 없는 DaemonSet 등)에도 이 문구만은
+            # 사실과 다르게 나가면 안 된다. score 자체를 kind로 바꾸는 건 이번 범위 밖
+            # (실 replica/kind 기반 점수 재설계는 후속 과제로 명시적으로 미룸).
+            detail = (f"단일 worker pod({event.source_pod}, DaemonSet) 격리 — 노드당 1개라 대체 불가하나 "
+                      f"다른 위험 요인 없음 (blast score={score})")
+        else:
+            detail = (f"단일 worker pod({event.source_pod}) 격리, 동일 서비스 다른 replica가 처리 가능 "
+                      f"→ 안전 (blast score={score})")
     else:
         reasons = ", ".join(f["factor"] for f in factors) or "복합 요인"
         detail = (f"격리 영향 범위 위험 (blast score={score}, level={level}) — {reasons}. "
@@ -925,10 +983,18 @@ _NETWORK_RULE_FILTER_EXCLUDED_SOURCES = {
 def _network_rule_filter_skip(flow: dict) -> bool:
     """순수 판정(I/O 없음) — IAM의 _rule_filter_skip(workflow.py)과 대응되는 네트워크판.
     POLICY_DENIED가 아닌 drop(기술적 사유)이거나, 알려진 노이즈 소스(observability-grafana
-    등, env로 설정)면 판정에서 제외한다."""
+    등, env로 설정)면 판정에서 제외한다.
+
+    2026-07-16 실측으로 발견된 버그 수정: source_pod(예: "observability-grafana-7f9c8d-x2z1q")는
+    파드 이름이라 재기동마다 바뀌고 워크로드 이름과 문자열이 다르다 — env(SECOPS_NETWORK_EXCLUDED_SOURCES)에
+    "observability-grafana"(워크로드 이름)를 넣어도 source_pod와 정확히 일치한 적이 없어
+    이 제외가 사실상 한 번도 동작하지 않았을 가능성이 있다. workload_name(비어 있으면
+    source_pod로 폴백 — lookback_network_flows의 workload_key 계산과 동일한 규칙)으로
+    비교하도록 고친다. 제외 대상 자체(observability-grafana 하나)는 늘리지 않음."""
     if flow.get("drop_reason_desc", "") != "POLICY_DENIED":
         return True
-    if flow.get("source_pod", "") in _NETWORK_RULE_FILTER_EXCLUDED_SOURCES:
+    workload_key = flow.get("workload_name", "") or flow.get("source_pod", "")
+    if workload_key in _NETWORK_RULE_FILTER_EXCLUDED_SOURCES:
         return True
     return False
 
@@ -952,18 +1018,36 @@ def _parse_hubble_time(raw: str, fallback: datetime) -> datetime:
 
 def _query_loki_dropped_flows(window_start: datetime, window_end: datetime) -> list[str]:
     """Loki query_range 호출 — monitoring/observability-indexer/main.py:35-49의 requests
-    기반 패턴 그대로(query/start/end 나노초/limit/direction=backward). LogQL 자체는
-    cilium-agent(kube-system) 로그에서 POLICY_DENIED 줄만, observability-grafana 소스는
-    제외하고 가져온다 — 상세 분류는 이 함수가 아니라 호출자(파이썬)가 한다."""
+    기반 패턴 그대로(query/start/end 나노초/limit/direction=backward). LogQL은 POLICY_DENIED
+    줄만 가져오고, 소스 제외(observability-grafana 등)는 하지 않는다 — 상세 분류/제외는
+    이 함수가 아니라 호출자(파이썬, _network_rule_filter_skip)가 전담한다.
+
+    2026-07-16 실측으로 발견된 버그 수정: 이전엔 여기 LogQL에 `!= "observability-grafana"`가
+    하드코딩돼 있어 _network_rule_filter_skip(SECOPS_NETWORK_EXCLUDED_SOURCES env 기반)과
+    제외 대상이 서로 다른 값으로 갈라질 위험이 있었다(env를 바꿔도 LogQL은 그대로).
+    게다가 이 라인필터는 라벨이 아니라 로그 줄 전체 텍스트 매칭이라 workload_name 필드값과도
+    무관하게 동작해 부정확했다. 제외 판단을 Python 쪽 한 곳(env 기반)으로 일원화한다 —
+    Hubble export가 DROPPED만 내보내는 데다(hubble.export.static.allowList) 오늘 CCNP
+    3건 반영 후 노이즈가 5분 창 기준 594건(수정 1 반영 시 46건)까지 줄어 limit=5000 여유가
+    충분해 사전 필터를 빼도 성능에 영향 없다(2026-07-16 실측).
+
+    회귀 여부 점검(2026-07-16): 이 LogQL 필터 제거 전엔 grafana DROP이 여기서 막혔지만,
+    _network_rule_filter_skip이 workload_name 기준으로 고쳐진 뒤에도 grafana가 계속
+    걸러지려면 grafana pod의 Hubble workload_name이 정확히 "observability-grafana"여야
+    한다 — grafana Helm 차트(helmChart/charts/grafana/templates/_helpers.tpl의
+    fullname 템플릿)와 ArgoCD Application(gitops/platform/applications/grafana.yaml,
+    release name="observability-grafana", nameOverride/fullnameOverride 둘 다 미설정)을
+    같이 보면 fullname이 "observability-grafana"로 확정된다(release 이름에 chart 이름
+    "grafana"가 포함돼 있어 helpers.tpl이 release 이름을 그대로 씀) — 이 이름이
+    app.kubernetes.io/instance 라벨과 Hubble workloads[].name 둘 다에 쓰이므로 회귀
+    아님. 다만 이건 Helm 템플릿 분석이지 클러스터 실측은 아니라서, 배포 후 Loki에서
+    grafana DROP이 실제로 걸러지는지 한 번 확인 권장."""
     import requests
 
     if not LOKI_URL:
         raise RuntimeError("LOKI_URL 미설정 — 침투 시나리오 lookback 불가")
 
-    query = (
-        '{namespace="kube-system", pod=~"cilium-.*"} '
-        '|= "POLICY_DENIED" != "observability-grafana"'
-    )
+    query = '{namespace="kube-system", pod=~"cilium-.*"} |= "POLICY_DENIED"'
     resp = requests.get(
         f"{LOKI_URL}/loki/api/v1/query_range",
         params={
@@ -1011,6 +1095,7 @@ async def lookback_network_flows(
         classify_destination_category,
         parse_hubble_flow,
         parse_isolation_labels,
+        parse_reserved_identity,
     )
 
     activity.heartbeat("lookback_network_flows: querying loki")
@@ -1091,6 +1176,11 @@ async def lookback_network_flows(
             "chain_id": _find(workload_key),
             "destination_workload": latest["destination_workload_name"],
             "destination_namespace": latest["destination_namespace"],
+            # workload_name/source_pod 둘 다 비어("unknown") 파드가 아닌 소스인 경우
+            # (reserved:kube-apiserver/world/unmanaged) 카드 렌더링(workflow.py)이
+            # "알 수 없음" 대신 보여줄 identity 라벨 — 운영자가 "출발지가 컨트롤플레인/
+            # 클러스터 밖/미관리 파드"임을 구분할 수 있게 한다(2026-07-16 확정).
+            "source_identity": parse_reserved_identity(latest["source_labels"]),
         }
         raw_log = (
             f"[hubble] {workload_key} — DROPPED flow {len(records)}건, "

@@ -70,6 +70,20 @@ alloy:
       discovery.relabel "annotated_pod_metrics" {
         targets = discovery.kubernetes.local_pods.targets
 
+        // Completed(velero kopia maintenance job 등) 파드는 컨테이너 종료 후에도
+        // status.podIP를 API에 남긴 채 남아있어 SD 타겟에서 안 빠진다. 그 IP는
+        // CNI DEL로 Cilium 엔드포인트가 사라져 reserved:world가 되고, 이후 같은 IP를
+        // 새 파드(예: ztunnel)가 재할당받으면 Alloy가 "완료된 job인 줄 알고" 실제로는
+        // 엉뚱한 파드를 긁게 된다(2026-07-16 실측: ztunnel-z68bp가 Completed velero
+        // job의 이전 IP 10.20.11.217을 재할당받음). 지금은 Cilium 정책이 막아 DROP만
+        // 되지만(SecOps 침투 시나리오 노이즈의 92% 원인), 정책이 없었으면 실제로 잘못된
+        // 대상을 스크레이핑했을 것 — Running이 아닌 파드는 애초에 타겟에서 제외한다.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          action        = "keep"
+          regex         = "Running"
+        }
+
         rule {
           source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
           action        = "keep"
