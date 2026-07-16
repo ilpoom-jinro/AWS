@@ -8,7 +8,9 @@ CLOUDSQL_PORT="${CLOUDSQL_PORT:-15432}"
 RDS_PORT="${RDS_PORT:-5432}"
 FAILBACK_PROXY_PORT="${FAILBACK_PROXY_PORT:-15432}"
 PUBLICATION_NAME="${PUBLICATION_NAME:-cloudsql_failback_publication}"
-SUBSCRIPTION_NAME="${SUBSCRIPTION_NAME:-cloudsql_failback_subscription}"
+# Cloud SQL reserves replication slot names beginning with "cloudsql".
+# PostgreSQL uses the subscription name as the default slot name.
+SUBSCRIPTION_NAME="${SUBSCRIPTION_NAME:-dr_failback_subscription}"
 REPLICATION_USER="${REPLICATION_USER:-cloudsql_failback_repl}"
 MAX_LAG_BYTES="${MAX_LAG_BYTES:-0}"
 
