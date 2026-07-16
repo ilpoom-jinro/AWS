@@ -172,20 +172,9 @@ def _format_event_time_for_card(event_dict: dict) -> str:
         return "--:--:--"
 
 
-def _render_evidence_for_card(evidence: dict) -> str:
-    """Slack 카드(1차 승인)에 보여줄 evidence 텍스트. 계정 탈취 Incident 묶음
-    (evidence에 "events" 키가 있는 경우)만 전용 포맷으로 사람이 읽게 렌더링하고,
-    그 외(단일 이벤트/네트워크 알람 evidence)는 기존처럼 raw key:value 그대로 —
-    이번 개선 범위는 보고된 계정 탈취 카드 한정, 다른 시나리오 evidence 모양까지
-    새로 설계하지 않는다.
-    audit 로그(_audit 호출)는 이 함수를 거치지 않고 mapping.evidence 원본을 그대로
-    쓴다 — 카드 표시(사람용)와 감사 기록(기계 판독용)을 분리하기 위함."""
-    if "events" not in evidence:
-        return (
-            "\n".join(f"  {k}: {v}" for k, v in evidence.items())
-            if evidence else "  (없음)"
-        )
-
+def _render_account_takeover_evidence(evidence: dict) -> str:
+    """Slack 카드(1차 승인) — 계정 탈취 Incident 묶음 전용 렌더링(IAM 이벤트,
+    event_name 기반). _render_evidence_for_card가 evidence["scenario"]로 분기해서 호출한다."""
     events = evidence.get("events", [])
     shown_events = events[:_MAX_EVENTS_IN_CARD]
     lines = [f"관련 이벤트 ({len(events)}건):"]
@@ -204,6 +193,67 @@ def _render_evidence_for_card(evidence: dict) -> str:
     lines.append(f"lookback 조회: {'실패' if evidence.get('lookback_failed') else '성공'}")
 
     return "\n".join(lines)
+
+
+def _render_intrusion_evidence(evidence: dict) -> str:
+    """Slack 카드(1차 승인) — 침투 시나리오 Incident 묶음 전용 렌더링(네트워크 이벤트,
+    workload/destination 기반). 기존엔 IAM 전용 _render_account_takeover_evidence를
+    그대로 재사용해서 event_name이 없는 네트워크 이벤트가 전부 "알 수 없음 → 알 수 없음"으로
+    표시됐다(2026-07-16 실측 확인, Loki 원본/Sonnet 판정 자체는 정상이었음 — 렌더링만 문제).
+
+    workload가 비어 있거나 "unknown"이면(reserved:kube-apiserver/world/unmanaged처럼 파드가
+    아닌 소스) source_identity(activities.py의 lookback_network_flows가 심어둠)로 대체해
+    운영자가 "이건 파드가 아니라 컨트롤플레인/클러스터 밖/미관리 파드"임을 구분할 수 있게 한다."""
+    events = evidence.get("events", [])
+    shown_events = events[:_MAX_EVENTS_IN_CARD]
+    lines = [f"관련 이벤트 ({len(events)}건):"]
+    for idx, event_dict in enumerate(shown_events, start=1):
+        time_str = _format_event_time_for_card(event_dict)
+        workload = event_dict.get("workload", "")
+        if not workload or workload == "unknown":
+            identity = event_dict.get("source_identity", "")
+            workload = identity or "알 수 없음"
+        destination = event_dict.get("destination", "알 수 없음")
+        threat_type = event_dict.get("threat_type", "")
+        lines.append(f"  {idx}. {time_str}  {threat_type}  {workload} → {destination}")
+    if len(events) > _MAX_EVENTS_IN_CARD:
+        lines.append(f"  … 외 {len(events) - _MAX_EVENTS_IN_CARD}건 (전체는 감사 로그 참고)")
+
+    correlation_key = evidence.get("correlation_key", "")
+    if correlation_key:
+        lines.append(f"\n관련 워크로드: {correlation_key}")
+
+    # 최다 이벤트 사슬 하나만 이 카드에 실린다 — 같은 창에 배제된 다른 사슬이 있으면
+    # 운영자가 카드만 보고도 "이번 판정이 전부가 아니다"를 알 수 있게 명시한다
+    # (기존엔 audit 로그에만 남고 카드엔 안 보였음 — chain 선택 휴리스틱 자체는 안 건드리고
+    # 최소 안전장치만 추가, 2026-07-16).
+    deferred = evidence.get("deferred_chain_count", 0)
+    if deferred:
+        lines.append(
+            f"\n⚠ 같은 창에 배제된 침투 사슬 {deferred}개 있음 — 이번 판정은 최다 이벤트 "
+            f"사슬만 다룸, 다음 lookback에서 재평가됨"
+        )
+
+    return "\n".join(lines)
+
+
+def _render_evidence_for_card(evidence: dict) -> str:
+    """Slack 카드(1차 승인)에 보여줄 evidence 텍스트. scenario로 렌더링 경로를 분기한다
+    (2026-07-16 이전엔 "events" 키 유무만으로 계정 탈취 전용 포맷을 타서, 나중에 추가된
+    침투 시나리오 evidence도 같은 "events" 키를 갖는 바람에 IAM 전용 렌더링 경로를 그대로
+    타 network 이벤트가 전부 깨져 보였다 — scenario 필드로 명시적으로 갈라 재발을 막는다).
+    scenario 없는 경우(단일 이벤트/네트워크 알람 evidence 등)는 기존처럼 raw key:value.
+    audit 로그(_audit 호출)는 이 함수를 거치지 않고 mapping.evidence 원본을 그대로
+    쓴다 — 카드 표시(사람용)와 감사 기록(기계 판독용)을 분리하기 위함."""
+    scenario = evidence.get("scenario")
+    if scenario == "account_takeover":
+        return _render_account_takeover_evidence(evidence)
+    if scenario == "intrusion":
+        return _render_intrusion_evidence(evidence)
+    return (
+        "\n".join(f"  {k}: {v}" for k, v in evidence.items())
+        if evidence else "  (없음)"
+    )
 
 
 def _source_label(event: SecurityEvent, evidence: dict) -> str:
@@ -449,6 +499,10 @@ class SecOpsWorkflow:
                     # per-event evidence는 딕셔너리 병합(update)하면 같은 키(event_name 등)가
                     # 이벤트끼리 서로 덮어써서 정보가 사라진다 — events 리스트로 각각 보존.
                     merged_evidence: dict = {
+                        # 카드 렌더링(_render_evidence_for_card)이 이 값으로 IAM 전용 포맷과
+                        # 네트워크 전용 포맷을 명시적으로 가른다(2026-07-16, "events" 키
+                        # 유무만으로 분기하던 방식이 침투 시나리오 추가 후 깨졌던 것 수정).
+                        "scenario": "account_takeover",
                         "incident_event_count": len(incident_group.events),
                         "target_user_arn": incident_group.correlation_key,
                         "lookback_failed": incident_group.lookback_failed,
@@ -611,14 +665,27 @@ class SecOpsWorkflow:
                 if incident_group.is_threat_confirmed:
                     all_regs = sorted({r for m in primary_mappings for r in m.violated_regulations})
                     merged_evidence: dict = {
+                        # 카드 렌더링(_render_evidence_for_card)이 이 값으로 IAM 전용 포맷과
+                        # 네트워크 전용 포맷을 명시적으로 가른다(2026-07-16, "events" 키
+                        # 유무만으로 분기하던 방식이 침투 시나리오 추가 후 깨졌던 것 수정).
+                        "scenario": "intrusion",
                         "incident_event_count": len(incident_group.events),
                         "correlation_key": incident_group.correlation_key,
+                        # chains>1이면(같은 창에 서로 무관한 침투 사슬이 더 있으면) 카드에
+                        # 경고를 남긴다 — 최다 이벤트 사슬 선택 자체는 안 건드림(2026-07-16
+                        # 결정: 수정 1로 노이즈 92% 제거 + 오늘 머지된 CCNP 3건으로 alloy가
+                        # 더는 DROPPED 레코드를 만들지 않아, 오늘 실제로 벌어진 "alloy와
+                        # istiod가 우연히 한 사슬로 묶인" 사례는 재발 불가로 판단했으나,
+                        # "공격자가 노이즈를 일부러 만들면 진짜 공격을 가릴 수 있다"는 지적은
+                        # 여전히 유효한 별개 위험이라 최소 가시성만 추가함).
+                        "deferred_chain_count": len(other_chains),
                         "events": [
                             {
                                 "detected_at": e.detected_at.isoformat(),
                                 "workload": e.workload_name,
                                 "threat_type": e.threat_type,
                                 "destination": f"{e.destination_ip}:{e.destination_port}",
+                                "source_identity": extract_evidence(e).get("source_identity", ""),
                             }
                             for e in incident_group.events
                         ],
