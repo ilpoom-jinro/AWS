@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -107,6 +108,63 @@ def _truncate_for_slack_block(text: str, limit: int = _SLACK_SECTION_TEXT_LIMIT)
     return text[: limit - len(marker)] + marker
 
 
+def _aiops_approval_fields(request: ApprovalRequest) -> list[dict]:
+    """AIOps 승인 카드에 대상과 실제 변경 내용을 명확히 표시한다."""
+    plan = request.remediation_plan
+    if plan is None:
+        return []
+
+    detail = plan.strategy_detail
+    namespace_match = re.search(r"(?:^|\s)namespace=([^\s|]+)", detail)
+    hpa_match = re.search(r"(?:^|\s)target_hpa=([^\s|]+)", detail)
+    delta_match = re.search(r"maxReplicas\+=([0-9]+)", detail)
+    namespace = namespace_match.group(1) if namespace_match else "확인 필요"
+    pod_name = plan.pod_name or "확인 필요"
+
+    actions = {
+        "restart": "대상 Deployment를 롤링 재시작합니다. 기존 Pod는 새 Pod로 교체됩니다.",
+        "rollback": "대상 Deployment를 직전 정상 revision으로 되돌립니다.",
+        "manual": "자동 변경은 적용하지 않고, 운영자의 수동 조사가 필요합니다.",
+    }
+    action = actions.get(plan.strategy, "승인된 복구 계획을 적용합니다.")
+    if plan.strategy == "scale_out":
+        hpa_name = hpa_match.group(1) if hpa_match else "대상 HPA"
+        delta = delta_match.group(1) if delta_match else "설정된 값"
+        action = f"HPA {hpa_name}의 maxReplicas를 {delta}만큼 상향합니다."
+
+    return [
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*장애 대상*\n"
+                        f"Cluster: `{plan.cluster_name or '확인 필요'}`\n"
+                        f"Namespace: `{namespace}`\n"
+                        f"Pod: `{pod_name}`"
+                    ),
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*승인 후 적용할 조치*\n"
+                        f"{action}\n"
+                        f"분석 신뢰도: `{plan.confidence:.0%}`"
+                    ),
+                },
+            ],
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*승인 요청*\n위 조치를 적용할까요? 거부 또는 만료 시 Kubernetes 변경 없이 종료합니다.",
+            },
+        },
+    ]
+
+
 def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -> list[dict]:
     """승인/거부 버튼 메시지 블록.
     버튼 value에 workflow id와 scenario를 심는다 — 클릭 시 시나리오별 signal 분기에 사용.
@@ -119,11 +177,15 @@ def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -
     }
     title = title_by_scenario.get(request.scenario, "승인 요청")
     section_text = _truncate_for_slack_block(f"*{request.summary}*\n{request.detail}")
-    return [
+    blocks = [
         {"type": "header",
          "text": {"type": "plain_text", "text": f"🔐 {title} [{request.severity.upper()}]"}},
         {"type": "section",
          "text": {"type": "mrkdwn", "text": section_text}},
+    ]
+    if request.scenario == "aiops":
+        blocks.extend(_aiops_approval_fields(request))
+    blocks.extend([
         {"type": "context",
          "elements": [{"type": "mrkdwn",
                        "text": f"scenario: `{request.scenario}` · workflow: `{temporal_workflow_id}`"}]},
@@ -133,7 +195,8 @@ def build_approval_blocks(request: ApprovalRequest, temporal_workflow_id: str) -
             {"type": "button", "action_id": "hitl_reject", "style": "danger",
              "text": {"type": "plain_text", "text": "⛔ 거부"}, "value": value},
         ]},
-    ]
+    ])
+    return blocks
 
 
 def parse_action_value(value: str) -> tuple[str, str]:
