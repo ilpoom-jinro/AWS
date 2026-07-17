@@ -169,10 +169,6 @@ def index() -> str:
         border-color: #c8d3ff;
         background: #f6f8ff;
       }}
-      .watch-item.monitor {{
-        border-color: #ead095;
-        background: #fffaf1;
-      }}
       .panel {{
         background: var(--panel);
         border: 1px solid var(--line);
@@ -318,7 +314,6 @@ def index() -> str:
       .ok {{ color: var(--green); }}
       .err {{ color: var(--red); }}
       .pending-text {{ color: #3150b8; }}
-      .monitor-text {{ color: #9b6200; }}
       a {{ color: #3150b8; font-weight: 700; text-decoration: none; }}
       @media (max-width: 900px) {{
         .summary, .watch-grid, .layout, .result-grid {{ grid-template-columns: 1fr; }}
@@ -461,8 +456,8 @@ def index() -> str:
       let currentWorkflowCluster = "";
       let namespaceRefreshMessage = "";
       const watchState = {{
-        "financial-ops-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, monitoringProblemPodCount: 0, otherPodCount: 0, problemNamespaces: [], monitoringProblemNamespaces: [] }},
-        "financial-service-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, monitoringProblemPodCount: 0, otherPodCount: 0, problemNamespaces: [], monitoringProblemNamespaces: [] }},
+        "financial-ops-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, otherPodCount: 0, problemNamespaces: [] }},
+        "financial-service-eks": {{ lastCheckedAt: null, ok: false, incident: "checking", error: "", normalPodCount: 0, problemPodCount: 0, otherPodCount: 0, problemNamespaces: [] }},
       }};
 
       function incidentTextForCluster(clusterName) {{
@@ -482,10 +477,6 @@ def index() -> str:
           card.className = "watch-item alert";
           statusElement.className = "watch-status err";
           statusElement.textContent = title === "service" ? "Service EKS 장애 발생" : "Ops EKS 장애 발생";
-        }} else if (state.monitoringProblemPodCount > 0) {{
-          card.className = "watch-item monitor";
-          statusElement.className = "watch-status monitor-text";
-          statusElement.textContent = "운영 시스템 수동 점검 필요";
         }} else if (cardState === "checking") {{
           card.className = "watch-item pending";
           statusElement.className = "watch-status pending-text";
@@ -499,16 +490,13 @@ def index() -> str:
           statusElement.className = "watch-status ok";
           statusElement.textContent = "정상";
         }}
-        const counts = `정상 Pod ${{state.normalPodCount}}개 / 조치 가능 장애 Pod ${{state.problemPodCount}}개`;
+        const counts = `정상 Pod ${{state.normalPodCount}}개 / 장애 Pod ${{state.problemPodCount}}개`;
         const namespaces = state.problemNamespaces.length
-          ? `조치 가능 namespace: ${{state.problemNamespaces.join(", ")}}`
-          : "조치 가능 namespace: 없음";
-        const monitoring = state.monitoringProblemPodCount > 0
-          ? `운영 시스템 경보 Pod ${{state.monitoringProblemPodCount}}개 / 수동 점검 namespace: ${{state.monitoringProblemNamespaces.join(", ")}}`
-          : "운영 시스템 경보: 없음";
+          ? `장애 namespace: ${{state.problemNamespaces.join(", ")}}`
+          : "장애 namespace: 없음";
         const suffix = state.otherPodCount ? ` / 기타 ${{state.otherPodCount}}개` : "";
         const error = state.error ? `\n오류: ${{state.error}}` : "";
-        metaElement.textContent = `${{counts}}${{suffix}}\n${{namespaces}}\n${{monitoring}}\n마지막 확인: ${{formatElapsed(state.lastCheckedAt)}}${{error}}`;
+        metaElement.textContent = `${{counts}}${{suffix}}\n${{namespaces}}\n마지막 확인: ${{formatElapsed(state.lastCheckedAt)}}${{error}}`;
       }}
 
       function updateWatchBoard() {{
@@ -595,13 +583,9 @@ def index() -> str:
         watchState[clusterName].error = summary.error || "";
         watchState[clusterName].normalPodCount = Number(summary.normal_pod_count || 0);
         watchState[clusterName].problemPodCount = Number(summary.problem_pod_count || 0);
-        watchState[clusterName].monitoringProblemPodCount = Number(summary.monitoring_problem_pod_count || 0);
         watchState[clusterName].otherPodCount = Number(summary.other_pod_count || 0);
         watchState[clusterName].problemNamespaces = Array.isArray(summary.problem_namespaces)
           ? summary.problem_namespaces
-          : [];
-        watchState[clusterName].monitoringProblemNamespaces = Array.isArray(summary.monitoring_problem_namespaces)
-          ? summary.monitoring_problem_namespaces
           : [];
         watchState[clusterName].incident = watchState[clusterName].problemPodCount > 0 ? "alert" : "normal";
       }}
