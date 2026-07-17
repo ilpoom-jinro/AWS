@@ -236,10 +236,11 @@ _payload = {"alerts":[
     {"status":"resolved","labels":{"cluster":"financial-service-eks","namespace":"stock-demo"}},
     {"status":"firing","labels":{"alertname":"NoLabels"}},
     {"status":"firing","labels":{"cluster":"financial-ops-eks","namespace":"aiops-mas","alertname":"CrashLoop"}},
+    {"status":"firing","labels":{"cluster":"financial-service-eks","namespace":"kube-system","alertname":"SystemCrashLoop"}},
 ]}
 _targets = _extract_targets(_payload)
 assert _targets == {("financial-service-eks","stock-demo"),("financial-ops-eks","aiops-mas")}, _targets
-passed += 1; print(f"{passed}. Alertmanager webhook 파싱(중복제거+firing필터) OK")
+passed += 1; print(f"{passed}. Alertmanager webhook 파싱(중복제거+조치 제외 namespace 필터) OK")
 
 # 17. restart/rollback → [RESTART]/[ROLLBACK] directive (namespace 명시)
 from pods.aiops.orchestrator.app.nodes.analyzer import _build_pod_directive
