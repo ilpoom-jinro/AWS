@@ -74,6 +74,7 @@ rules:
       - replicasets
     verbs:
       - get
+      - list
   - apiGroups:
       - autoscaling
     resources:
