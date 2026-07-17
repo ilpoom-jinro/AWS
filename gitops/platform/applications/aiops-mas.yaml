@@ -25,6 +25,7 @@ spec:
       jqPathExpressions:
         - '.spec.template.spec.containers[] | select(.name == "crashloop").env[] | select(.name == "AIOPS_TEST_MODE").value'
         - '.spec.template.spec.containers[] | select(.name == "crashloop").env[] | select(.name == "AIOPS_TEST_STRATEGY").value'
+        - '.spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"'
   syncPolicy:
     automated:
       prune: true

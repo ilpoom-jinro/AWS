@@ -34,6 +34,10 @@ spec:
             - |
               if [ "${AIOPS_TEST_MODE}" = "failure" ]; then
                 echo "[AIOPS_HITL_TEST_STRATEGY=${AIOPS_TEST_STRATEGY}]" >&2
+                if [ "${AIOPS_TEST_STRATEGY}" = "restart" ] && [ -n "${AIOPS_RESTARTED_AT:-}" ]; then
+                  echo "AIOps HITL restart test: rollout restart detected" >&2
+                  exec tail -f /dev/null
+                fi
                 echo "FATAL: application startup configuration is invalid" >&2
                 exit 1
               fi
@@ -43,6 +47,12 @@ spec:
               value: healthy
             - name: AIOPS_TEST_STRATEGY
               value: ""
+            # rollout restart가 Pod template annotation을 갱신하면 새 Pod는 정상 기동한다.
+            # restart 조치가 실패 상태를 실제로 복구하는지 검증하기 위한 전용 테스트 입력이다.
+            - name: AIOPS_RESTARTED_AT
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['kubectl.kubernetes.io/restartedAt']
           resources:
             requests:
               cpu: 10m
