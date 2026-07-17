@@ -151,6 +151,12 @@ class AIOpsRemediationWorkflow:
             result_type=ExecutionResult,
             **get_activity_options(ActivityName.EXECUTE_REMEDIATION),
         )
+        if plan.strategy == "scale_out":
+            # HPA rollback은 현재 값에서 단순 차감하지 않고, 승인 직전의 정확한
+            # maxReplicas 값을 사용한다. 실행 Activity가 그 값을 output으로 반환한다.
+            plan = plan.model_copy(
+                update={"previous_hpa_max_replicas": int(exec_result.output)}
+            )
         await self._audit(incident.workflow_id, "action_executed",
                           exec_result.action_taken)
 
