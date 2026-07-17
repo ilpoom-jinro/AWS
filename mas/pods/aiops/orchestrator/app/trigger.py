@@ -124,15 +124,13 @@ def _is_ready_pod(pod: dict) -> bool:
 
 
 async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
-    """클러스터 Pod를 조치 가능 장애와 모니터링 전용 경보로 분리 집계한다."""
+    """AIOps 조치 범위에 포함된 Pod만 정상/장애/기타 상태로 집계한다."""
     collector = K8sCollector(context=_context_for_cluster(cluster_name))
     pods = await collector.list_pods_all_namespaces()
     namespaces: set[str] = set()
     actionable_problem_namespaces: set[str] = set()
-    monitoring_problem_namespaces: set[str] = set()
     normal_pod_count = 0
     actionable_problem_pod_count = 0
-    monitoring_problem_pod_count = 0
     other_pod_count = 0
 
     for pod in pods:
@@ -140,15 +138,14 @@ async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
         if namespace:
             namespaces.add(namespace)
 
+        # 운영 시스템 namespace는 AIOps 조치 범위 밖이므로 감시 보드에서도 제외한다.
+        if namespace in EXCLUDED_NAMESPACES:
+            continue
+
         if _detect_reason(pod):
-            if namespace in EXCLUDED_NAMESPACES:
-                monitoring_problem_pod_count += 1
-                if namespace:
-                    monitoring_problem_namespaces.add(namespace)
-            else:
-                actionable_problem_pod_count += 1
-                if namespace:
-                    actionable_problem_namespaces.add(namespace)
+            actionable_problem_pod_count += 1
+            if namespace:
+                actionable_problem_namespaces.add(namespace)
         elif _is_ready_pod(pod):
             normal_pod_count += 1
         else:
@@ -164,12 +161,9 @@ async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
             namespace for namespace in namespaces if namespace in EXCLUDED_NAMESPACES
         ),
         "normal_pod_count": normal_pod_count,
-        # 기존 UI 호환용 problem_*은 실제 조치 가능한 장애만 뜻한다.
         "problem_pod_count": actionable_problem_pod_count,
         "other_pod_count": other_pod_count,
         "problem_namespaces": sorted(actionable_problem_namespaces),
-        "monitoring_problem_pod_count": monitoring_problem_pod_count,
-        "monitoring_problem_namespaces": sorted(monitoring_problem_namespaces),
     }
 
 
@@ -206,8 +200,6 @@ async def _dashboard_cluster_summary(cluster_name: str) -> dict[str, object]:
             "problem_pod_count": 0,
             "other_pod_count": 0,
             "problem_namespaces": [],
-            "monitoring_problem_pod_count": 0,
-            "monitoring_problem_namespaces": [],
             "error": str(exc),
         }
 
