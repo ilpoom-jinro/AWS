@@ -28,7 +28,7 @@ import uuid
 import asyncio
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
@@ -37,7 +37,7 @@ from contracts.models import DetectIncidentInput
 
 from .config import settings
 from .k8s_collector import K8sCollector
-from .nodes.detector import _detect_reason
+from .nodes.detector import EXCLUDED_NAMESPACES, _detect_reason
 from .workflow import AIOpsRemediationWorkflow
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +81,7 @@ def _extract_targets(payload: dict) -> set[tuple[str, str]]:
         {"alerts": [{"labels": {"cluster": "...", "namespace": "...",
                                  "alertname": "...", ...}, "status": "firing"}]}
     - firing 상태만 대상으로 한다(resolved는 무시).
+    - 조치 제외 namespace는 모니터링 전용으로 남기고 Workflow를 시작하지 않는다.
     - cluster/namespace label이 없는 alert는 건너뛴다.
     - 중복 조합은 set으로 제거(detector가 네임스페이스를 스캔하므로 조합당 1회면 충분).
     """
@@ -91,8 +92,13 @@ def _extract_targets(payload: dict) -> set[tuple[str, str]]:
         labels = alert.get("labels", {})
         cluster = labels.get("cluster")
         namespace = labels.get("namespace")
-        if cluster and namespace:
+        if cluster and namespace and namespace not in EXCLUDED_NAMESPACES:
             targets.add((cluster, namespace))
+        elif cluster and namespace:
+            logger.info(
+                "조치 제외 namespace 알림은 모니터링 전용으로 처리: %s/%s",
+                cluster, namespace,
+            )
         else:
             logger.warning(
                 "cluster/namespace label 없는 alert 건너뜀: %s",
@@ -118,13 +124,15 @@ def _is_ready_pod(pod: dict) -> bool:
 
 
 async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
-    """클러스터 전체 Pod를 정상/장애/기타 상태와 namespace로 집계한다."""
+    """클러스터 Pod를 조치 가능 장애와 모니터링 전용 경보로 분리 집계한다."""
     collector = K8sCollector(context=_context_for_cluster(cluster_name))
     pods = await collector.list_pods_all_namespaces()
     namespaces: set[str] = set()
-    problem_namespaces: set[str] = set()
+    actionable_problem_namespaces: set[str] = set()
+    monitoring_problem_namespaces: set[str] = set()
     normal_pod_count = 0
-    problem_pod_count = 0
+    actionable_problem_pod_count = 0
+    monitoring_problem_pod_count = 0
     other_pod_count = 0
 
     for pod in pods:
@@ -133,9 +141,14 @@ async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
             namespaces.add(namespace)
 
         if _detect_reason(pod):
-            problem_pod_count += 1
-            if namespace:
-                problem_namespaces.add(namespace)
+            if namespace in EXCLUDED_NAMESPACES:
+                monitoring_problem_pod_count += 1
+                if namespace:
+                    monitoring_problem_namespaces.add(namespace)
+            else:
+                actionable_problem_pod_count += 1
+                if namespace:
+                    actionable_problem_namespaces.add(namespace)
         elif _is_ready_pod(pod):
             normal_pod_count += 1
         else:
@@ -144,10 +157,19 @@ async def _collect_pod_summary(cluster_name: str) -> dict[str, object]:
     return {
         "cluster_name": cluster_name,
         "namespace_names": sorted(namespaces),
+        "actionable_namespace_names": sorted(
+            namespace for namespace in namespaces if namespace not in EXCLUDED_NAMESPACES
+        ),
+        "monitoring_namespace_names": sorted(
+            namespace for namespace in namespaces if namespace in EXCLUDED_NAMESPACES
+        ),
         "normal_pod_count": normal_pod_count,
-        "problem_pod_count": problem_pod_count,
+        # 기존 UI 호환용 problem_*은 실제 조치 가능한 장애만 뜻한다.
+        "problem_pod_count": actionable_problem_pod_count,
         "other_pod_count": other_pod_count,
-        "problem_namespaces": sorted(problem_namespaces),
+        "problem_namespaces": sorted(actionable_problem_namespaces),
+        "monitoring_problem_pod_count": monitoring_problem_pod_count,
+        "monitoring_problem_namespaces": sorted(monitoring_problem_namespaces),
     }
 
 
@@ -178,10 +200,14 @@ async def _dashboard_cluster_summary(cluster_name: str) -> dict[str, object]:
         return {
             "cluster_name": cluster_name,
             "namespace_names": [],
+            "actionable_namespace_names": [],
+            "monitoring_namespace_names": [],
             "normal_pod_count": 0,
             "problem_pod_count": 0,
             "other_pod_count": 0,
             "problem_namespaces": [],
+            "monitoring_problem_pod_count": 0,
+            "monitoring_problem_namespaces": [],
             "error": str(exc),
         }
 
@@ -234,11 +260,12 @@ async def dashboard() -> dict[str, object]:
 
 @app.get("/api/clusters/{cluster_name}/namespaces")
 async def cluster_namespaces(cluster_name: str) -> dict[str, object]:
-    """해당 클러스터에서 pod가 존재하는 namespace 목록을 반환한다."""
+    """수동 AIOps 조치가 가능한 namespace 목록을 반환한다."""
     summary = await _cached_pod_summary(cluster_name)
     return {
         "cluster_name": cluster_name,
-        "namespaces": summary["namespace_names"],
+        "namespaces": summary["actionable_namespace_names"],
+        "monitoring_only_namespaces": summary["monitoring_namespace_names"],
     }
 
 
@@ -268,6 +295,14 @@ async def workflow_detail(workflow_id: str) -> dict[str, object]:
 @app.post("/api/workflows/run")
 async def run_workflow(request: RunWorkflowRequest) -> dict[str, str]:
     """UI/API에서 수동으로 AIOps remediation workflow를 시작한다."""
+    if request.namespace in EXCLUDED_NAMESPACES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{request.namespace}은(는) 운영 시스템 모니터링 전용 namespace입니다. "
+                "AIOps 자동 조치 대상이 아닙니다."
+            ),
+        )
     client = await _get_client()
     wf_id = request.workflow_id or (
         f"aiops-{request.cluster_name}-{request.namespace}-manual-{uuid.uuid4().hex[:8]}"
