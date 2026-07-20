@@ -27,8 +27,8 @@ env:
   # 빌드 산출물이 소유하는 대상을 data source로 조회한다. PR plan은 실제 인프라를
   # 건드리지 않으므로, 그 대상이 계정에 아직 없어도(재구축 중 등) plan이 막히지
   # 않도록 placeholder로 조회를 건너뛴다.
-  TF_VAR_rotation_lambda_arn_override: "plan-preview-placeholder"
-  TF_VAR_ops_rotation_lambda_arn_override: "plan-preview-placeholder"
+  TF_VAR_rotation_lambda_arn_override: "arn:aws:lambda:ap-northeast-2:000000000000:function:plan-preview-placeholder"
+  TF_VAR_ops_rotation_lambda_arn_override: "arn:aws:lambda:ap-northeast-2:000000000000:function:plan-preview-placeholder"
   TF_VAR_teleport_efs_id_override: "plan-preview-placeholder"
   TF_VAR_teleport_ami_id_override: "plan-preview-placeholder"
 
