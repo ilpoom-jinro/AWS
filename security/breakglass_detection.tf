@@ -92,6 +92,15 @@ resource "aws_sns_topic" "breakglass_activity_alert" {
   }
 }
 
+# 이메일 구독 — 이 토픽은 secops-trigger.tf SQS 구독 대상에서 빠져 있어(주석 처리됨,
+# MAS 단계 예정) 사람이 직접 받는 경로가 이거 하나뿐. 구독 생성 후 AWS가 보내는
+# 확인 메일을 실제로 클릭해야 알림이 온다.
+resource "aws_sns_topic_subscription" "breakglass_activity_alert_email" {
+  topic_arn = aws_sns_topic.breakglass_activity_alert.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 resource "aws_sns_topic" "breakglass_activity_alert_use1" {
   provider          = aws.us_east_1
   name              = "breakglass-activity-alert-use1"
@@ -104,6 +113,13 @@ resource "aws_sns_topic" "breakglass_activity_alert_use1" {
     Service     = "SNS"
     Environment = "all"
   }
+}
+
+resource "aws_sns_topic_subscription" "breakglass_activity_alert_use1_email" {
+  provider  = aws.us_east_1
+  topic_arn = aws_sns_topic.breakglass_activity_alert_use1.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
 
 # =============================================

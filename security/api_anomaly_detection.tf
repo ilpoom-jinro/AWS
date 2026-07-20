@@ -42,6 +42,13 @@ resource "aws_sns_topic" "api_anomaly_alert" {
   }
 }
 
+# 이메일 구독 — secops-trigger.tf SQS 구독과 이중화(security_violation_alert와 동일 사유).
+resource "aws_sns_topic_subscription" "api_anomaly_alert_email" {
+  topic_arn = aws_sns_topic.api_anomaly_alert.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 # ─────────────────────────────────────────────────────
 # SNS Topic Policy — 발행 권한 부여
 #

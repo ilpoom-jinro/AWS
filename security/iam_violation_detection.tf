@@ -37,6 +37,15 @@ resource "aws_sns_topic" "security_violation_alert" {
   }
 }
 
+# 이메일 구독 — 이 토픽은 secops-trigger.tf에서 SQS(financial-secops-trigger)로도
+# 구독돼 SecOps MAS가 처리하지만, MAS 파이프라인과 별개로 사람이 즉시 확인할 수
+# 있는 채널을 추가한다(이중화).
+resource "aws_sns_topic_subscription" "security_violation_alert_email" {
+  topic_arn = aws_sns_topic.security_violation_alert.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 # =============================================
 # SNS Topic Policy — 발행 권한 부여
 #
@@ -199,6 +208,15 @@ resource "aws_sns_topic" "privilege_escalation_alert_use1" {
     Service     = "SNS"
     Environment = "all"
   }
+}
+
+# 이메일 구독 — security_violation_alert와 동일하게 SQS(secops-trigger.tf) 구독과
+# 이중화. us-east-1 토픽이라 구독도 같은 리전 provider로 생성해야 한다.
+resource "aws_sns_topic_subscription" "privilege_escalation_alert_use1_email" {
+  provider  = aws.us_east_1
+  topic_arn = aws_sns_topic.privilege_escalation_alert_use1.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
 
 resource "aws_sns_topic_policy" "privilege_escalation_alert_use1" {
