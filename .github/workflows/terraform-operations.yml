@@ -66,12 +66,16 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
     -target=module.vpc2.aws_eks_pod_identity_association.mas_orchestrator_secops
     -target=module.vpc2.aws_eks_pod_identity_association.secops_orchestrator
-    -target=aws_secretsmanager_secret.cloudsql_failback_credentials
-    -target=module.vpc4.aws_secretsmanager_secret.cloudsql_failback_credentials
     -target=module.vpc1.data.aws_lambda_function.service_rotation
     -target=module.vpc2.data.aws_lambda_function.ops_rotation
     -target=module.vpc3.data.aws_ami.teleport
     -target=module.vpc3.data.aws_efs_file_system.teleport
+  # cloudsql_failback_credentials는 prevent_destroy라 destroy -target 목록에 넣으면
+  # (다른 moved 리소스처럼) "이것도 지워라"로 해석돼 매번 막힌다. apply 전용
+  # settle 스텝에서만 쓰고, 아래 공용 TF_MOVED_RESOURCE_TARGETS에는 절대 넣지 않는다.
+  TF_MOVED_SECRET_TARGETS: >-
+    -target=aws_secretsmanager_secret.cloudsql_failback_credentials
+    -target=module.vpc4.aws_secretsmanager_secret.cloudsql_failback_credentials
   # 이 4개는 -var=NAME=VALUE 형태(따옴표 없음)로 유지 — $TF_MOVED_RESOURCE_DESTROY_OVERRIDES가
   # run: 스크립트에서 unquoted 변수 확장으로 쓰이므로, 따옴표를 넣으면 셸이 벗겨내지 못하고
   # terraform에 리터럴 따옴표 문자가 그대로 전달된다.
@@ -179,6 +183,21 @@ jobs:
 
       - name: Terraform Validate
         run: terraform validate -no-color
+
+      # cloudsql_failback_credentials(vpc/headscale → 루트)와 rotation Lambda/EFS/AMI
+      # data source들이 count 도입으로 state 상 "이동 대기" 상태가 됐다. 이후 어떤
+      # -target 명령이든(apply/destroy 불문) 이 주소들을 포함하지 않으면 "Moved resource
+      # instances excluded by targeting"로 막힌다. destroy -target에 시크릿 주소를
+      # 넣으면 prevent_destroy에 걸려 실패하므로, apply로 딱 한 번 먼저 정착시켜
+      # 이후 모든 -target 명령이 이 주소들을 신경 쓰지 않아도 되게 한다(설정과
+      # 100% 동일하므로 실제 변경 없음 — 순수 state 주소 이전).
+      - name: Settle moved-resource state addresses
+        if: contains(fromJSON('["apply","destroy"]'), inputs.action)
+        run: >
+          terraform apply -auto-approve -input=false -lock-timeout=5m
+          $TF_MOVED_RESOURCE_DESTROY_OVERRIDES
+          $TF_MOVED_SECRET_TARGETS
+          $TF_MOVED_RESOURCE_TARGETS
 
       - name: Reconcile existing Secrets Manager rotations
         if: contains(fromJSON('["apply","reapply"]'), inputs.action)
