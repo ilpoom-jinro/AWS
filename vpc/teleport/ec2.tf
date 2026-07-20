@@ -50,7 +50,7 @@ resource "aws_iam_instance_profile" "teleport_ec2" {
 
 # Teleport EC2 (Packer AMI)
 resource "aws_instance" "teleport" {
-  ami                         = data.aws_ami.teleport.id
+  ami                         = coalesce(var.teleport_ami_id_override, try(data.aws_ami.teleport[0].id, null))
   instance_type               = "t3.small"
   subnet_id                   = aws_subnet.private_a.id
   vpc_security_group_ids      = [aws_security_group.teleport.id]
@@ -66,7 +66,7 @@ resource "aws_instance" "teleport" {
   user_data = base64encode(templatefile("${path.module}/userdata.sh.tpl", {
     eks_endpoint            = var.eks_endpoint
     eks_ca_data             = var.eks_ca_data
-    efs_dns                 = "${data.aws_efs_file_system.teleport.id}.efs.${var.aws_region}.amazonaws.com"
+    efs_dns                 = "${coalesce(var.teleport_efs_id_override, try(data.aws_efs_file_system.teleport[0].id, null))}.efs.${var.aws_region}.amazonaws.com"
     teleport_app_join_token = var.teleport_app_join_token
   }))
 

@@ -141,3 +141,9 @@ variable "account_id" {
   description = "AWS 계정 ID"
   type        = string
 }
+
+variable "rotation_lambda_arn_override" {
+  description = "rotation Lambda ARN data source 조회 우회값. destroy 시 Lambda가 이미 없으면 조회가 404로 실패해 plan이 막히므로, 그 경우에만 임의 문자열을 넘겨 조회를 건너뛴다."
+  type        = string
+  default     = null
+}

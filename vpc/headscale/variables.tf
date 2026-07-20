@@ -38,6 +38,11 @@ variable "service_rds_secret_arn" {
   type        = string
 }
 
+variable "cloudsql_failback_credentials_secret_arn" {
+  description = "GCP Cloud SQL failback 자격증명이 저장된 Secrets Manager ARN (루트 secrets.tf 관리)"
+  type        = string
+}
+
 variable "service_rds_kms_key_arn" {
   description = "Service RDS Secrets Manager 시크릿을 복호화하는 KMS 키 ARN"
   type        = string
