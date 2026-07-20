@@ -22,8 +22,9 @@
 # aws/sns 관리형 키는 events.amazonaws.com / cloudwatch.amazonaws.com 의
 # GenerateDataKey 권한이 없어 Publish 불가 → 현재 무암호화.
 #
+# 이메일 구독은 아래 aws_sns_topic_subscription으로 추가됨.
 # MAS 단계에서 추가 예정:
-#   - aws_sns_topic_subscription (Slack Lambda 또는 AWS Chatbot)
+#   - aws_sns_topic_subscription (Slack Lambda 또는 AWS Chatbot) — 이메일과 별개로 계속 예정
 # =============================================
 resource "aws_sns_topic" "root_activity_alert" {
   name              = "root-activity-alert"
@@ -36,6 +37,14 @@ resource "aws_sns_topic" "root_activity_alert" {
     Service     = "SNS"
     Environment = "all"
   }
+}
+
+# 이메일 구독 — 이 토픽은 secops-trigger.tf SQS 구독 대상에 아예 없어(breakglass와
+# 동일 사유) 사람이 직접 받는 경로가 이거 하나뿐.
+resource "aws_sns_topic_subscription" "root_activity_alert_email" {
+  topic_arn = aws_sns_topic.root_activity_alert.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
 
 # =============================================
@@ -307,6 +316,13 @@ resource "aws_sns_topic" "root_activity_alert_use1" {
     Service     = "SNS"
     Environment = "all"
   }
+}
+
+resource "aws_sns_topic_subscription" "root_activity_alert_use1_email" {
+  provider  = aws.us_east_1
+  topic_arn = aws_sns_topic.root_activity_alert_use1.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
 }
 
 resource "aws_sns_topic_policy" "root_activity_alert_use1" {

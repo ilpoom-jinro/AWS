@@ -28,6 +28,11 @@ variable "pii_scan_target_buckets" {
   type        = list(string)
 }
 
+variable "alert_email" {
+  description = "탐지 SNS 알림 수신 이메일 (루트에서 전달) — Breakglass/Root/IAM위반/권한상승/네트워크변경/API이상행위 6종 전체에 구독"
+  type        = string
+}
+
 variable "pii_scan_ecr_image" {
   description = "PII 스캔 CodeBuild 런타임 이미지 URI — 루트 aws_ecr_repository.pii_scan.repository_url:latest"
   type        = string

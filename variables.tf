@@ -265,6 +265,12 @@ variable "enable_pii_scan" {
   default     = false
 }
 
+variable "security_alert_email" {
+  description = "탐지 SNS 알림(Breakglass/Root/IAM위반/권한상승/네트워크변경/API이상행위 6종) 수신 이메일. 구독 생성 후 AWS가 보내는 확인 메일을 실제로 클릭해야 활성화됨."
+  type        = string
+  default     = "dhyeon5347@gmail.com"
+}
+
 variable "pii_scan_target_buckets" {
   description = "PII 스캔 추가 대상 버킷 이름 목록 (testdata 버킷은 코드가 자동 포함하므로 기본값 빈 배열 가능)"
   type        = list(string)
