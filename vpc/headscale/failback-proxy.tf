@@ -66,23 +66,9 @@ resource "aws_ssm_association" "cloudsql_failback_proxy" {
   }
 }
 
-# 값은 Terraform state에 넣지 않습니다. GCP failback workflow가 실행 직전에
-# PutSecretValue로 주입하고, Router만 읽어 역복제 실행기에 전달합니다.
-resource "aws_secretsmanager_secret" "cloudsql_failback_credentials" {
-  name                    = "financial-cloudsql-failback-credentials"
-  description             = "Ephemeral Cloud SQL to RDS reverse-replication credentials for DR failback"
-  recovery_window_in_days = 7
-
-  tags = {
-    Name               = "financial-cloudsql-failback-credentials"
-    DataClassification = "Restricted"
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
+# 시크릿 자체(aws_secretsmanager_secret)는 루트 secrets.tf에서 관리한다.
+# prevent_destroy가 destroy 사이클용 모듈(vpc/headscale) 안에 있으면 vpc4
+# destroy 자체를 막기 때문 — ARN은 var.cloudsql_failback_credentials_secret_arn으로 전달받는다.
 resource "aws_iam_role_policy" "headscale_router_failback_credentials" {
   name = "financial-vpc4-cloudsql-failback-credentials-read"
   role = aws_iam_role.headscale_router_ec2.id
@@ -95,7 +81,7 @@ resource "aws_iam_role_policy" "headscale_router_failback_credentials" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          aws_secretsmanager_secret.cloudsql_failback_credentials.arn,
+          var.cloudsql_failback_credentials_secret_arn,
           var.service_rds_secret_arn
         ]
       },
@@ -133,7 +119,7 @@ resource "aws_ssm_document" "cloudsql_reverse_replication" {
           test -x /usr/local/sbin/cloudsql-reverse-replication
 
           failback_secret="$(aws secretsmanager get-secret-value \
-            --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
+            --secret-id '${var.cloudsql_failback_credentials_secret_arn}' \
             --query SecretString --output text)"
           rds_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${var.service_rds_secret_arn}' \
@@ -186,7 +172,7 @@ resource "aws_ssm_document" "cloudsql_reverse_replication_cleanup" {
           test -x /usr/local/sbin/cloudsql-reverse-replication
 
           failback_secret="$(aws secretsmanager get-secret-value \
-            --secret-id '${aws_secretsmanager_secret.cloudsql_failback_credentials.arn}' \
+            --secret-id '${var.cloudsql_failback_credentials_secret_arn}' \
             --query SecretString --output text)"
           rds_secret="$(aws secretsmanager get-secret-value \
             --secret-id '${var.service_rds_secret_arn}' \

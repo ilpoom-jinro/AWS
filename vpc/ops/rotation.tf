@@ -71,6 +71,9 @@ resource "aws_serverlessapplicationrepository_cloudformation_stack" "ops_rds_rot
 }
 
 data "aws_lambda_function" "ops_rotation" {
+  # destroy 시 rotation_lambda_arn_override가 주어지면 이 조회를 건너뛴다.
+  # Lambda가 이미 사라진 상태에서는 조회 자체가 404로 실패해 plan이 막히기 때문.
+  count         = var.rotation_lambda_arn_override == null ? 1 : 0
   function_name = "financial-ops-rds-rotation"
 
   depends_on = [aws_serverlessapplicationrepository_cloudformation_stack.ops_rds_rotation]

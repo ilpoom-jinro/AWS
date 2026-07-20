@@ -632,10 +632,18 @@ jobs:
           -target=aws_sqs_queue.slack_hitl_outbound
           -target=aws_sqs_queue.slack_hitl_outbound_dlq
 
+      # rotation Lambda(vpc1/vpc2)·teleport EFS·teleport AMI(vpc3)는 각각 다른
+      # 리소스/state/외부 빌드 산출물이 소유하는 대상을 data source로 조회하는데,
+      # destroy 반복 과정에서 그 대상이 먼저 없어지면 조회 자체가 실패해 plan이
+      # 서지 않는다(넷 다 destroy에는 불필요한 값). override로 우회.
       - name: Destroy VPCs and EKS
         if: inputs.action == 'destroy'
         run: >
           terraform destroy -auto-approve -input=false -lock-timeout=5m
+          -var="rotation_lambda_arn_override=destroying"
+          -var="ops_rotation_lambda_arn_override=destroying"
+          -var="teleport_efs_id_override=destroying"
+          -var="teleport_ami_id_override=destroying"
           -target=module.vpc4
           -target=module.vpc3
           -target=module.vpc2

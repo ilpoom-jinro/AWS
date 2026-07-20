@@ -9,6 +9,9 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 data "aws_efs_file_system" "teleport" {
+  # destroy 시 teleport_efs_id_override가 주어지면 이 조회를 건너뛴다.
+  # EFS가 이미 사라진 상태에서는 태그 조회 자체가 실패해 plan이 막히기 때문.
+  count = var.teleport_efs_id_override == null ? 1 : 0
   tags = {
     Name = "financial-vpc3-teleport-data"
   }
@@ -40,7 +43,7 @@ resource "aws_security_group" "efs" {
 }
 
 resource "aws_efs_mount_target" "teleport_a" {
-  file_system_id  = data.aws_efs_file_system.teleport.id
+  file_system_id  = coalesce(var.teleport_efs_id_override, try(data.aws_efs_file_system.teleport[0].id, null))
   subnet_id       = aws_subnet.private_a.id
   security_groups = [aws_security_group.efs.id]
 }

@@ -88,5 +88,5 @@ output "rds_address" {
 
 output "rotation_lambda_arn" {
   description = "service RDS rotation Lambda ARN"
-  value       = data.aws_lambda_function.service_rotation.arn
+  value       = coalesce(var.rotation_lambda_arn_override, try(data.aws_lambda_function.service_rotation[0].arn, null))
 }

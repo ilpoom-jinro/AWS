@@ -24,14 +24,15 @@ module "security" {
 }
 
 module "vpc1" {
-  source                     = "./vpc/globalservice"
-  rds_password               = random_password.service_rds.result
-  kms_key_rds_arn            = data.aws_kms_key.key_rds_globalservice.arn
-  kms_key_eks_arn            = data.aws_kms_key.key_eks.arn
-  kms_key_secretsmanager_arn = data.aws_kms_key.key_secretsmanager.arn
-  account_id                 = data.aws_caller_identity.current.account_id
-  single_az_mode             = var.single_az_mode
-  rds_backup_retention       = var.rds_backup_retention
+  source                       = "./vpc/globalservice"
+  rds_password                 = random_password.service_rds.result
+  kms_key_rds_arn              = data.aws_kms_key.key_rds_globalservice.arn
+  kms_key_eks_arn              = data.aws_kms_key.key_eks.arn
+  kms_key_secretsmanager_arn   = data.aws_kms_key.key_secretsmanager.arn
+  account_id                   = data.aws_caller_identity.current.account_id
+  single_az_mode               = var.single_az_mode
+  rds_backup_retention         = var.rds_backup_retention
+  rotation_lambda_arn_override = var.rotation_lambda_arn_override
 
   # providers 인자를 쓰면 default aws 상속이 취소되므로 aws도 명시적으로 전달.
   providers = {
@@ -41,15 +42,16 @@ module "vpc1" {
 }
 
 module "vpc2" {
-  source                     = "./vpc/ops"
-  rds_password               = random_password.ops_rds.result
-  kms_key_rds_arn            = data.aws_kms_key.key_rds_ops.arn
-  kms_key_eks_arn            = data.aws_kms_key.key_eks.arn
-  kms_key_secretsmanager_arn = data.aws_kms_key.key_secretsmanager.arn
-  kms_key_s3_arn             = data.aws_kms_key.key_s3.arn
-  account_id                 = data.aws_caller_identity.current.account_id
-  single_az_mode             = var.single_az_mode
-  rds_backup_retention       = var.rds_backup_retention
+  source                       = "./vpc/ops"
+  rds_password                 = random_password.ops_rds.result
+  kms_key_rds_arn              = data.aws_kms_key.key_rds_ops.arn
+  kms_key_eks_arn              = data.aws_kms_key.key_eks.arn
+  kms_key_secretsmanager_arn   = data.aws_kms_key.key_secretsmanager.arn
+  kms_key_s3_arn               = data.aws_kms_key.key_s3.arn
+  account_id                   = data.aws_caller_identity.current.account_id
+  single_az_mode               = var.single_az_mode
+  rds_backup_retention         = var.rds_backup_retention
+  rotation_lambda_arn_override = var.ops_rotation_lambda_arn_override
 
   # slack-hitl 봇 Pod Identity role(vpc/ops/pod-identity.tf)에 큐 ARN 스코프를 넘기기 위함
   # — 큐 자체는 루트 slack-broker.tf 리소스라 모듈 경계를 변수로 넘어야 함.
@@ -79,21 +81,24 @@ module "vpc2" {
 module "vpc3" {
   source = "./vpc/teleport"
 
-  eks_endpoint            = module.vpc2.eks_cluster_endpoint
-  eks_ca_data             = module.vpc2.eks_cluster_ca_data
-  teleport_app_join_token = random_password.teleport_app_join_token.result
+  eks_endpoint             = module.vpc2.eks_cluster_endpoint
+  eks_ca_data              = module.vpc2.eks_cluster_ca_data
+  teleport_app_join_token  = random_password.teleport_app_join_token.result
+  teleport_efs_id_override = var.teleport_efs_id_override
+  teleport_ami_id_override = var.teleport_ami_id_override
 }
 
 module "vpc4" {
-  source                  = "./vpc/headscale"
-  gcp_fixed_ip            = var.gcp_fixed_ip
-  gcp_cloudsql_private_ip = var.gcp_cloudsql_private_ip
-  service_rds_secret_arn  = aws_secretsmanager_secret.service_rds_password.arn
-  service_rds_kms_key_arn = data.aws_kms_key.key_secretsmanager.arn
-  oci_headscale_ip        = var.oci_headscale_ip
-  oci_headscale_ip_plain  = var.oci_headscale_ip_plain
-  headscale_login_server  = var.headscale_login_server
-  tailscale_auth_key      = var.tailscale_auth_key
+  source                                   = "./vpc/headscale"
+  gcp_fixed_ip                             = var.gcp_fixed_ip
+  gcp_cloudsql_private_ip                  = var.gcp_cloudsql_private_ip
+  service_rds_secret_arn                   = aws_secretsmanager_secret.service_rds_password.arn
+  cloudsql_failback_credentials_secret_arn = aws_secretsmanager_secret.cloudsql_failback_credentials.arn
+  service_rds_kms_key_arn                  = data.aws_kms_key.key_secretsmanager.arn
+  oci_headscale_ip                         = var.oci_headscale_ip
+  oci_headscale_ip_plain                   = var.oci_headscale_ip_plain
+  headscale_login_server                   = var.headscale_login_server
+  tailscale_auth_key                       = var.tailscale_auth_key
 }
 
 # GCP_sub의 failback workflow는 이 역할로 Router의 고정 SSM 문서만 실행합니다.
@@ -112,7 +117,7 @@ resource "aws_iam_role_policy" "gcp_dr_reverse_replication" {
           "secretsmanager:DescribeSecret",
           "secretsmanager:PutSecretValue"
         ]
-        Resource = module.vpc4.cloudsql_failback_credentials_secret_arn
+        Resource = aws_secretsmanager_secret.cloudsql_failback_credentials.arn
       },
       {
         Sid    = "RunReverseReplicationDocument"

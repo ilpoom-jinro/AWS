@@ -194,3 +194,28 @@ resource "aws_secretsmanager_secret" "slack_hitl_tokens" {
   }
 }
 # aws_secretsmanager_secret_version 은 의도적으로 정의하지 않음 (값은 CLI 수동 주입)
+
+# ── GCP Cloud SQL failback 자격증명 (VPC4) ──────────────────────────────────────
+# vpc/headscale(module.vpc4)에 있었으나 prevent_destroy가 destroy 사이클용 모듈
+# 안에 있으면 vpc4 destroy 자체를 막아버려(다른 vpc 모듈 destroy-safe 시크릿과
+# 동일한 이유로) 루트로 이동. 값은 Terraform state에 넣지 않고, GCP failback
+# workflow가 실행 직전 PutSecretValue로 주입한다.
+moved {
+  from = module.vpc4.aws_secretsmanager_secret.cloudsql_failback_credentials
+  to   = aws_secretsmanager_secret.cloudsql_failback_credentials
+}
+
+resource "aws_secretsmanager_secret" "cloudsql_failback_credentials" {
+  name                    = "financial-cloudsql-failback-credentials"
+  description             = "Ephemeral Cloud SQL to RDS reverse-replication credentials for DR failback"
+  recovery_window_in_days = 7
+
+  tags = {
+    Name               = "financial-cloudsql-failback-credentials"
+    DataClassification = "Restricted"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
