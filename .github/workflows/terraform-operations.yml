@@ -66,16 +66,22 @@ env:
     -target=module.iam.aws_iam_group_policy_attachment.sre_deny_destructive
     -target=module.vpc2.aws_eks_pod_identity_association.mas_orchestrator_secops
     -target=module.vpc2.aws_eks_pod_identity_association.secops_orchestrator
-    -target=module.vpc1.data.aws_lambda_function.service_rotation
-    -target=module.vpc2.data.aws_lambda_function.ops_rotation
-    -target=module.vpc3.data.aws_ami.teleport
-    -target=module.vpc3.data.aws_efs_file_system.teleport
   # cloudsql_failback_credentials는 prevent_destroy라 destroy -target 목록에 넣으면
   # (다른 moved 리소스처럼) "이것도 지워라"로 해석돼 매번 막힌다. apply 전용
-  # settle 스텝에서만 쓰고, 아래 공용 TF_MOVED_RESOURCE_TARGETS에는 절대 넣지 않는다.
+  # settle 스텝에서만 쓰고, 위 공용 TF_MOVED_RESOURCE_TARGETS에는 절대 넣지 않는다.
   TF_MOVED_SECRET_TARGETS: >-
     -target=aws_secretsmanager_secret.cloudsql_failback_credentials
     -target=module.vpc4.aws_secretsmanager_secret.cloudsql_failback_credentials
+  # rotation Lambda/EFS/AMI data source 4개는 -target으로 직접 지정하면 그 depends_on
+  # 체인(예: SAR CloudFormation 스택)까지 "생성 대상"으로 끌려들어간다 — destroy
+  # 중에는 이게 전혀 필요 없고, AWS 쪽에서 그 스택 생성 자체가 실패(ROLLBACK_COMPLETE)해
+  # 매번 막혔다. data source는 실체가 없는 캐시된 조회 결과라 moved 대신 state rm으로
+  # 옛 미인덱스 주소를 지워버리면 안전하다 — 다음 조회 때 새 주소로 다시 읽을 뿐이다.
+  TF_STALE_DATA_SOURCE_ADDRESSES: >-
+    module.vpc1.data.aws_lambda_function.service_rotation
+    module.vpc2.data.aws_lambda_function.ops_rotation
+    module.vpc3.data.aws_ami.teleport
+    module.vpc3.data.aws_efs_file_system.teleport
   # 이 4개는 -var=NAME=VALUE 형태(따옴표 없음)로 유지 — $TF_MOVED_RESOURCE_DESTROY_OVERRIDES가
   # run: 스크립트에서 unquoted 변수 확장으로 쓰이므로, 따옴표를 넣으면 셸이 벗겨내지 못하고
   # terraform에 리터럴 따옴표 문자가 그대로 전달된다.
@@ -184,18 +190,35 @@ jobs:
       - name: Terraform Validate
         run: terraform validate -no-color
 
-      # cloudsql_failback_credentials(vpc/headscale → 루트)와 rotation Lambda/EFS/AMI
-      # data source들이 count 도입으로 state 상 "이동 대기" 상태가 됐다. 이후 어떤
-      # -target 명령이든(apply/destroy 불문) 이 주소들을 포함하지 않으면 "Moved resource
-      # instances excluded by targeting"로 막힌다. destroy -target에 시크릿 주소를
-      # 넣으면 prevent_destroy에 걸려 실패하므로, apply로 딱 한 번 먼저 정착시켜
-      # 이후 모든 -target 명령이 이 주소들을 신경 쓰지 않아도 되게 한다(설정과
-      # 100% 동일하므로 실제 변경 없음 — 순수 state 주소 이전).
-      - name: Settle moved-resource state addresses
+      # rotation Lambda/EFS/AMI data source에 count를 추가하며 생긴 미인덱스 옛 주소를
+      # state에서 지운다. data source는 실체 없는 캐시된 조회 결과라 그냥 지워도
+      # 안전 — 다음에 실제로 읽힐 때 새 인덱스 주소로 다시 채워진다. -target으로
+      # 직접 지정해서 moved 처리하면 depends_on 체인(SAR CloudFormation 스택 등)까지
+      # "생성 대상"으로 끌려들어가 destroy 중에 불필요한 생성 시도가 발생했었다.
+      - name: Remove stale data source state entries
+        if: contains(fromJSON('["apply","destroy"]'), inputs.action)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for addr in $TF_STALE_DATA_SOURCE_ADDRESSES; do
+            if terraform state list | grep -Fxq "${addr}"; then
+              echo "Removing stale state entry: ${addr}"
+              terraform state rm "${addr}"
+            else
+              echo "No stale state entry for ${addr}; skipping."
+            fi
+          done
+
+      # cloudsql_failback_credentials는 vpc/headscale → 루트로 옮기며 state 상
+      # "이동 대기" 상태가 됐다. 이후 어떤 -target 명령이든(apply/destroy 불문) 이
+      # 주소를 포함하지 않으면 "Moved resource instances excluded by targeting"로
+      # 막힌다. destroy -target에 이 주소를 넣으면 prevent_destroy에 걸려 실패하므로,
+      # apply로 딱 한 번 먼저 정착시켜 이후 모든 -target 명령이 신경 쓰지 않아도
+      # 되게 한다(설정과 100% 동일하므로 실제 변경 없음 — 순수 state 주소 이전).
+      - name: Settle cloudsql_failback_credentials moved address
         if: contains(fromJSON('["apply","destroy"]'), inputs.action)
         run: >
           terraform apply -auto-approve -input=false -lock-timeout=5m
-          $TF_MOVED_RESOURCE_DESTROY_OVERRIDES
           $TF_MOVED_SECRET_TARGETS
           $TF_MOVED_RESOURCE_TARGETS
 
