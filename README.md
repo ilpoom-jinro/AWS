@@ -1,264 +1,238 @@
 # 금융권 멀티클라우드 통합 관제 플랫폼 - AWS
 
-> 2026년 4월 망분리 규제 완화를 선제 적용한 **하이브리드 CMP/IDP** 구축 프로젝트입니다.
->
-> AI 멀티 에이전트 시스템(MAS)이 비용 이상·장애·보안 위협을 자율 탐지·분석·조치하고,  
-> 사람은 Slack HITL 승인 게이트에서 **최종 결정만** 합니다.
+금융 환경을 가정한 **하이브리드·멀티클라우드 통합 관제 플랫폼**의 AWS 구현 저장소입니다. Terraform으로 AWS 기반 인프라를 구성하고, GitHub Actions·ECR·내부 Git·Argo CD를 연결한 GitOps 방식으로 서비스와 MAS(Multi-Agent System) 워크로드를 배포합니다.
 
----
+> 이 저장소는 실제 금융사 고객 데이터나 프로덕션 트래픽을 처리하지 않는 프로젝트 환경입니다. 비밀값은 Git에 저장하지 않으며, AWS Secrets Manager와 GitHub Secrets를 통해서만 주입합니다.
 
-## 개요
+## 프로젝트 개요
 
-금융권 클라우드 전환 현장에서 반복되는 3가지 문제를 해결합니다.
+플랫폼은 운영 이벤트를 관측하고, 시나리오별 에이전트가 분석한 결과를 사람의 승인(HITL) 후 실행하는 흐름을 구현합니다.
 
-| 영역 | AS-IS | TO-BE | 개선율 |
-|------|-------|-------|--------|
-| **FinOps** 비용 이상 대응 | 4.5시간 (수동) | 15분 이내 | -95% |
-| **AIOps** 장애 복구 (MTTR) | 2.3시간 | 30분 이내 | -78% |
-| **SecOps** 보안 위반 대응 | 45분 | 5분 이내 | -89% |
-| 인프라 변경 리드타임 | 3~5일 | 1시간 이내 | -95% |
-| 분기 감사 보고서 작성 | 16시간 | 10분 (자동) | -99% |
-| 월 오버프로비저닝 비용 | $2,400 | $800 이하 | -67% |
+| 영역 | 구현 범위 | 주요 구성 |
+| --- | --- | --- |
+| FinOps | 비용·용량·트래픽 분석 및 최적화 제안 | FinOps 에이전트, Temporal, Athena/CUR 연동 경로 |
+| AIOps | 장애 탐지, 재시작·스케일 아웃·롤백 리허설 | AIOps 오케스트레이터, Slack HITL, Kubernetes API |
+| SecOps | 보안 이벤트 분석 및 격리 정책 적용 | SecOps 오케스트레이터, Bedrock KB, Cilium 정책 |
+| 관측성 | 로그·메트릭·트레이스의 중앙 수집과 대시보드 | Alloy, Loki, Thanos, Tempo, Grafana, Alertmanager |
+| 플랫폼 보안·복구 | 비밀 관리, 네트워크 정책, 이미지 서명, 백업 | External Secrets, Cilium, Cosign, Velero, KMS |
 
-### Pain Points: 왜 지금, 왜 이 플랫폼인가
+AWS에는 목적이 분리된 두 EKS 클러스터를 운영합니다.
 
-일반 기업은 Datadog·Grafana Cloud 같은 SaaS 모니터링을 붙이면 되지만, 금융권은 『전자금융감독규정 제14조의2·제15조』 망분리 규제로 인해 클라우드 기반 SaaS 툴 자체를 올릴 수 없었습니다. 결과적으로 모니터링·분석·자동화 도구를 전부 직접 구축하거나 수작업으로 처리해야 했습니다.
+| 클러스터 | 역할 |
+| --- | --- |
+| `financial-service-eks` | 공개 프런트엔드, 백엔드 API, 서비스 측 관측 에이전트 |
+| `financial-ops-eks` | MAS, Grafana·Loki·Thanos·Tempo·Alertmanager, 내부 GitOps 및 운영 도구 |
 
-**2026년 4월, 금융위원회 규제 완화로 내부 업무용 SaaS의 클라우드 탑재가 허용되었습니다.**  
-이 변화가 이 프로젝트의 출발점입니다.
-
-> **핵심 원칙**: 고객 개인정보(PII)는 온프레미스에 완전 격리 — 클라우드로 나가는 건 인프라 헬스 메트릭과 운영 로그뿐입니다.
-
----
+GCP DR 환경 및 OCI Headscale 연동에 필요한 AWS 측 네트워크·Route 53·자격 증명 구성도 이 저장소에서 관리합니다.
 
 ## 아키텍처
 
-### 하이브리드 클라우드 구성
+```mermaid
+flowchart TB
+  Dev[개발자 / GitHub] --> GA[GitHub Actions\nOIDC 인증]
+  GA --> ECR[Amazon ECR\n이미지 빌드·서명]
+  GA --> CB[AWS CodeBuild\n인프라·매니페스트 작업]
+  CB --> Git[Internal Git]
+  Git --> Argo[Argo CD]
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│          On-Prem / Oracle Cloud (시뮬레이션)                 │
-│  ┌──────────────────────┐  ┌──────────────────────────────┐  │
-│  │  개인정보 DB (폐쇄망) │  │  Headscale Control Plane     │ │
-│  │  - PII 완전 격리      │  │  - VPN 중앙 관리             │ │
-│  │  - 단방향 메트릭 전송 │  └──────────────────────────────┘ │
-│  └──────────────────────┘                                   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ VPN Tunnel (Tailscale)
-            ┌──────────────┴──────────────┐
-            │                             │
-   ┌────────▼────────┐          ┌─────────▼──────────┐
-   │      AWS        │          │        GCP         │
-   │  EKS HA (Main)  │◀────────▶│  GKE Cluster (DR)│
-   │  AI Agent Layer │  Failover│  Standby / 관제    │
-   └─────────────────┘          └────────────────────┘
+  subgraph AWS[AWS · ap-northeast-2]
+    direction TB
+    subgraph Service[financial-service-eks]
+      FE[React/Vite 프런트엔드]
+      API[FastAPI 백엔드]
+      SAlloy[Alloy]
+      FE --> API
+      FE --> SAlloy
+      API --> SAlloy
+    end
+
+    subgraph Ops[financial-ops-eks]
+      Argo --> MAS[FinOps · AIOps · SecOps MAS]
+      MAS --> Temporal[Temporal]
+      MAS --> Bedrock[Amazon Bedrock / KB]
+      MAS --> HITL[Slack HITL\nSQS + Lambda 브로커]
+      MAS --> RDS[(Amazon RDS\nPostgreSQL)]
+      OAlloy[Alloy] --> Loki[Loki]
+      OAlloy --> Thanos[Thanos]
+      OAlloy --> Tempo[Tempo]
+      Loki --> Grafana[Grafana]
+      Thanos --> Grafana
+      Tempo --> Grafana
+      Alert[Alertmanager] --> MAS
+      Cilium[Cilium NetworkPolicy] --- MAS
+    end
+
+    SM[AWS Secrets Manager] --> ESO[External Secrets]
+    ESO --> MAS
+    SAlloy --> OAlloy
+  end
+
+  AWS <-->|VPN / DR 연동| Hybrid[GCP DR · OCI Headscale]
 ```
 
-### MAS (멀티 에이전트 시스템) 레이어
+1. GitHub Actions가 OIDC로 AWS 역할을 Assume하고, 이미지와 인프라 변경을 처리합니다.
+2. 이미지에는 Cosign 서명을 적용하고, GitOps 매니페스트는 내부 Git을 통해 Argo CD가 동기화합니다.
+3. 서비스 클러스터의 Alloy는 Ops 클러스터의 내부 NLB를 통해 로그·메트릭·트레이스를 전송합니다.
+4. MAS는 Temporal로 작업을 조율하고, 필요한 경우 Bedrock 및 RDS를 사용합니다. 자동 조치는 Slack HITL 승인 경로를 거치도록 설계되어 있습니다.
 
-```
-탐지 → 분석 → 생성/검증 → HITL 승인 → 실행 → 감사 기록
+## 기술 스택 및 버전
 
-[Prometheus / CloudTrail / VPC Flow Logs]
-             │
-     ┌───────▼────────┐
-     │ 이상 탐지 Agent│  (읽기 전용)
-     └───────┬────────┘
-             │ 이벤트 발행
-  ┌──────────┴────────────────┐
-  │                           │
-┌─▼──────────┐        ┌──────▼────────┐
-│ 비용 분석  │        │  장애 분석    │  ← Bedrock (PrivateLink)
-│ Agent      │        │  Agent        │    LangGraph 추론 루프
-└─────┬──────┘        └──────┬────────┘
-      │                       │
-┌─────▼───────────────────────▼──────┐
-│     IaC 생성 Agent (Terraform HCL) │
-│     IaC 검증 Agent (Actor-Critic)  │
-└─────────────────┬──────────────────┘
-                  │
-         ┌────────▼────────┐
-         │  Slack HITL 게이트 │  ← 사람이 최종 승인
-         └────────┬────────┘
-                  │ 승인
-         ┌────────▼────────┐
-         │  Temporal 실행   │  → terraform apply / kubectl
-         └────────┬────────┘
-                  │
-         ┌────────▼────────┐
-         │ RDS PostgreSQL  │  ← 전체 의사결정 이력 영구 저장
-         └─────────────────┘
+아래 버전은 저장소의 Terraform 설정, CI 워크플로우, Dockerfile, Helm Chart와 이미지 미러 설정을 기준으로 합니다.
+
+| 구분 | 기술 | 버전 |
+| --- | --- | --- |
+| IaC | Terraform CLI | `1.11.0` (최소 요구 `>= 1.11.0`) |
+| IaC | HashiCorp AWS Provider | `~> 5.0` |
+| 컨테이너 오케스트레이션 | Amazon EKS / Kubernetes | `1.35` |
+| GitOps | Argo CD, Kustomize, Helm | 내부 Git 기반 배포 |
+| 서비스 런타임 | Python | `3.12.13-slim` |
+| 백엔드 | FastAPI / Uvicorn | `0.115.6` / `0.34.0` |
+| 워크플로우 | Temporal Server / Python SDK | `1.31.0` / `1.27.2` |
+| 데이터베이스 | Amazon RDS PostgreSQL | 관리형 PostgreSQL |
+| AI | Amazon Bedrock, Bedrock Knowledge Bases | 리전 `ap-northeast-2` |
+| 프런트엔드 | Node.js / React / Vite | `22.23.1` / `19` / `6.4.3` |
+| 관측성 | Grafana / Loki / Thanos / Tempo / Alloy | `13.1.0` / `3.7.3` / `0.41.0` / `3.0.0` / `1.17.1` |
+| 네트워크·보안 | Cilium, AWS Load Balancer Controller | `1.16.5` / `3.3.0` |
+| 비밀·백업 | External Secrets / Velero | `0.10.7` / `1.15.0` |
+
+## 저장소 구성
+
+```text
+.
+├── vpc/                 # Service·Ops·Teleport·Headscale VPC와 EKS 모듈
+├── iam/, kms/, security/ # IAM, KMS, CloudTrail·SIEM·탐지 구성
+├── gitops/platform/     # Argo CD Application, Helm 값, Kustomize 매니페스트
+├── mas/                 # FinOps·AIOps·SecOps·플랫폼 에이전트 및 공용 계약
+├── demo-app/            # React 프런트엔드와 FastAPI 백엔드 예제
+├── monitoring/          # 관측 컴포넌트 이미지 및 인덱서
+├── ansible/             # 클러스터 부트스트랩·운영 플레이북
+└── .github/workflows/   # Terraform, 이미지, MAS, 앱 배포 자동화
 ```
+
+## 실행 및 배포 방법
+
+### 사전 요구 사항
+
+- AWS 권한: Terraform 상태 버킷과 대상 계정 리소스에 접근 가능한 IAM 역할 또는 로컬 AWS 프로파일
+- 도구: Terraform `1.11.0`, AWS CLI v2, `kubectl`, Docker, Helm, Git
+- 선택 도구: Python `3.12`, Node.js `22` (로컬 애플리케이션 개발용)
+- 네트워크: Ops EKS API와 내부 서비스는 사설 접근을 전제로 하므로, 해당 VPC에 접근 가능한 환경에서 운영 명령을 실행해야 합니다.
+
+### 1. 인프라 계획 및 적용
+
+공유 상태를 보호하기 위해 팀 환경에서는 로컬 `apply`보다 GitHub Actions의 **Terraform Operations** 워크플로우를 사용합니다. `plan`으로 변경 사항을 먼저 검토한 뒤 `apply` 또는 필요한 범위의 작업을 실행합니다.
+
+로컬에서 검증만 하려면 다음을 실행합니다.
+
+```bash
+terraform init -reconfigure
+terraform fmt -check -recursive
+terraform validate
+terraform plan -input=false -lock-timeout=5m
+```
+
+`apply`는 실제 AWS 리소스를 생성·변경하므로, 승인된 변경에 한해 실행합니다.
+
+```bash
+terraform apply -input=false -lock-timeout=5m
+```
+
+### 2. 클러스터 접속 및 GitOps 동기화
+
+```bash
+aws eks update-kubeconfig --region ap-northeast-2 --name financial-ops-eks
+kubectl get pods -A
+kubectl -n argocd get applications
+```
+
+Argo CD는 `gitops/platform/`의 Application·Helm·Kustomize 구성을 읽습니다. 매니페스트를 직접 ECR에 업로드하지 않으며, 컨테이너 이미지만 ECR에 저장합니다.
+
+### 3. 애플리케이션 및 MAS 배포
+
+- `App Deploy`: 데모 애플리케이션 이미지를 ECR에 빌드·서명하고, CodeBuild가 내부 GitOps 매니페스트의 이미지 태그를 갱신합니다.
+- `MAS Agent Deploy`: `mas/pods/<scenario>/<agent>/agent.yml`을 기준으로 MAS 이미지를 빌드·서명하고 배포 매니페스트를 갱신합니다.
+- `ECR Images` 및 `Monitoring Images`: 외부 이미지를 내부 ECR로 미러링합니다.
+
+각 워크플로우를 실행한 뒤 Argo CD의 동기화 상태와 워크로드 상태를 확인합니다.
+
+```bash
+kubectl -n argocd get applications
+kubectl -n aiops-mas get deploy,pods
+kubectl -n secops-mas get deploy,pods
+kubectl -n finops-mas get deploy,pods
+```
+
+### 4. 로컬 MAS 감사 DB 시연
+
+로컬 시연은 RDS 대신 PostgreSQL 컨테이너만 실행합니다.
+
+```bash
+cd mas/deploy/local
+docker compose up -d
+```
+
+애플리케이션에는 다음 형식의 연결 문자열을 주입합니다.
+
+```bash
+export DATABASE_URL='postgresql+asyncpg://mas:mas@localhost:5432/mas'
+```
+
+종료는 `docker compose down`을 사용합니다. `-v` 옵션은 로컬 볼륨 데이터를 제거하므로 필요할 때만 사용합니다.
+
+## 환경 변수 및 비밀값 설정
+
+### GitHub Actions Secrets 및 Variables
+
+다음 값은 GitHub 저장소의 **Settings → Secrets and variables → Actions**에 설정합니다. AWS 자격 증명은 장기 액세스 키가 아닌 OIDC 역할 연동을 사용합니다.
+
+| 이름 | 구분 | 용도 |
+| --- | --- | --- |
+| `AWS_ROLE_ARN_DEV` | Secret | 개발 환경 GitHub Actions OIDC AssumeRole ARN |
+| `AWS_ROLE_ARN` | Secret | 일부 앱·MAS 이미지 워크플로우에서 사용하는 OIDC 역할 ARN |
+| `AWS_REGION` | Secret | 기본 리전. 미설정 시 `ap-northeast-2` |
+| `GCP_FIXED_IP` | Secret | GCP Tailscale 노드의 고정 공인 IP/CIDR |
+| `OCI_HEADSCALE_IP` | Secret | OCI Headscale 서버 IP/CIDR |
+| `OCI_HEADSCALE_IP_PLAIN` | Secret | OCI Headscale 서버의 일반 IP |
+| `TAILSCALE_AUTH_KEY` | Secret | Headscale 등록용 Tailscale 인증 키 |
+| `GCP_SERVICE_IP` | Variable | DR 서비스 LB의 고정 IP |
+| `GCP_CLOUDSQL_PRIVATE_IP` | Variable | DR Cloud SQL 사설 IP |
+
+### Terraform 입력 변수
+
+로컬 실행 시 민감한 값은 셸 환경 변수로 전달하고, `terraform.tfvars`에 실제 키를 기록하거나 커밋하지 않습니다.
+
+```bash
+export TF_VAR_gcp_fixed_ip='203.0.113.10/32'
+export TF_VAR_oci_headscale_ip='198.51.100.20/32'
+export TF_VAR_oci_headscale_ip_plain='198.51.100.20'
+export TF_VAR_tailscale_auth_key='발급받은-인증-키'
+export TF_VAR_gcp_service_ip='203.0.113.30'
+export TF_VAR_gcp_cloudsql_private_ip='10.0.0.10'
+```
+
+예시 IP와 인증 키는 자리 표시자이며 실제 값으로 바꿔야 합니다. 개발 비용 설정은 기본적으로 `single_az_mode=true`, `rds_backup_retention=0`입니다. 운영 전환 전에는 가용성과 백업 보존 정책을 검토하여 별도 값으로 명시해야 합니다.
+
+### AWS Secrets Manager와 Kubernetes 주입
+
+Terraform은 RDS 및 Temporal용 시크릿 컨테이너를 만들고, Kubernetes에서는 External Secrets가 필요한 키를 Secret으로 동기화합니다.
+
+| AWS Secrets Manager 이름 | 관리 방식 | 사용처 |
+| --- | --- | --- |
+| `financial-service-rds-password` | Terraform 생성·회전 | 서비스 RDS 연결 |
+| `financial-ops-rds-password` | Terraform 생성·회전 | Ops RDS 및 감사 로그 |
+| `temporal/rds-credentials` | Terraform 생성 | Temporal 및 Temporal Visibility DB |
+| `financial-slack-hitl-tokens` | Terraform은 컨테이너만 생성, 값은 별도 주입 | Slack 브로커 Lambda |
+
+Slack 브로커 시크릿에는 최소 `slack_bot_token`, `signing_secret` 키가 필요합니다. 평문 토큰을 Kubernetes 매니페스트, `.env`, Terraform 상태, GitHub Actions 로그에 출력하지 마십시오.
+
+## 관련 문서
+
+- [GitOps 플랫폼 안내](gitops/platform/README.md)
+- [MAS 구조 및 에이전트 배포 규약](mas/README.md)
+- [모니터링 이미지 관리](monitoring/README.md)
+- [보안 정책](SECURITY.md)
+- [취약점 관리 정책](VULNERABILITY-MANAGEMENT.md)
 
 ---
 
-## 핵심 아키텍처 결정
-
-### AI 두뇌: Amazon Bedrock + PrivateLink
-
-EKS 내 에이전트가 퍼블릭 인터넷을 경유하지 않고 AWS VPC 내부망(PrivateLink)을 통해서만 LLM을 호출합니다. 『전자금융감독규정 제15조(망분리)』를 완벽 충족합니다.
-
-| 모델 | 용도 |
-|------|------|
-| Claude 3 Haiku | 단순 파싱·분류·탐지 (경량·저비용) |
-| Claude 3.5 Sonnet | 복잡한 코드 생성·근본 원인 추론 (고성능) |
-
-### MAS 오케스트레이션: Temporal + LangGraph 하이브리드
-
-| 프레임워크 | 레벨 | 역할 |
-|------------|------|------|
-| **Temporal** (척추) | Macro | 전체 파이프라인 뼈대. 워크플로우 실행 보장, 자동 재시도, 거시적 상태 통제 |
-| **LangGraph** (두뇌) | Micro | 단일 노드 내 Agent 간 다단계 추론 루프 제어 (IaC 생성 ↔ 검증 Actor-Critic) |
-
-### 데이터베이스: RDS PostgreSQL Multi-AZ
-
-LangGraph 대화 이력·인프라 메트릭·감사 로그를 JSONB로 효율 저장. EKS 내부 컨테이너 DB 대신 완전 관리형으로 단일 장애점(SPOF) 제거 및 금융권 수준 고가용성 확보.
-
----
-
-## 3대 핵심 자동화 시나리오
-
-> **공통 원칙**: 모든 시나리오는 AI가 제안하고 사람이 승인하는 **HITL(Human-in-the-Loop)** 구조입니다.
-
-### 시나리오 A — FinOps: 비용 이상 탐지 및 자동 최적화
-
-```
-이상 탐지 Agent (CPU 12% 감지)
-    → 비용 분석 Agent (원인 파악, 최적화 방안)
-    → IaC 생성 Agent (t3.large → t3.medium .tf 초안)
-    → IaC 검증 Agent (HA·보안 교차 검증, Actor-Critic 루프)
-    → Slack HITL (예상 절감 $120/월 + 검증된 코드 전송)
-    → 승인 시 terraform apply → 월 $120 절감
-    → RDS 감사 이력 저장
-```
-
-### 시나리오 B — AIOps: 지능형 장애 탐지 및 운영 자동화
-
-```
-이상 탐지 Agent (Pod CrashLoop 감지)
-    → 장애 분석 Agent (LangGraph 루프: OOMKilled 원인 추론)
-    → 조치 방안 제안 (파드 재시작 / 스케일 아웃 / 롤백 우선순위)
-    → Slack HITL 승인
-    → Temporal 실행 (kubectl / terraform apply)
-    → 배포 후 5분 집중 모니터링
-    → 이상 재감지 시 Git 기반 자동 롤백 트리거
-```
-
-### 시나리오 C — SecOps: 망분리 규제 위반 감지 및 eBPF 차단
-
-```
-보안 탐지 Agent (비정상 Outbound 연결 감지)
-    → 보안 분석 Agent (전자금융감독규정 위반 여부 자동 매핑)
-    → 보안 검증 Agent (Blast Radius 분석: 오탐 여부 시뮬레이션)
-    → Slack 긴급 HITL 승인
-    → Cilium(eBPF) 정책 즉시 적용 → 격리
-    → 금융 규제 보고서 JSONB 자동 포맷팅 → RDS 영구 저장
-```
-
-> Cilium 선택 이유: 기본 K8s NetworkPolicy는 L3/L4만 지원하지만, Cilium은 eBPF 기반 L7 정책 및 프로세스 단위 가시성으로 금융권 수준의 세밀한 트래픽 제어가 가능합니다.
-
----
-
-## 기술 스택
-
-| 레이어 | 기술 | 용도 |
-|--------|------|------|
-| **클라우드** | AWS EKS, GCP GKE, Oracle Cloud | 멀티클라우드 + 하이브리드 인프라 |
-| **오케스트레이션** | Temporal, LangGraph | MAS 워크플로우 조율 |
-| **AI/LLM** | Amazon Bedrock (Claude 3 Haiku / Sonnet) | Agent 추론 엔진 |
-| **데이터베이스** | RDS PostgreSQL Multi-AZ, Redis | 상태 관리 및 감사 로그 |
-| **모니터링** | Prometheus, Grafana, Kubecost | 메트릭 수집 및 시각화 |
-| **IaC** | Terraform, ArgoCD | 인프라 코드화 및 GitOps |
-| **보안** | Cilium (eBPF), VPC Flow Logs, CloudTrail | 네트워크 정책 및 감사 |
-| **백업** | Velero, RDS Snapshots, S3 Versioning | 재해 복구 |
-| **VPN** | Headscale, Tailscale | 멀티클라우드 보안 통신 |
-| **프론트엔드** | Next.js + Grafana iframe | 통합 운영 포털 |
-| **협업** | Slack, GitHub | HITL 승인 및 코드 관리 |
-
----
-
-## 구축 현황
-
-| 환경 | 상태 | 내용 |
-|------|------|------|
-| AWS EKS | 🔄 구성 중 | Main 서비스 (AI Agent, CMP) |
-| GCP VPC/서브넷/방화벽 | ✅ 완료 | DR 클러스터 기반 구성 |
-| Oracle Cloud Headscale | ✅ 완료 | VPN Control Plane 구축 |
-| VPN 터널링 | ✅ 완료 | AWS/GCP Tailscale ↔ Oracle Headscale |
-| GKE 클러스터 | 🔄 진행 중 | 보안 요소 추가 작업 |
-| On-Prem 시뮬레이션 | 🔄 진행 중 | Oracle Cloud 폐쇄망 환경 구성 |
-
----
-
-## 백업 정책
-
-| 대상 | 방식 | 주기 | 보관 |
-|------|------|------|------|
-| RDS PostgreSQL | Automated Snapshot | 일 1회 03:00 UTC | 7일 |
-| RDS PostgreSQL | Manual Snapshot | 주 1회 (일요일) | 30일 |
-| EKS ETCD 상태 | Velero + S3 | 일 2회 (06:00, 18:00) | 14일 |
-| Terraform State | S3 Versioning | 변경 시마다 | 무제한 |
-| Redis | RDB Snapshot | 6시간마다 | 48시간 |
-| Agent 설정 파일 | GitOps | 변경 시마다 | Git 이력 보존 |
-
----
-
-## 프로젝트 범위
-
-| ✅ 할 것 | ❌ 하지 않을 것 |
-|----------|----------------|
-| 비용 이상 탐지 → 최적화 자동화 (FinOps) | 실제 금융사 production 트래픽 처리 |
-| 장애 탐지 → 원인 분석 → 자동 대응 (AIOps) | 고유식별정보·개인신용정보 처리 |
-| 보안 위반 감지 → eBPF 차단 (SecOps) | SLA/SLO 기반 성능 보장 계약 |
-| AWS EKS HA + 오토스케일링 클러스터 구축 | 단일 Agent 대비 정량 벤치마크 |
-| GCP VPC + Headscale VPN + GKE 구축 | Azure 클러스터 직접 운영 |
-| Oracle Cloud 온프레미스 시뮬레이션 | |
-| Temporal 오케스트레이터 기반 워크플로우 | |
-| Slack HITL 승인 게이트 | |
-| RDS PostgreSQL Multi-AZ 감사 로그 | |
-| DR Failover 시뮬레이션 (AWS → GCP) | |
-| Grafana + Next.js 통합 대시보드 | |
-
----
-
-## 팀 R&R
-
-| 역할 | 이름 | 주요 책임 |
-|------|------|----------|
-| AWS - SRE | 백준호 | 전체 시스템 안정성 관리 |
-| AWS - 인프라 리드 | 신봉근 | AWS 인프라 설계 및 구축 총괄 |
-| AWS - 플랫폼 엔지니어 | 이준영 | 컨테이너 플랫폼 운영 |
-| AWS - 보안 엔지니어 | 조다현 | 보안 정책 및 컴플라이언스 |
-| GCP - IaC, VPN | 김경한 | GCP 기본 인프라 구축 |
-| GCP - K8s, CI/CD | 허상준 | GKE 클러스터 및 배포 파이프라인 |
-| On-Prem - DB, Oracle Cloud | 김민수 | 온프레미스 시뮬레이션 환경 |
-
----
-
-## 로드맵
-
-- [ ] AWS EKS HA 클러스터 구축 완료
-- [ ] Temporal + LangGraph MAS 파이프라인 구현
-- [ ] FinOps 시나리오 A E2E 검증
-- [ ] AIOps 시나리오 B E2E 검증 (Chaos Mesh 장애 주입)
-- [ ] SecOps 시나리오 C E2E 검증
-- [ ] Next.js 통합 포털 대시보드
-- [ ] DR Failover 시뮬레이션 (AWS Active → GCP Standby)
-- [ ] 금융 규제 보고서 자동 생성 검증
-
----
-
-## 관련 레포지토리
-
-| 레포 | 설명 |
-|------|------|
-| [AWS (현재)](https://github.com/JunYoungLee260/AWS) | Main 서비스 — AI Agent, CMP/IDP 핵심 |
-| GCP_sub | GCP DR 클러스터 및 VPN 구성 |
-
----
-
-## 참고
-
-- 벤치마킹: [메가존 SpaceONE](https://spaceone.org/) — 임직원용 멀티클라우드 통합 운영 포털
-- 규제 근거: 전자금융감독규정 제14조의2, 제15조 (2026년 4월 완화)
-- 문서 버전: 2차 멘토링 최종 기획안 v1 (2026-05-07)
+문서 기준일: 2026-07-20 · 기준 커밋: `dd505fd`
